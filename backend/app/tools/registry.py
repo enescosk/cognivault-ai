@@ -11,6 +11,71 @@ from app.services.audit_service import log_action
 from app.services.user_service import user_profile_payload
 
 
+def tool_specs_anthropic() -> list[dict]:
+    """Anthropic API formatında tool tanımları."""
+    return [
+        {
+            "name": "fetch_user_profile",
+            "description": "Fetch the current authenticated user's profile and role information.",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "validate_user_role",
+            "description": "Validate whether the authenticated user can perform an action for a target user.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "required_role": {"type": "string"},
+                    "action": {"type": "string"},
+                    "target_user_id": {"type": "integer"},
+                },
+                "required": ["required_role", "action", "target_user_id"],
+            },
+        },
+        {
+            "name": "check_available_slots",
+            "description": "List the next available appointment slots for a department.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "department": {"type": "string"},
+                    "preferred_date": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["department"],
+            },
+        },
+        {
+            "name": "create_appointment",
+            "description": "Create an appointment using a selected slot and collected customer information.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "slot_id": {"type": "integer"},
+                    "purpose": {"type": "string"},
+                    "contact_phone": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "language": {"type": "string"},
+                    "target_user_id": {"type": "integer"},
+                },
+                "required": ["slot_id", "purpose", "contact_phone", "language"],
+            },
+        },
+        {
+            "name": "save_application",
+            "description": "Mock future workflow hook for application submission.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "template": {"type": "string"},
+                    "payload": {"type": "object"},
+                },
+                "required": ["template"],
+            },
+        },
+    ]
+
+
 def tool_specs() -> list[dict]:
     return [
         {

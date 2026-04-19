@@ -16,7 +16,7 @@ from app.schemas.chat import AgentReply
 from app.schemas.appointment import AppointmentConfirmationCard
 from app.services.appointment_service import format_slot_label
 from app.services.chat_service import add_message, update_workflow_state
-from app.tools.registry import execute_tool, tool_specs
+from app.tools.registry import execute_tool, tool_specs, tool_specs_anthropic
 
 
 settings = get_settings()
@@ -104,8 +104,111 @@ def default_reply(language: str, message_tr: str, message_en: str) -> str:
     return message_tr if language == "tr" else message_en
 
 
+def anthropic_enabled() -> bool:
+    return bool(settings.anthropic_api_key)
+
+
 def openai_enabled() -> bool:
     return bool(settings.openai_api_key)
+
+
+def run_anthropic_agent(context: AgentContext, user_message: str, language: str) -> AgentReply:
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    system_prompt = build_system_prompt() + "\n\n" + json.dumps({
+        "workflow_state": context.session.workflow_state,
+        "current_user": {
+            "id": context.user.id,
+            "role": context.user.role.name.value,
+            "locale": context.user.locale,
+        },
+    })
+
+    # Geçmiş mesajları Anthropic formatına çevir
+    history: list[dict] = []
+    for item in context.session.messages[-10:]:
+        if item.sender == MessageSender.TOOL:
+            continue
+        role = "user" if item.sender == MessageSender.USER else "assistant"
+        history.append({"role": role, "content": item.content})
+    history.append({"role": "user", "content": user_message})
+
+    for _ in range(6):
+        response = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=1024,
+            system=system_prompt,
+            messages=history,
+            tools=tool_specs_anthropic(),  # type: ignore[arg-type]
+        )
+
+        # Tool use var mı?
+        tool_uses = [b for b in response.content if b.type == "tool_use"]
+        text_blocks = [b for b in response.content if b.type == "text"]
+        assistant_text = text_blocks[0].text if text_blocks else ""
+
+        if not tool_uses:
+            # Sadece metin yanıtı
+            return AgentReply(message=assistant_text, language=language, outcome="needs_input")
+
+        # Tool use yanıtını history'ye ekle
+        history.append({"role": "assistant", "content": response.content})  # type: ignore[arg-type]
+
+        # Tool'ları çalıştır ve sonuçları topla
+        tool_results = []
+        confirmation_card = None
+
+        for tool_use in tool_uses:
+            result = execute_tool(
+                context.db,
+                name=tool_use.name,
+                arguments=json.dumps(tool_use.input),
+                current_user=context.user,
+                session=context.session,
+            )
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tool_use.id,
+                "content": json.dumps(result),
+            })
+
+            if tool_use.name == "create_appointment":
+                confirmation_card = AppointmentConfirmationCard(
+                    confirmation_code=result["confirmation_code"],
+                    department=result["department"],
+                    scheduled_at=result["scheduled_at"],
+                    location=result["location"],
+                    contact_phone=result["contact_phone"],
+                    status=result["status"],
+                )
+
+        history.append({"role": "user", "content": tool_results})
+
+        if confirmation_card:
+            # Randevu oluşturuldu — bir sonraki döngüde AI onay mesajı üretecek
+            # Ama hemen dönmek için bir tur daha çalıştır
+            final = client.messages.create(
+                model=settings.anthropic_model,
+                max_tokens=512,
+                system=system_prompt,
+                messages=history,
+                tools=tool_specs_anthropic(),  # type: ignore[arg-type]
+            )
+            final_text_blocks = [b for b in final.content if b.type == "text"]
+            final_text = final_text_blocks[0].text if final_text_blocks else default_reply(
+                language,
+                "Randevunuz oluşturuldu.",
+                "Your appointment has been created.",
+            )
+            return AgentReply(
+                message=final_text,
+                language=language,
+                outcome="completed",
+                confirmation_card=confirmation_card,
+            )
+
+    raise HTTPException(status_code=502, detail="The AI agent could not complete the request")
 
 
 def run_openai_agent(context: AgentContext, user_message: str, language: str) -> AgentReply:
@@ -410,7 +513,12 @@ def run_fallback_agent(context: AgentContext, user_message: str, language: str) 
 
 def process_message(context: AgentContext, user_message: str) -> AgentReply:
     language = detect_language(user_message, context.user.locale)
-    if openai_enabled():
+    if anthropic_enabled():
+        try:
+            reply = run_anthropic_agent(context, user_message, language)
+        except Exception:  # noqa: BLE001
+            reply = run_fallback_agent(context, user_message, language)
+    elif openai_enabled():
         try:
             reply = run_openai_agent(context, user_message, language)
         except Exception:  # noqa: BLE001

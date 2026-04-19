@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 720
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-5"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     seed_demo_data: bool = True
 
