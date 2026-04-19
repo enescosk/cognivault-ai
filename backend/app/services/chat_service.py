@@ -76,13 +76,97 @@ def update_workflow_state(db: Session, session: ChatSession, new_state: dict) ->
     return session
 
 
-def maybe_update_title(db: Session, session: ChatSession, user_message: str) -> None:
-    if session.title != "New workflow":
+import re as _re
+
+# Anlamlı içerik taşımayan mesajlar — başlık üretme
+_FILLER_RE = _re.compile(
+    r"^("
+    # selamlaşma + nasılsın kombinasyonları
+    r"(merhaba|selam|selamlar|hello|hi|hey|sa|iyi\s*günler|günaydın)"
+    r"(\s+(nasıls[ıi]n|nasılsun|iyi\s*misin|naber|ne\s*haber|:?\)))*"
+    r"|nasıls[ıi]n|nasılsun|naber|ne\s*haber|iyi\s*misin"
+    # onay / kısa yanıt
+    r"|evet|tamam|ok|olur|tabii(\s*ki)?|tabi(\s*ki)?|güzel|iyi|anladım"
+    r"|teşekkür(ler)?|peki|harika|süper|tamamdır|anladım"
+    r")\s*[.!?]?$",
+    _re.IGNORECASE | _re.UNICODE,
+)
+
+_DEPT_TITLES: list[tuple[list[str], str]] = [
+    (["onboarding", "kurulum", "başlangıç", "devreye"],  "Onboarding Randevusu"),
+    (["teknik", "technical", "support", "destek", "arıza", "sorun"], "Teknik Destek Randevusu"),
+    (["fatura", "billing", "ödeme", "invoice"],           "Fatura İşlemleri Randevusu"),
+    (["compliance", "uyum", "denetim", "legal"],          "Uyum Danışmanlığı Randevusu"),
+]
+
+_APT_KEYWORDS = ["randevu", "appointment", "rezervasyon", "book", "schedule", "görüşme", "toplantı"]
+
+
+def _extract_title(text: str, workflow_state: dict | None = None) -> str | None:
+    """
+    Konuşma metninden ve workflow state'ten anlamlı bir başlık çıkar.
+    Boş / selamlama mesajları için None döner.
+    """
+    stripped = text.strip()
+    if not stripped or _FILLER_RE.match(stripped):
+        return None
+
+    lower = stripped.lower()
+
+    # 1) Workflow state'te zaten departman var → spesifik başlık
+    if workflow_state:
+        collected = workflow_state.get("collected") or {}
+        dept = (collected.get("department") or "").lower()
+        purpose = (collected.get("purpose") or "").strip()
+        for keywords, title in _DEPT_TITLES:
+            if any(k in dept for k in keywords):
+                if purpose:
+                    # Amaç kısa ise başlığa ekle
+                    suffix = purpose[:28].rstrip() + ("…" if len(purpose) > 28 else "")
+                    return f"{title.split(' Randevusu')[0]} – {suffix}"
+                return title
+
+    # 2) Mesaj içinde departman + randevu ipucu var mı?
+    has_apt = any(k in lower for k in _APT_KEYWORDS)
+    for keywords, title in _DEPT_TITLES:
+        if any(k in lower for k in keywords):
+            return title if has_apt else title.replace(" Randevusu", "")
+
+    # 3) Sadece genel randevu isteği
+    if has_apt:
+        return "Randevu Talebi"
+
+    # 4) Anlamlı cümlenin ilk parçasını al (min 10 karakter)
+    # Gereksiz fiilleri/giriş kelimelerini strip et
+    clean = _re.sub(r"^(ben\s+|bir\s+|şu\s+|acaba\s+)", "", stripped, flags=_re.IGNORECASE | _re.UNICODE)
+    first_sent = _re.split(r"[.!?\n]", clean)[0].strip()
+    if len(first_sent) >= 10:
+        # Capitalize
+        title = first_sent[0].upper() + first_sent[1:]
+        return title[:48] + ("…" if len(first_sent) > 48 else "")
+
+    return None
+
+
+def maybe_update_title(db: Session, session: ChatSession, user_message: str, workflow_state: dict | None = None) -> None:
+    """
+    'New workflow' olan başlığı günceller.
+    workflow_state verilirse departman/amaç bilgisiyle daha spesifik başlık üretir.
+    """
+    if session.title not in ("New workflow", "New workflow "):
+        # Eğer zaten genel bir randevu başlığıysa ve şimdi daha spesifik olabiliyorsa güncelle
+        generic_titles = {"Randevu Talebi"}
+        if session.title not in generic_titles:
+            return
+
+    candidate = _extract_title(user_message, workflow_state)
+    if not candidate:
         return
-    trimmed = user_message.strip()
-    if not trimmed:
-        return
-    session.title = trimmed[:60]
+
+    if candidate == session.title:
+        return  # zaten aynı, commit etme
+
+    session.title = candidate
     db.add(session)
     db.commit()
 
