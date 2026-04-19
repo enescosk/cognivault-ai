@@ -90,6 +90,18 @@ export function Dashboard() {
     setSelectedSession(await getSession(sessionId, token));
   }
 
+  async function refreshMetrics() {
+    if (!token) return;
+    try {
+      const [metricSummary, appointmentList] = await Promise.all([
+        getMetrics(token),
+        getAppointments(token),
+      ]);
+      setMetrics(metricSummary);
+      setAppointments(appointmentList);
+    } catch {}
+  }
+
   async function handleDeleteSession(sessionId: number) {
     if (!token) return;
     try {
@@ -105,6 +117,8 @@ export function Dashboard() {
           setSelectedSession(created);
         }
       }
+      // Metrics'i sil sonrası yenile
+      void refreshMetrics();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Session could not be deleted");
     }
