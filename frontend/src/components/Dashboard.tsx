@@ -143,7 +143,7 @@ export function Dashboard() {
         onLogout={logout}
       />
       <main className="main-panel">
-        <MetricsBar metrics={metrics} appointments={appointments} />
+        <MetricsBar metrics={metrics} appointments={appointments} role={role} />
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
         <ChatWindow session={selectedSession} user={user} sending={sending} onSend={handleSend} />
       </main>

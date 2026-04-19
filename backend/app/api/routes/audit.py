@@ -38,5 +38,4 @@ def get_audit_logs(
 def get_dashboard_metrics(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ) -> MetricsResponse:
-    _ = current_user
-    return MetricsResponse(**get_metrics(db))
+    return MetricsResponse(**get_metrics(db, current_user))
