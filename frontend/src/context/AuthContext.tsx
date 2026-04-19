@@ -6,7 +6,7 @@ import {
   type ReactNode
 } from "react";
 
-import { getCurrentUser, login as loginRequest } from "../api/client";
+import { getCurrentUser, login as loginRequest, register as registerRequest } from "../api/client";
 import type { User } from "../types/api";
 
 type AuthContextValue = {
@@ -14,6 +14,7 @@ type AuthContextValue = {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  register: (fullName: string, email: string, password: string) => Promise<void>;
   logout: () => void;
 };
 
@@ -49,6 +50,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(response.user);
   }
 
+  async function register(fullName: string, email: string, password: string) {
+    const response = await registerRequest(fullName, email, password);
+    localStorage.setItem(TOKEN_KEY, response.access_token);
+    setToken(response.access_token);
+    setUser(response.user);
+  }
+
   function logout() {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
@@ -62,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         loading,
         login,
+        register,
         logout
       }}
     >

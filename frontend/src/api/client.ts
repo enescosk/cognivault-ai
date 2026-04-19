@@ -40,6 +40,13 @@ export function login(email: string, password: string): Promise<AuthResponse> {
   });
 }
 
+export function register(fullName: string, email: string, password: string): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ full_name: fullName, email, password, locale: "tr" })
+  });
+}
+
 export function getCurrentUser(token: string): Promise<User> {
   return request<User>("/auth/me", { method: "GET" }, token);
 }

@@ -6,6 +6,13 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    locale: str = "tr"
+
+
 class RoleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

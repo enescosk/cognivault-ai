@@ -3,14 +3,14 @@ import { LoginScreen } from "./components/LoginScreen";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
 function AppBody() {
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, register } = useAuth();
 
   if (loading) {
     return <div className="loading-shell">Preparing secure workspace...</div>;
   }
 
   if (!user) {
-    return <LoginScreen onSubmit={login} />;
+    return <LoginScreen onLogin={login} onRegister={register} />;
   }
 
   return <Dashboard />;

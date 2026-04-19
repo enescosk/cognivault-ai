@@ -1536,3 +1536,129 @@ button { cursor: pointer; border: none; background: none; }
   font-size: 0.82rem;
   margin: 0;
 }
+
+/* ─── LOGIN – YENİ MÜŞTERİ + TAB ────────────────────────────── */
+.lp-section-label {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+  margin-bottom: 10px;
+  margin-top: 36px;
+}
+
+.lp-customer-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lp-customer-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.03);
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+  cursor: pointer;
+}
+.lp-customer-card:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.14);
+}
+.lp-customer-card--new {
+  border-style: dashed;
+  border-color: rgba(255,255,255,0.1);
+}
+.lp-customer-card--new:hover {
+  border-color: rgba(99,179,237,0.4);
+  background: rgba(99,179,237,0.06);
+}
+
+.lp-customer-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.88rem;
+  flex-shrink: 0;
+}
+.lp-customer-avatar--new {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.4);
+}
+
+.lp-customer-info {
+  flex: 1;
+  min-width: 0;
+}
+.lp-customer-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.82);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lp-customer-email {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: rgba(255,255,255,0.3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+/* Tab bar */
+.lp-tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+.lp-tab {
+  flex: 1;
+  padding: 8px;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgba(255,255,255,0.45);
+  transition: background 0.15s, color 0.15s;
+  text-align: center;
+  cursor: pointer;
+}
+.lp-tab--active {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.92);
+}
+.lp-tab:hover:not(.lp-tab--active) {
+  color: rgba(255,255,255,0.65);
+}
+
+/* Alt switch link */
+.lp-switch-hint {
+  text-align: center;
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.3);
+  margin-top: 12px;
+}
+.lp-switch-link {
+  color: var(--accent);
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.lp-switch-link:hover { opacity: 0.75; }
+
+/* sample-grid 2 kolon yap (sadece operator+admin kaldı) */
+.sample-grid { grid-template-columns: repeat(2, 1fr) !important; margin-top: 0 !important; }
