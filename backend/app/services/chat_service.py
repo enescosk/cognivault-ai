@@ -79,6 +79,17 @@ def update_workflow_state(db: Session, session: ChatSession, new_state: dict) ->
 import re as _re
 
 # Anlamlı içerik taşımayan mesajlar — başlık üretme
+# Sadece tarih / telefon / sayı içeren mesajları atla
+_INFO_ONLY_RE = _re.compile(
+    r"^(tarih\s+(olarak\s+)?[\d./]+|[\d./]+\s+tarihi?"
+    r"|\+?[\d\s\-().]{9,}"         # sadece telefon
+    r"|\d{1,2}[./]\d{1,2}([./]\d{2,4})?"  # sadece tarih
+    r"|(pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar)(\s+günü?)?"  # sadece gün adı
+    r"|[1-3]\b"                     # sadece slot seçimi
+    r")\s*([ve,]\s*\+?[\d\s\-().]+)?$",
+    _re.IGNORECASE | _re.UNICODE,
+)
+
 _FILLER_RE = _re.compile(
     r"^("
     # selamlaşma + nasılsın kombinasyonları
@@ -99,21 +110,28 @@ _DEPT_TITLES: list[tuple[list[str], str]] = [
     (["compliance", "uyum", "denetim", "legal"],          "Uyum Danışmanlığı Randevusu"),
 ]
 
-_APT_KEYWORDS = ["randevu", "appointment", "rezervasyon", "book", "schedule", "görüşme", "toplantı"]
+_APT_KEYWORDS = ["randevu", "appointment", "rezervasyon", "book", "schedule", "görüşme", "toplantı",
+                 "almak istiyorum", "oluştur", "ayarla", "planla"]
+# Saat ifadesi de randevu bağlamında ipucu sayılır
+_TIME_RE = _re.compile(r"\b\d{1,2}[:.]\d{2}\b|\bsaat\b|\bsa\b", _re.IGNORECASE)
 
 
-def _extract_title(text: str, workflow_state: dict | None = None) -> str | None:
+def _title_score(text: str, workflow_state: dict | None = None) -> tuple[int, str | None]:
     """
-    Konuşma metninden ve workflow state'ten anlamlı bir başlık çıkar.
-    Boş / selamlama mesajları için None döner.
+    (skor, başlık) döner. Yüksek skor = daha spesifik/kaliteli başlık.
+    Skor: 4=dept+purpose, 3=dept+apt, 2=dept, 1=apt, 0=cümle, -1=atla
     """
     stripped = text.strip()
-    if not stripped or _FILLER_RE.match(stripped):
-        return None
+    if not stripped:
+        return -1, None
+    if _FILLER_RE.match(stripped):
+        return -1, None
+    if _INFO_ONLY_RE.match(stripped):
+        return -1, None
 
     lower = stripped.lower()
 
-    # 1) Workflow state'te zaten departman var → spesifik başlık
+    # Skor 4: workflow'dan dept + purpose
     if workflow_state:
         collected = workflow_state.get("collected") or {}
         dept = (collected.get("department") or "").lower()
@@ -121,50 +139,58 @@ def _extract_title(text: str, workflow_state: dict | None = None) -> str | None:
         for keywords, title in _DEPT_TITLES:
             if any(k in dept for k in keywords):
                 if purpose:
-                    # Amaç kısa ise başlığa ekle
                     suffix = purpose[:28].rstrip() + ("…" if len(purpose) > 28 else "")
-                    return f"{title.split(' Randevusu')[0]} – {suffix}"
-                return title
+                    return 4, f"{title.split(' Randevusu')[0]} – {suffix}"
+                return 3, title
 
-    # 2) Mesaj içinde departman + randevu ipucu var mı?
-    has_apt = any(k in lower for k in _APT_KEYWORDS)
+    has_apt = any(k in lower for k in _APT_KEYWORDS) or bool(_TIME_RE.search(stripped))
+
+    # Skor 3: mesajda dept + randevu/saat
+    for keywords, title in _DEPT_TITLES:
+        if any(k in lower for k in keywords) and has_apt:
+            return 3, title
+
+    # Skor 2: mesajda sadece dept
     for keywords, title in _DEPT_TITLES:
         if any(k in lower for k in keywords):
-            return title if has_apt else title.replace(" Randevusu", "")
+            return 2, title.replace(" Randevusu", "")
 
-    # 3) Sadece genel randevu isteği
+    # Skor 1: sadece randevu isteği
     if has_apt:
-        return "Randevu Talebi"
+        return 1, "Randevu Talebi"
 
-    # 4) Anlamlı cümlenin ilk parçasını al (min 10 karakter)
-    # Gereksiz fiilleri/giriş kelimelerini strip et
+    # Skor 0: anlamlı cümle
     clean = _re.sub(r"^(ben\s+|bir\s+|şu\s+|acaba\s+)", "", stripped, flags=_re.IGNORECASE | _re.UNICODE)
     first_sent = _re.split(r"[.!?\n]", clean)[0].strip()
     if len(first_sent) >= 10:
-        # Capitalize
-        title = first_sent[0].upper() + first_sent[1:]
-        return title[:48] + ("…" if len(first_sent) > 48 else "")
+        t = first_sent[0].upper() + first_sent[1:]
+        return 0, t[:48] + ("…" if len(first_sent) > 48 else "")
 
-    return None
+    return -1, None
+
+
+def _extract_title(text: str, workflow_state: dict | None = None) -> str | None:
+    """En iyi (skor, başlık) döner; skor < 0 ise None."""
+    _, title = _title_score(text, workflow_state)
+    return title
 
 
 def maybe_update_title(db: Session, session: ChatSession, user_message: str, workflow_state: dict | None = None) -> None:
     """
-    'New workflow' olan başlığı günceller.
-    workflow_state verilirse departman/amaç bilgisiyle daha spesifik başlık üretir.
+    Başlığı yalnızca daha iyi bir başlık üretilebiliyorsa günceller.
+    Skor sistemiyle: workflow_state dept+purpose > dept+apt > dept > apt > cümle.
     """
-    if session.title not in ("New workflow", "New workflow "):
-        # Eğer zaten genel bir randevu başlığıysa ve şimdi daha spesifik olabiliyorsa güncelle
-        generic_titles = {"Randevu Talebi"}
-        if session.title not in generic_titles:
-            return
-
-    candidate = _extract_title(user_message, workflow_state)
-    if not candidate:
+    _UPGRADEABLE = {"New workflow", "New workflow ", "Randevu Talebi"}
+    if session.title not in _UPGRADEABLE:
         return
 
-    if candidate == session.title:
-        return  # zaten aynı, commit etme
+    score, candidate = _title_score(user_message, workflow_state)
+    if score < 0 or not candidate or candidate == session.title:
+        return
+
+    # Mevcut başlık "Randevu Talebi" ise sadece skor>=2 ile upgrade et
+    if session.title == "Randevu Talebi" and score < 2:
+        return
 
     session.title = candidate
     db.add(session)
