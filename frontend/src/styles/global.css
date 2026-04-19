@@ -729,6 +729,12 @@ button { cursor: pointer; border: none; background: none; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.message-stream-spacer {
+  flex: 1;
 }
 
 .composer-area {

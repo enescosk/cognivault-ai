@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from app.agent.prompts import SYSTEM_PROMPT
+from app.agent.prompts import build_system_prompt
 from app.core.config import get_settings
 from app.models import ChatSession, MessageSender, User
 from app.schemas.chat import AgentReply
@@ -32,6 +32,38 @@ class AgentContext:
 def detect_language(text: str, fallback: str = "en") -> str:
     turkish_markers = ["ş", "ğ", "ı", "ç", "ö", "ü", "randevu", "merhaba", "yardım", "bugün", "yarın"]
     return "tr" if any(marker in text.lower() for marker in turkish_markers) or fallback == "tr" else "en"
+
+
+def parse_preferred_date(text: str) -> str | None:
+    """Türkçe/kısa tarih ifadelerini YYYY-MM-DD'ye çevirir."""
+    from datetime import date, timedelta
+    today = date.today()
+    lower = text.lower()
+
+    if "bugün" in lower or "today" in lower:
+        return today.isoformat()
+    if "yarın" in lower or "tomorrow" in lower:
+        return (today + timedelta(days=1)).isoformat()
+
+    # "24.04" veya "24/04" formatları → bu yıl
+    match = re.search(r"\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b", text)
+    if match:
+        day, month = int(match.group(1)), int(match.group(2))
+        year = int(match.group(3)) if match.group(3) else today.year
+        if year < 100:
+            year += 2000
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            pass
+
+    # Gün adları
+    days_tr = {"pazartesi": 0, "salı": 1, "çarşamba": 2, "perşembe": 3, "cuma": 4, "cumartesi": 5, "pazar": 6}
+    for name, weekday in days_tr.items():
+        if name in lower:
+            delta = (weekday - today.weekday()) % 7 or 7
+            return (today + timedelta(days=delta)).isoformat()
+    return None
 
 
 def parse_phone(text: str) -> str | None:
@@ -78,7 +110,7 @@ def openai_enabled() -> bool:
 
 def run_openai_agent(context: AgentContext, user_message: str, language: str) -> AgentReply:
     client = OpenAI(api_key=settings.openai_api_key)
-    history = [{"role": "system", "content": SYSTEM_PROMPT}]
+    history = [{"role": "system", "content": build_system_prompt()}]
     history.append(
         {
             "role": "system",
@@ -215,10 +247,13 @@ def run_fallback_agent(context: AgentContext, user_message: str, language: str) 
 
     department = parse_department(user_message)
     phone = parse_phone(user_message)
+    preferred_date = parse_preferred_date(user_message)
     if department and not collected.get("department"):
         collected["department"] = department
     if phone and not collected.get("contact_phone"):
         collected["contact_phone"] = phone
+    if preferred_date and not collected.get("preferred_date"):
+        collected["preferred_date"] = preferred_date
 
     if state.get("stage") == "awaiting_slot_selection" and state.get("suggested_slots"):
         selected_slot = parse_slot_selection(user_message, state["suggested_slots"])
@@ -338,7 +373,11 @@ def run_fallback_agent(context: AgentContext, user_message: str, language: str) 
     slot_result = execute_tool(
         context.db,
         name="check_available_slots",
-        arguments=json.dumps({"department": collected["department"], "limit": 3}),
+        arguments=json.dumps({
+            "department": collected["department"],
+            "preferred_date": collected.get("preferred_date"),
+            "limit": 3,
+        }),
         current_user=context.user,
         session=context.session,
     )

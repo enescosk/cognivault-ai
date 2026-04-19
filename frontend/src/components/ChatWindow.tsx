@@ -8,17 +8,15 @@ type ChatWindowProps = {
   onSend: (content: string) => void;
 };
 
-const timeFormatter = new Intl.DateTimeFormat("en-GB", { timeStyle: "short", dateStyle: "short" });
+const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
 
 export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) {
   const [input, setInput] = useState("");
-  const streamRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (streamRef.current) {
-      streamRef.current.scrollTop = streamRef.current.scrollHeight;
-    }
-  }, [session?.messages]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [session?.messages, sending]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -36,6 +34,8 @@ export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) 
 
   const roleName = user.role.name;
   const locale = user.locale.toUpperCase();
+
+  const messages = session?.messages ?? [];
 
   return (
     <div className="chat-panel">
@@ -58,8 +58,12 @@ export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) 
           </span>
         </div>
       </div>
-      <div className="message-stream" ref={streamRef}>
-        {!session || session.messages.length === 0 ? (
+
+      <div className="message-stream">
+        {/* Boş alan — mesajları aşağı iter */}
+        <div className="message-stream-spacer" />
+
+        {messages.length === 0 && !sending ? (
           <div className="empty-state">
             <div className="empty-icon">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -70,39 +74,40 @@ export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) 
             <p>Ask in Turkish or English. The agent will guide the workflow step by step.</p>
           </div>
         ) : (
-          session.messages.map((msg) => {
+          messages.map((msg) => {
             const isUser = msg.sender === "user";
+            if (msg.sender === "system" || msg.sender === "tool") return null;
             return (
               <div key={msg.id} className={`message-row ${isUser ? "outbound" : ""}`}>
                 <div className="message-bubble">
                   <div className="message-meta">
                     <span className="message-sender">{isUser ? user.full_name : "Cognivault AI"}</span>
-                    <span className="message-time">{timeFormatter.format(new Date(msg.created_at))}</span>
+                    <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>
                   </div>
                   <div className="message-content">{msg.content}</div>
                   {msg.appointment && (
                     <div className="confirmation-card">
                       <div className="confirmation-header">
-                        <span className="confirmation-label">Appointment Confirmed</span>
-                        <span className="status-badge success">Confirmed</span>
+                        <span className="confirmation-label">Randevu Onaylandı</span>
+                        <span className="status-badge success">Onaylı</span>
                       </div>
                       <div className="confirmation-grid">
                         <div>
-                          <span className="cf-label">Department</span>
+                          <span className="cf-label">Departman</span>
                           <span className="cf-value">{msg.appointment.department}</span>
                         </div>
                         <div>
-                          <span className="cf-label">Code</span>
+                          <span className="cf-label">Kod</span>
                           <span className="cf-value" style={{ fontFamily: "var(--font-mono)", color: "var(--green)" }}>
                             {msg.appointment.confirmation_code}
                           </span>
                         </div>
                         <div>
-                          <span className="cf-label">Scheduled</span>
-                          <span className="cf-value">{timeFormatter.format(new Date(msg.appointment.scheduled_at))}</span>
+                          <span className="cf-label">Tarih</span>
+                          <span className="cf-value">{trDateTime.format(new Date(msg.appointment.scheduled_at))}</span>
                         </div>
                         <div>
-                          <span className="cf-label">Purpose</span>
+                          <span className="cf-label">Amaç</span>
                           <span className="cf-value">{msg.appointment.purpose ?? "—"}</span>
                         </div>
                       </div>
@@ -113,6 +118,7 @@ export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) 
             );
           })
         )}
+
         {sending && (
           <div className="message-row">
             <div className="message-bubble">
@@ -127,12 +133,16 @@ export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) 
             </div>
           </div>
         )}
+
+        {/* Scroll anchor */}
+        <div ref={bottomRef} />
       </div>
+
       <div className="composer-area">
         <div className="composer-box">
           <textarea
             className="composer-textarea"
-            placeholder="Ask in Turkish or English. Press Enter to send, Shift+Enter for new line."
+            placeholder="Türkçe veya İngilizce yazın. Enter ile gönderin, Shift+Enter yeni satır."
             value={input}
             rows={1}
             onChange={(e) => setInput(e.target.value)}
@@ -146,7 +156,7 @@ export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) 
             </svg>
           </button>
         </div>
-        <div className="composer-hint">Enter to send · Shift+Enter for new line · All actions are logged</div>
+        <div className="composer-hint">Enter ile gönder · Shift+Enter yeni satır · Tüm işlemler kayıt altında</div>
       </div>
     </div>
   );
