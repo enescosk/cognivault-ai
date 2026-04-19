@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import {
   createSession,
+  deleteSession,
   getAppointments,
   getAuditLogs,
   getMetrics,
@@ -12,6 +13,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import type { Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics } from "../types/api";
 import { AuditLogPanel } from "./AuditLogPanel";
+import { AppointmentPanel } from "./AppointmentPanel";
 import { ChatWindow } from "./ChatWindow";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
@@ -27,17 +29,15 @@ export function Dashboard() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isCustomer = user?.role.name === "customer";
+
   useEffect(() => {
-    if (!token || !user) {
-      return;
-    }
+    if (!token || !user) return;
     void loadDashboard();
   }, [token, user]);
 
   async function loadDashboard(nextSessionId?: number) {
-    if (!token) {
-      return;
-    }
+    if (!token) return;
     setLoading(true);
     setError(null);
     try {
@@ -59,16 +59,7 @@ export function Dashboard() {
         setSelectedSession(await getSession(preferredId, token));
       } else {
         const created = await createSession(token);
-        setSessions([
-          {
-            id: created.id,
-            title: created.title,
-            status: created.status,
-            created_at: created.created_at,
-            updated_at: created.updated_at,
-            last_message_preview: null
-          }
-        ]);
+        setSessions([{ id: created.id, title: created.title, status: created.status, created_at: created.created_at, updated_at: created.updated_at, last_message_preview: null }]);
         setSelectedSession(created);
       }
     } catch (err) {
@@ -79,24 +70,38 @@ export function Dashboard() {
   }
 
   async function handleNewSession() {
-    if (!token) {
-      return;
-    }
+    if (!token) return;
     const created = await createSession(token);
     await loadDashboard(created.id);
   }
 
   async function handleSelectSession(sessionId: number) {
-    if (!token) {
-      return;
-    }
+    if (!token) return;
     setSelectedSession(await getSession(sessionId, token));
   }
 
-  async function handleSend(content: string) {
-    if (!token || !selectedSession) {
-      return;
+  async function handleDeleteSession(sessionId: number) {
+    if (!token) return;
+    try {
+      await deleteSession(sessionId, token);
+      const remaining = sessions.filter(s => s.id !== sessionId);
+      setSessions(remaining);
+      if (selectedSession?.id === sessionId) {
+        if (remaining.length > 0) {
+          setSelectedSession(await getSession(remaining[0].id, token));
+        } else {
+          const created = await createSession(token);
+          setSessions([{ id: created.id, title: created.title, status: created.status, created_at: created.created_at, updated_at: created.updated_at, last_message_preview: null }]);
+          setSelectedSession(created);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Session could not be deleted");
     }
+  }
+
+  async function handleSend(content: string) {
+    if (!token || !selectedSession) return;
     setSending(true);
     setError(null);
     try {
@@ -106,24 +111,15 @@ export function Dashboard() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Message could not be delivered");
       if (selectedSession?.id) {
-        try {
-          setSelectedSession(await getSession(selectedSession.id, token));
-        } catch {
-          // Keep the current UI state if refresh also fails.
-        }
+        try { setSelectedSession(await getSession(selectedSession.id, token)); } catch {}
       }
     } finally {
       setSending(false);
     }
   }
 
-  if (!user) {
-    return null;
-  }
-
-  if (loading && !selectedSession) {
-    return <div className="loading-shell">Loading workspace...</div>;
-  }
+  if (!user) return null;
+  if (loading && !selectedSession) return <div className="loading-shell">Loading workspace...</div>;
 
   return (
     <div className="dashboard-shell">
@@ -133,14 +129,18 @@ export function Dashboard() {
         selectedSessionId={selectedSession?.id}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
+        onDeleteSession={handleDeleteSession}
         onLogout={logout}
       />
       <main className="main-panel">
         <MetricsBar metrics={metrics} appointments={appointments} />
-        {error ? <div className="error-box">{error}</div> : null}
+        {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
         <ChatWindow session={selectedSession} user={user} sending={sending} onSend={handleSend} />
       </main>
-      <AuditLogPanel logs={logs} appointments={appointments} />
+      {isCustomer
+        ? <AppointmentPanel appointments={appointments} />
+        : <AuditLogPanel logs={logs} appointments={appointments} />
+      }
     </div>
   );
 }
