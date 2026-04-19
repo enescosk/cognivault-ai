@@ -513,12 +513,7 @@ def run_fallback_agent(context: AgentContext, user_message: str, language: str) 
 
 def process_message(context: AgentContext, user_message: str) -> AgentReply:
     language = detect_language(user_message, context.user.locale)
-    if anthropic_enabled():
-        try:
-            reply = run_anthropic_agent(context, user_message, language)
-        except Exception:  # noqa: BLE001
-            reply = run_fallback_agent(context, user_message, language)
-    elif openai_enabled():
+    if openai_enabled():
         try:
             reply = run_openai_agent(context, user_message, language)
         except Exception:  # noqa: BLE001
