@@ -135,7 +135,7 @@ class AuditLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    session_id: Mapped[int | None] = mapped_column(ForeignKey("chat_sessions.id"))
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("chat_sessions.id", ondelete="SET NULL"))
     action_type: Mapped[str] = mapped_column(String(120), nullable=False)
     tool_name: Mapped[str | None] = mapped_column(String(120))
     result_status: Mapped[AuditResultStatus] = mapped_column(

@@ -117,3 +117,14 @@ def send_message(
         ),
         assistant_reply=reply,
     )
+
+@router.delete("/sessions/{session_id}")
+def delete_chat_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    session = get_session(db, session_id, current_user)
+    db.delete(session)
+    db.commit()
+    return {"deleted": session_id}
