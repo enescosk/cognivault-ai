@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.models import Appointment, AuditLog, AuditResultStatus, ChatSession, RoleName, User
+
+
+def log_action(
+    db: Session,
+    *,
+    user_id: int | None,
+    action_type: str,
+    explanation: str,
+    session_id: int | None = None,
+    tool_name: str | None = None,
+    result_status: AuditResultStatus = AuditResultStatus.INFO,
+    success: bool = True,
+    details: dict | None = None,
+) -> AuditLog:
+    entry = AuditLog(
+        user_id=user_id,
+        session_id=session_id,
+        action_type=action_type,
+        tool_name=tool_name,
+        result_status=result_status,
+        success=success,
+        explanation=explanation,
+        details=details or {},
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+def list_audit_logs(db: Session, current_user: User, limit: int = 100) -> list[AuditLog]:
+    query = select(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit)
+    if current_user.role.name == RoleName.CUSTOMER:
+        query = query.where(AuditLog.user_id == current_user.id)
+    return list(db.scalars(query))
+
+
+def get_metrics(db: Session) -> dict:
+    today = datetime.now(timezone.utc).date()
+    active_sessions = db.scalar(select(func.count(ChatSession.id)).where(ChatSession.status == "active")) or 0
+    confirmed_appointments = db.scalar(select(func.count(Appointment.id))) or 0
+    audit_events_today = (
+        db.scalar(select(func.count(AuditLog.id)).where(func.date(AuditLog.timestamp) == today)) or 0
+    )
+    tool_success = (
+        db.scalar(
+            select(func.count(AuditLog.id)).where(AuditLog.tool_name.is_not(None), AuditLog.success.is_(True))
+        )
+        or 0
+    )
+    tool_total = db.scalar(select(func.count(AuditLog.id)).where(AuditLog.tool_name.is_not(None))) or 0
+    completion_rate = round((tool_success / tool_total) * 100, 1) if tool_total else 100.0
+    return {
+        "active_sessions": active_sessions,
+        "confirmed_appointments": confirmed_appointments,
+        "audit_events_today": audit_events_today,
+        "completion_rate": completion_rate,
+    }
