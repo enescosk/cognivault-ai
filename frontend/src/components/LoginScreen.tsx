@@ -20,23 +20,12 @@ const staffUsers = [
   },
 ];
 
-const demoCustomers = [
-  {
-    initials: "AD",
-    name: "Ayse Demir",
-    email: "ayse@cognivault.local",
-    password: "demo123",
-    color: "#63b3ed",
-    bg: "rgba(99,179,237,0.14)",
-  },
-];
-
 export function LoginScreen({ onLogin, onRegister }: Props) {
   const [tab, setTab] = useState<"login" | "signup">("login");
 
   // Login state
-  const [loginEmail, setLoginEmail] = useState(demoCustomers[0].email);
-  const [loginPassword, setLoginPassword] = useState(demoCustomers[0].password);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -82,12 +71,6 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
     }
   }
 
-  function pickCustomer(c: { email: string; password: string }) {
-    setLoginEmail(c.email);
-    setLoginPassword(c.password);
-    setTab("login");
-  }
-
   function pickStaff(s: { email: string; password: string }) {
     setLoginEmail(s.email);
     setLoginPassword(s.password);
@@ -113,47 +96,54 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
           <h1>Secure <em>Enterprise</em><br/>AI Agents</h1>
           <p>Auditable, role-aware AI assistance for bilingual enterprise workflows. Guided appointment booking with RBAC, tool execution, and traceable logs.</p>
 
-          {/* Mevcut Müşteriler */}
-          <div className="lp-section-label">Mevcut Müşteriler</div>
+          {/* Müşteri kartı */}
+          <div className="lp-section-label">Müşteri Portalı</div>
           <div className="lp-customer-grid">
-            {demoCustomers.map((c) => (
-              <button
-                key={c.email}
-                className="lp-customer-card"
-                type="button"
-                onClick={() => pickCustomer(c)}
-              >
-                <div className="lp-customer-avatar" style={{ background: c.bg, color: c.color }}>
-                  {c.initials}
-                </div>
-                <div className="lp-customer-info">
-                  <div className="lp-customer-name">{c.name}</div>
-                  <div className="lp-customer-email">{c.email}</div>
-                </div>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, flexShrink: 0 }}>
-                  <polyline points="9 18 15 12 9 6"/>
-                </svg>
-              </button>
-            ))}
             <button
               className="lp-customer-card lp-customer-card--new"
               type="button"
-              onClick={() => { setTab("signup"); }}
+              onClick={() => setTab("signup")}
             >
               <div className="lp-customer-avatar lp-customer-avatar--new">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                  <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/>
+                  <circle cx="9" cy="7" r="4"/>
+                  <line x1="19" y1="8" x2="19" y2="14"/>
+                  <line x1="22" y1="11" x2="16" y2="11"/>
                 </svg>
               </div>
               <div className="lp-customer-info">
-                <div className="lp-customer-name">Yeni Müşteri</div>
-                <div className="lp-customer-email">Hesap oluştur</div>
+                <div className="lp-customer-name">Yeni Hesap Oluştur</div>
+                <div className="lp-customer-email">Müşteri olarak kayıt ol</div>
               </div>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, flexShrink: 0 }}>
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </button>
+            <button
+              className="lp-customer-card"
+              type="button"
+              onClick={() => setTab("login")}
+            >
+              <div className="lp-customer-avatar" style={{ background: "rgba(104,211,145,0.14)", color: "#68d391" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/>
+                  <polyline points="10 17 15 12 10 7"/>
+                  <line x1="15" y1="12" x2="3" y2="12"/>
+                </svg>
+              </div>
+              <div className="lp-customer-info">
+                <div className="lp-customer-name">Mevcut Hesapla Giriş</div>
+                <div className="lp-customer-email">E-posta ve şifrenle giriş yap</div>
+              </div>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, flexShrink: 0 }}>
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
             </button>
           </div>
 
           {/* Personel (Operator / Admin) */}
-          <div className="lp-section-label" style={{ marginTop: 20 }}>Personel Erişimi</div>
+          <div className="lp-section-label" style={{ marginTop: 24 }}>Personel Erişimi</div>
           <div className="sample-grid">
             {staffUsers.map((u) => (
               <button
@@ -187,8 +177,8 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
           <h2>{tab === "login" ? "Workspace'e giriş yap" : "Müşteri hesabı oluştur"}</h2>
           <p>
             {tab === "login"
-              ? "Mevcut hesabınızla giriş yapın ya da sol panelden bir kullanıcı seçin."
-              : "Ücretsiz müşteri hesabı oluşturun, randevu alın."}
+              ? "E-posta ve şifrenizle giriş yapın ya da sol panelden personel hesabı seçin."
+              : "Ücretsiz müşteri hesabı oluşturun, randevu alın ve süreci takip edin."}
           </p>
         </div>
 
