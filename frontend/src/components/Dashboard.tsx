@@ -8,12 +8,15 @@ import {
   getMetrics,
   getSession,
   listSessions,
+  listUsers,
   sendMessage
 } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics } from "../types/api";
+import type { Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, User } from "../types/api";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { AppointmentPanel } from "./AppointmentPanel";
+import { AdminPanel } from "./AdminPanel";
+import { OperatorPanel } from "./OperatorPanel";
 import { ChatWindow } from "./ChatWindow";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
@@ -25,11 +28,15 @@ export function Dashboard() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isCustomer = user?.role.name === "customer";
+  const role = user?.role.name ?? "customer";
+  const isCustomer = role === "customer";
+  const isOperator = role === "operator";
+  const isAdmin    = role === "admin";
 
   useEffect(() => {
     if (!token || !user) return;
@@ -51,6 +58,9 @@ export function Dashboard() {
       setLogs(auditEntries);
       setAppointments(appointmentList);
       setMetrics(metricSummary);
+      if (role === "operator" || role === "admin") {
+        listUsers(token).then(setUsers).catch(() => {});
+      }
 
       if (nextSessionId) {
         setSelectedSession(await getSession(nextSessionId, token));
@@ -137,10 +147,9 @@ export function Dashboard() {
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
         <ChatWindow session={selectedSession} user={user} sending={sending} onSend={handleSend} />
       </main>
-      {isCustomer
-        ? <AppointmentPanel appointments={appointments} />
-        : <AuditLogPanel logs={logs} appointments={appointments} />
-      }
+      {isCustomer && <AppointmentPanel appointments={appointments} />}
+      {isOperator && <OperatorPanel appointments={appointments} />}
+      {isAdmin    && <AdminPanel users={users} appointments={appointments} logs={logs} />}
     </div>
   );
 }

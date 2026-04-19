@@ -102,4 +102,6 @@ export type Appointment = {
   scheduled_at: string;
   location: string;
   created_at: string;
+  user_name?: string | null;
+  user_id?: number | null;
 };

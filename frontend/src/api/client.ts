@@ -93,3 +93,7 @@ export function getAppointments(token: string): Promise<Appointment[]> {
 export function deleteSession(sessionId: number, token: string): Promise<{deleted: number}> {
   return request<{deleted: number}>(`/chat/sessions/${sessionId}`, { method: "DELETE" }, token);
 }
+
+export function listUsers(token: string): Promise<User[]> {
+  return request<User[]>("/users", { method: "GET" }, token);
+}

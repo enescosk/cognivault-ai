@@ -135,4 +135,6 @@ def appointment_payload(appointment: Appointment) -> dict:
         "scheduled_at": appointment.slot.start_time,
         "location": appointment.slot.location,
         "created_at": appointment.created_at,
+        "user_name": appointment.user.full_name if appointment.user else None,
+        "user_id": appointment.user_id,
     }
