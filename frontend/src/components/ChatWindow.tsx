@@ -1,131 +1,153 @@
 import { useEffect, useRef, useState } from "react";
-
-import type { ChatMessage, ChatSessionDetail, User } from "../types/api";
+import type { ChatSessionDetail, User } from "../types/api";
 
 type ChatWindowProps = {
   session: ChatSessionDetail | null;
   user: User;
   sending: boolean;
-  onSend: (content: string) => Promise<void>;
+  onSend: (content: string) => void;
 };
 
-const formatter = new Intl.DateTimeFormat("en-GB", {
-  dateStyle: "medium",
-  timeStyle: "short"
-});
-
-type ConfirmationMetadata = {
-  type: "appointment_confirmation";
-  confirmation_code: string;
-  department: string;
-  scheduled_at: string;
-  location: string;
-  contact_phone: string;
-  status: string;
-};
-
-function ConfirmationCard({ message }: { message: ChatMessage }) {
-  const metadata = message.metadata_json as ConfirmationMetadata | null | undefined;
-  if (!metadata || metadata.type !== "appointment_confirmation") {
-    return null;
-  }
-
-  return (
-    <div className="confirmation-card">
-      <div className="confirmation-header">
-        <span className="status-badge success">Confirmed</span>
-        <strong>{String(metadata.confirmation_code)}</strong>
-      </div>
-      <div className="confirmation-grid">
-        <div>
-          <span>Department</span>
-          <strong>{String(metadata.department)}</strong>
-        </div>
-        <div>
-          <span>When</span>
-          <strong>{formatter.format(new Date(String(metadata.scheduled_at)))}</strong>
-        </div>
-        <div>
-          <span>Location</span>
-          <strong>{String(metadata.location)}</strong>
-        </div>
-        <div>
-          <span>Phone</span>
-          <strong>{String(metadata.contact_phone)}</strong>
-        </div>
-      </div>
-    </div>
-  );
-}
+const timeFormatter = new Intl.DateTimeFormat("en-GB", { timeStyle: "short", dateStyle: "short" });
 
 export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) {
-  const [draft, setDraft] = useState("");
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [input, setInput] = useState("");
+  const streamRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (streamRef.current) {
+      streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
   }, [session?.messages]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!draft.trim() || sending) {
-      return;
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
     }
-    const content = draft;
-    setDraft("");
-    await onSend(content);
   }
 
+  function handleSubmit() {
+    const trimmed = input.trim();
+    if (!trimmed || sending) return;
+    setInput("");
+    onSend(trimmed);
+  }
+
+  const roleName = user.role.name;
+  const locale = user.locale.toUpperCase();
+
   return (
-    <section className="chat-panel">
+    <div className="chat-panel">
       <div className="chat-header">
-        <div>
-          <div className="eyebrow">Agent Workspace</div>
-          <h2>{session?.title ?? "Loading session..."}</h2>
+        <div className="chat-header-left">
+          <div className="chat-title">{session?.title ?? "Agent Workspace"}</div>
+          <div className="chat-subtitle">Guided enterprise workflow · RBAC enforced</div>
         </div>
-        <div className="role-pill light">
-          {user.role.name} · {user.locale.toUpperCase()}
+        <div className="chat-badges">
+          <span className="chat-badge">
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="12"/></svg>
+            {roleName} · {locale}
+          </span>
+          <span className="chat-badge">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0110 0v4"/>
+            </svg>
+            Audited
+          </span>
         </div>
       </div>
-
-      <div className="message-stream" ref={scrollRef}>
-        {session?.messages.map((message) => (
-          <div
-            className={`message-row ${message.sender === "user" ? "outbound" : "inbound"}`}
-            key={message.id}
-          >
+      <div className="message-stream" ref={streamRef}>
+        {!session || session.messages.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+            </div>
+            <h4>Start a conversation</h4>
+            <p>Ask in Turkish or English. The agent will guide the workflow step by step.</p>
+          </div>
+        ) : (
+          session.messages.map((msg) => {
+            const isUser = msg.sender === "user";
+            return (
+              <div key={msg.id} className={`message-row ${isUser ? "outbound" : ""}`}>
+                <div className="message-bubble">
+                  <div className="message-meta">
+                    <span className="message-sender">{isUser ? user.full_name : "Cognivault AI"}</span>
+                    <span className="message-time">{timeFormatter.format(new Date(msg.created_at))}</span>
+                  </div>
+                  <div className="message-content">{msg.content}</div>
+                  {msg.appointment && (
+                    <div className="confirmation-card">
+                      <div className="confirmation-header">
+                        <span className="confirmation-label">Appointment Confirmed</span>
+                        <span className="status-badge success">Confirmed</span>
+                      </div>
+                      <div className="confirmation-grid">
+                        <div>
+                          <span className="cf-label">Department</span>
+                          <span className="cf-value">{msg.appointment.department}</span>
+                        </div>
+                        <div>
+                          <span className="cf-label">Code</span>
+                          <span className="cf-value" style={{ fontFamily: "var(--font-mono)", color: "var(--green)" }}>
+                            {msg.appointment.confirmation_code}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="cf-label">Scheduled</span>
+                          <span className="cf-value">{timeFormatter.format(new Date(msg.appointment.scheduled_at))}</span>
+                        </div>
+                        <div>
+                          <span className="cf-label">Purpose</span>
+                          <span className="cf-value">{msg.appointment.purpose ?? "—"}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+        {sending && (
+          <div className="message-row">
             <div className="message-bubble">
               <div className="message-meta">
-                <strong>{message.sender === "user" ? "You" : "Cognivault AI"}</strong>
-                <span>{formatter.format(new Date(message.created_at))}</span>
+                <span className="message-sender">Cognivault AI</span>
               </div>
-              <p>{message.content}</p>
-              <ConfirmationCard message={message} />
+              <div className="typing-indicator">
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </div>
             </div>
           </div>
-        ))}
-        {session?.messages.length === 0 ? (
-          <div className="empty-state">
-            Start in Turkish or English. Try:
-            <code>Teknik destek için randevu almak istiyorum.</code>
-            <code>I need a billing appointment for tomorrow.</code>
-          </div>
-        ) : null}
+        )}
       </div>
-
-      <form className="composer" onSubmit={handleSubmit}>
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask in Turkish or English. The agent will guide the workflow step by step."
-          rows={3}
-        />
-        <button className="primary-button" disabled={sending || !draft.trim()} type="submit">
-          {sending ? "Processing..." : "Send"}
-        </button>
-      </form>
-    </section>
+      <div className="composer-area">
+        <div className="composer-box">
+          <textarea
+            className="composer-textarea"
+            placeholder="Ask in Turkish or English. Press Enter to send, Shift+Enter for new line."
+            value={input}
+            rows={1}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={sending}
+          />
+          <button className="send-btn" onClick={handleSubmit} disabled={sending || !input.trim()} type="button" aria-label="Send">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+        <div className="composer-hint">Enter to send · Shift+Enter for new line · All actions are logged</div>
+      </div>
+    </div>
   );
 }

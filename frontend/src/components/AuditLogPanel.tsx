@@ -5,68 +5,78 @@ type AuditLogPanelProps = {
   appointments: Appointment[];
 };
 
-const formatter = new Intl.DateTimeFormat("en-GB", {
-  dateStyle: "medium",
-  timeStyle: "short"
-});
+const timeFormatter = new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeStyle: "short" });
+
+function safeFormat(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "—";
+  return timeFormatter.format(d);
+}
 
 export function AuditLogPanel({ logs, appointments }: AuditLogPanelProps) {
-  function exportLogs() {
-    const blob = new Blob([JSON.stringify(logs, null, 2)], {
-      type: "application/json"
-    });
+  function handleExport() {
+    const blob = new Blob([JSON.stringify(logs, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "cognivault-audit-log.json";
-    link.click();
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `audit-${new Date().toISOString().split("T")[0]}.json`;
+    a.click();
     URL.revokeObjectURL(url);
   }
 
   return (
     <aside className="audit-panel">
-      <div className="sidebar-card">
-        <div className="sidebar-section-header">
-          <div>
-            <div className="eyebrow">Oversight</div>
-            <h3>Audit Trail</h3>
-          </div>
-          <button className="ghost-button" onClick={exportLogs} type="button">
-            Export JSON
+      <div className="audit-header">
+        <div className="audit-header-row">
+          <span className="audit-title">Audit Trail</span>
+          <button className="export-btn" onClick={handleExport} type="button">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Export
           </button>
         </div>
-
-        <div className="audit-list">
-          {logs.slice(0, 10).map((log) => (
+        <div className="audit-subtitle">Live activity log · {logs.length} events</div>
+      </div>
+      <div className="audit-section-label">Recent Events</div>
+      <div className="audit-list">
+        {logs.length === 0 ? (
+          <div style={{ padding: "20px 12px", color: "var(--text-3)", fontSize: "0.82rem", textAlign: "center", fontFamily: "var(--font-mono)" }}>
+            No events recorded
+          </div>
+        ) : (
+          logs.slice(0, 40).map((log) => (
             <div className="audit-item" key={log.id}>
-              <div className="audit-topline">
-                <span className={`status-badge ${log.success ? "success" : "warning"}`}>
-                  {log.result_status}
-                </span>
-                <small>{formatter.format(new Date(log.timestamp))}</small>
+              <div className="audit-item-top">
+                <span className="audit-action">{log.action_type}</span>
+                <span className="audit-time">{safeFormat(log.created_at ?? log.timestamp)}</span>
               </div>
-              <strong>{log.action_type}</strong>
-              <p>{log.explanation}</p>
-              {log.tool_name ? <code>{log.tool_name}</code> : null}
+              <div className="audit-desc">{log.explanation}</div>
+              <div className={`audit-status ${log.result_status === "success" ? "" : "fail"}`}>
+                <span className="audit-status-dot" />
+                {log.result_status}
+              </div>
             </div>
-          ))}
-        </div>
+          ))
+        )}
       </div>
-
-      <div className="sidebar-card">
-        <div className="eyebrow">Records</div>
-        <h3>Recent Confirmations</h3>
-        <div className="upcoming-list">
-          {appointments.slice(0, 4).map((appointment) => (
-            <div className="upcoming-item" key={appointment.id}>
-              <strong>{appointment.confirmation_code}</strong>
-              <span>{appointment.department}</span>
-              <small>{formatter.format(new Date(appointment.scheduled_at))}</small>
-            </div>
-          ))}
-          {appointments.length === 0 ? <p className="muted">No records available.</p> : null}
+      {appointments.length > 0 && (
+        <div className="confirmations-section">
+          <div className="audit-section-label" style={{ padding: "14px 20px 8px" }}>Recent Confirmations</div>
+          <div className="confirmations-list">
+            {appointments.slice(0, 3).map((apt) => (
+              <div className="confirmation-item" key={apt.id}>
+                <div className="confirmation-item-code">{apt.confirmation_code}</div>
+                <div className="confirmation-item-dept">{apt.department}</div>
+                <div className="confirmation-item-time">{safeFormat(apt.scheduled_at)}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 }

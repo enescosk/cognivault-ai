@@ -3,7 +3,6 @@ export type Role = {
   name: string;
   description: string;
 };
-
 export type User = {
   id: number;
   full_name: string;
@@ -14,13 +13,11 @@ export type User = {
   is_active: boolean;
   role: Role;
 };
-
 export type AuthResponse = {
   access_token: string;
   token_type: string;
   user: User;
 };
-
 export type ChatSessionSummary = {
   id: number;
   title: string;
@@ -29,7 +26,14 @@ export type ChatSessionSummary = {
   updated_at: string;
   last_message_preview?: string | null;
 };
-
+export type AppointmentInMessage = {
+  confirmation_code: string;
+  department: string;
+  scheduled_at: string;
+  location: string;
+  purpose?: string | null;
+  status: string;
+};
 export type ChatMessage = {
   id: number;
   sender: "user" | "assistant" | "system" | "tool";
@@ -37,8 +41,8 @@ export type ChatMessage = {
   language: string;
   metadata_json?: Record<string, unknown> | null;
   created_at: string;
+  appointment?: AppointmentInMessage | null;
 };
-
 export type ChatSessionDetail = {
   id: number;
   title: string;
@@ -48,19 +52,16 @@ export type ChatSessionDetail = {
   updated_at: string;
   messages: ChatMessage[];
 };
-
 export type AgentReply = {
   message: string;
   language: string;
   outcome: string;
   confirmation_card?: ConfirmationCard | null;
 };
-
 export type SendMessageResponse = {
   session: ChatSessionDetail;
   assistant_reply: AgentReply;
 };
-
 export type ConfirmationCard = {
   type: "appointment_confirmation";
   confirmation_code: string;
@@ -70,7 +71,6 @@ export type ConfirmationCard = {
   contact_phone: string;
   status: string;
 };
-
 export type AuditLog = {
   id: number;
   timestamp: string;
@@ -82,15 +82,14 @@ export type AuditLog = {
   success: boolean;
   explanation: string;
   details?: Record<string, unknown> | null;
+  created_at: string;
 };
-
 export type Metrics = {
   active_sessions: number;
   confirmed_appointments: number;
   audit_events_today: number;
   completion_rate: number;
 };
-
 export type Appointment = {
   id: number;
   confirmation_code: string;
