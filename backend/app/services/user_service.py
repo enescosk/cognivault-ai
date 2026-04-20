@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -13,6 +15,11 @@ def list_roles(db: Session) -> list[Role]:
 
 
 def user_profile_payload(user: User) -> dict:
+    """
+    Kullanıcı profilini döner.
+    `phone` alanı: kayıtlıysa telefon numarası, yoksa None.
+    Bu bilgi AI'a iletilir — randevu akışında "kayıtlı numarana onay göndereyim mi?" sorusu için kullanılır.
+    """
     return {
         "id": user.id,
         "full_name": user.full_name,
@@ -21,4 +28,34 @@ def user_profile_payload(user: User) -> dict:
         "locale": user.locale,
         "department": user.department,
         "title": user.title,
+        # Randevu akışı telefon zekası için kritik alan
+        "phone": user.phone,
     }
+
+
+def normalize_phone(raw: str) -> str:
+    """
+    Telefon numarasını normalize eder: boşluk, tire, parantez temizler.
+    Geçerli minimum uzunluk: 10 rakam (Türkiye: 05XX XXX XX XX).
+    """
+    cleaned = re.sub(r"[^\d+]", "", raw.strip())
+    return cleaned
+
+
+def update_user_phone(db: Session, user: User, new_phone: str) -> User:
+    """
+    Kullanıcının kayıtlı telefon numarasını günceller.
+
+    Çağrı koşulları:
+    - Kullanıcı randevu akışında yeni bir numara verdiğinde
+    - Kullanıcı mevcut numarasını değiştirmek istediğinde
+
+    Normalizasyon sonrası DB'ye yazılır; bir sonraki oturumda AI
+    bu numarayı profilde görür ve tekrar sormaz.
+    """
+    normalized = normalize_phone(new_phone)
+    user.phone = normalized
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user

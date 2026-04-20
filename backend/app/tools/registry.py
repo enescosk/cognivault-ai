@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import AuditResultStatus, ChatSession, RoleName, User
 from app.services.appointment_service import appointment_payload, check_available_slots, create_appointment, format_slot_label
 from app.services.audit_service import log_action
-from app.services.user_service import user_profile_payload
+from app.services.user_service import update_user_phone, user_profile_payload
 
 
 def tool_specs_anthropic() -> list[dict]:
@@ -156,6 +156,35 @@ def tool_specs() -> list[dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "save_user_phone",
+                # Kullanıcının telefon numarasını profiline kaydeder.
+                # Randevu akışında iki durumda çağrılır:
+                #   1. Kullanıcı hiç kayıtlı numarası yokken yeni numara verdi.
+                #   2. Kullanıcı mevcut kayıtlı numarasını değiştirmek istedi.
+                # Kaydedilen numara sonraki oturumlarda user_profile_payload() ile okunur,
+                # böylece AI telefon numarasını bir daha sormak yerine onay ister.
+                "description": (
+                    "Save or update the user's phone number in their profile. "
+                    "Call this when the user provides a phone number during appointment booking. "
+                    "After saving, the number will be pre-filled in future sessions so the user "
+                    "won't be asked again — instead they'll be asked to confirm the saved number."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "phone": {
+                            "type": "string",
+                            "description": "The phone number to save (e.g. '05301234567' or '+905301234567')",
+                        }
+                    },
+                    "required": ["phone"],
+                    "additionalProperties": False,
+                },
+            },
+        },
     ]
 
 
@@ -216,6 +245,16 @@ def execute_tool(
             result = appointment_payload(appointment)
         elif name == "save_application":
             result = {"enabled": False, "message": "Application submission flow is planned for a later iteration."}
+        elif name == "save_user_phone":
+            # Telefonu kullanıcı profiline kaydet.
+            # Bir sonraki oturumda user_profile_payload() bu numarayı döner,
+            # AI de "kayıtlı numarana onay göndereyim mi?" akışını başlatır.
+            updated_user = update_user_phone(db, current_user, payload["phone"])
+            result = {
+                "saved": True,
+                "phone": updated_user.phone,
+                "message": f"Phone number {updated_user.phone} saved to profile.",
+            }
         else:
             raise HTTPException(status_code=400, detail=f"Unknown tool: {name}")
 

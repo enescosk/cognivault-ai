@@ -5,12 +5,13 @@ type ChatWindowProps = {
   session: ChatSessionDetail | null;
   user: User;
   sending: boolean;
+  pendingMessage: string | null;
   onSend: (content: string) => void;
 };
 
 const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
 
-export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) {
+export function ChatWindow({ session, user, sending, pendingMessage, onSend }: ChatWindowProps) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -79,10 +80,20 @@ export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) 
             if (msg.sender === "system" || msg.sender === "tool") return null;
             return (
               <div key={msg.id} className={`message-row ${isUser ? "outbound" : ""}`}>
+                {/* AI avatarı — sadece AI mesajlarında sol tarafta */}
+                {!isUser && (
+                  <div className="msg-avatar">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4z"/><path d="M3 20c0-4 4-7 9-7s9 3 9 7"/>
+                    </svg>
+                  </div>
+                )}
                 <div className="message-bubble">
                   <div className="message-meta">
+                    {/* Kullanıcıda önce saat, sonra isim (sağ hizalı meta) */}
+                    {isUser && <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>}
                     <span className="message-sender">{isUser ? user.full_name : "Cognivault AI"}</span>
-                    <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>
+                    {!isUser && <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>}
                   </div>
                   <div className="message-content">{msg.content}</div>
                   {msg.appointment && (
@@ -119,8 +130,27 @@ export function ChatWindow({ session, user, sending, onSend }: ChatWindowProps) 
           })
         )}
 
+        {/* Gönderilen mesaj — API yanıt vermeden önce hemen göster */}
+        {sending && pendingMessage && (
+          <div className="message-row outbound">
+            <div className="message-bubble">
+              <div className="message-meta">
+                <span className="message-time">şimdi</span>
+                <span className="message-sender">{user.full_name}</span>
+              </div>
+              <div className="message-content">{pendingMessage}</div>
+            </div>
+          </div>
+        )}
+
+        {/* AI düşünüyor */}
         {sending && (
           <div className="message-row">
+            <div className="msg-avatar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4z"/><path d="M3 20c0-4 4-7 9-7s9 3 9 7"/>
+              </svg>
+            </div>
             <div className="message-bubble">
               <div className="message-meta">
                 <span className="message-sender">Cognivault AI</span>

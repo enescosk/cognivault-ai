@@ -15,6 +15,7 @@ import { useAuth } from "../context/AuthContext";
 import type { Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, User } from "../types/api";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { AppointmentPanel } from "./AppointmentPanel";
+import { AppointmentsPage } from "./AppointmentsPage";
 import { AdminPanel } from "./AdminPanel";
 import { OperatorPanel } from "./OperatorPanel";
 import { ChatWindow } from "./ChatWindow";
@@ -31,7 +32,9 @@ export function Dashboard() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"chat" | "appointments">("chat");
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
@@ -54,7 +57,6 @@ export function Dashboard() {
         getAppointments(token),
         getMetrics(token)
       ]);
-      setSessions(sessionList);
       setLogs(auditEntries);
       setAppointments(appointmentList);
       setMetrics(metricSummary);
@@ -62,11 +64,25 @@ export function Dashboard() {
         listUsers(token).then(setUsers).catch(() => {});
       }
 
+      // Boş oturumları (mesaj içermeyen) otomatik sil
+      const emptyOnes = sessionList.filter(
+        s => s.last_message_preview === null && s.id !== nextSessionId
+      );
+      const nonEmpty = sessionList.filter(s => s.last_message_preview !== null);
+      // Tüm oturumlar boşsa en yenisini koru, geri kalanları sil
+      const toDelete = nonEmpty.length > 0 ? emptyOnes : emptyOnes.slice(1);
+      if (toDelete.length > 0) {
+        await Promise.all(toDelete.map(s => deleteSession(s.id, token).catch(() => {})));
+      }
+      const cleanedList = sessionList.filter(s => !toDelete.some(d => d.id === s.id));
+      setSessions(cleanedList);
+
       if (nextSessionId) {
         setSelectedSession(await getSession(nextSessionId, token));
-      } else if (sessionList.length > 0) {
-        const preferredId = selectedSession?.id ?? sessionList[0].id;
-        setSelectedSession(await getSession(preferredId, token));
+      } else if (cleanedList.length > 0) {
+        const preferredId = selectedSession?.id ?? cleanedList[0].id;
+        const preferredExists = cleanedList.some(s => s.id === preferredId);
+        setSelectedSession(await getSession(preferredExists ? preferredId : cleanedList[0].id, token));
       } else {
         const created = await createSession(token);
         setSessions([{ id: created.id, title: created.title, status: created.status, created_at: created.created_at, updated_at: created.updated_at, last_message_preview: null }]);
@@ -81,6 +97,11 @@ export function Dashboard() {
 
   async function handleNewSession() {
     if (!token) return;
+    // Seçili oturum zaten boşsa yeni oturum açma, onu öne getir
+    if (selectedSession && selectedSession.messages.length === 0) {
+      setView("chat");
+      return;
+    }
     const created = await createSession(token);
     await loadDashboard(created.id);
   }
@@ -127,12 +148,15 @@ export function Dashboard() {
   async function handleSend(content: string) {
     if (!token || !selectedSession) return;
     setSending(true);
+    setPendingMessage(content);
     setError(null);
     try {
       const response = await sendMessage(selectedSession.id, content, token);
+      setPendingMessage(null);
       setSelectedSession(response.session);
       await loadDashboard(response.session.id);
     } catch (err) {
+      setPendingMessage(null);
       setError(err instanceof Error ? err.message : "Message could not be delivered");
       if (selectedSession?.id) {
         try { setSelectedSession(await getSession(selectedSession.id, token)); } catch {}
@@ -151,15 +175,20 @@ export function Dashboard() {
         user={user}
         sessions={sessions}
         selectedSessionId={selectedSession?.id}
-        onSelectSession={handleSelectSession}
-        onNewSession={handleNewSession}
+        activeView={view}
+        onSelectSession={(id) => { setView("chat"); handleSelectSession(id); }}
+        onNewSession={() => { setView("chat"); handleNewSession(); }}
         onDeleteSession={handleDeleteSession}
+        onViewAppointments={() => setView("appointments")}
         onLogout={logout}
       />
       <main className="main-panel">
         <MetricsBar metrics={metrics} appointments={appointments} role={role} />
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        <ChatWindow session={selectedSession} user={user} sending={sending} onSend={handleSend} />
+        {view === "appointments" && isCustomer
+          ? <AppointmentsPage appointments={appointments} />
+          : <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} onSend={handleSend} />
+        }
       </main>
       {isCustomer && <AppointmentPanel appointments={appointments} />}
       {isOperator && <OperatorPanel appointments={appointments} />}

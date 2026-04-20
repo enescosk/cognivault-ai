@@ -53,21 +53,20 @@ body::before {
   content: '';
   position: fixed;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(99,179,237,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99,179,237,0.03) 1px, transparent 1px);
-  background-size: 48px 48px;
+  /* Izgara yerine çok hafif nokta deseni — gözü yormayan, fark edilmez */
+  background-image: radial-gradient(rgba(99,179,237,0.07) 1px, transparent 1px);
+  background-size: 28px 28px;
   pointer-events: none;
   z-index: 0;
 }
 body::after {
   content: '';
   position: fixed;
-  top: -30vh;
-  right: -20vw;
-  width: 70vw;
-  height: 70vw;
-  background: radial-gradient(circle, rgba(99,179,237,0.06) 0%, transparent 65%);
+  top: -20vh;
+  right: -15vw;
+  width: 55vw;
+  height: 55vw;
+  background: radial-gradient(circle, rgba(99,179,237,0.04) 0%, transparent 60%);
   pointer-events: none;
   z-index: 0;
 }
@@ -406,15 +405,74 @@ button { cursor: pointer; border: none; background: none; }
   color: var(--text-2);
   background: var(--surface);
 }
-.message-stream { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
-.message-row { display: flex; }
+.message-stream { flex: 1; overflow-y: auto; padding: 28px 24px; display: flex; flex-direction: column; gap: 20px; }
+.message-row { display: flex; align-items: flex-end; gap: 10px; }
 .message-row.outbound { justify-content: flex-end; }
-.message-bubble { max-width: 75%; padding: 14px 18px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
-.outbound .message-bubble { background: rgba(99,179,237,0.10); border-color: var(--border-active); }
-.message-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.message-sender { font-family: var(--font-display); font-size: 0.82rem; font-weight: 600; color: var(--text); }
-.message-time { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-3); }
-.message-content { font-size: 0.92rem; line-height: 1.65; color: var(--text); white-space: pre-wrap; }
+
+/* ── AI mesajı ── */
+.message-bubble {
+  max-width: 72%;
+  padding: 14px 18px;
+  border-radius: 18px 18px 18px 4px;   /* sol-alt köşe kesik → AI */
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 16px rgba(0,0,0,0.25);
+}
+
+/* ── Kullanıcı mesajı ── */
+.outbound .message-bubble {
+  border-radius: 18px 18px 4px 18px;   /* sağ-alt köşe kesik → kullanıcı */
+  background: linear-gradient(135deg, #1e3a5f 0%, #162d4a 100%);
+  border: 1px solid rgba(99,179,237,0.15);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+}
+
+/* Meta satırı (isim + saat) */
+.message-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.outbound .message-meta { justify-content: flex-end; }
+
+/* İsim */
+.message-sender {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-2);
+  letter-spacing: 0.01em;
+}
+.outbound .message-sender { color: rgba(255,255,255,0.70); }
+
+/* Zaman */
+.message-time {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-3);
+}
+.outbound .message-time { color: rgba(255,255,255,0.45); }
+
+/* Metin */
+.message-content {
+  font-size: 0.93rem;
+  line-height: 1.68;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.outbound .message-content { color: #dce8f5; font-weight: 400; }
+/* AI avatar küçük daire */
+.msg-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(99,179,237,0.12);
+  border: 1px solid rgba(99,179,237,0.2);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
 .confirmation-card { margin-top: 14px; padding: 14px 16px; border-radius: var(--radius-sm); border: 1px solid rgba(104,211,145,0.2); background: var(--green-bg); }
 .confirmation-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .confirmation-label { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--green); }
@@ -1542,6 +1600,258 @@ button { cursor: pointer; border: none; background: none; }
   font-size: 0.82rem;
   margin: 0;
 }
+
+/* ─── SIDEBAR NAV ITEM ───────────────────────────────────────── */
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: rgba(255,255,255,0.55);
+  transition: background 0.12s, color 0.12s;
+  text-align: left;
+  margin-bottom: 4px;
+}
+.sidebar-nav-item:hover {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.82);
+}
+.sidebar-nav-item--active {
+  background: rgba(99,179,237,0.1);
+  color: var(--accent);
+}
+.sidebar-nav-item--active svg { opacity: 1; }
+
+/* ─── RANDEVULARIM TAM SAYFA ──────────────────────────────────── */
+.apts-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 32px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.apts-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  gap: 16px;
+}
+.apts-title {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: rgba(255,255,255,0.92);
+  margin: 0 0 4px;
+}
+.apts-subtitle {
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.35);
+  margin: 0;
+}
+.apts-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.apts-stat { text-align: center; }
+.apts-stat-val {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.apts-stat-label {
+  display: block;
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  color: rgba(255,255,255,0.3);
+  margin-top: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.apts-stat-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255,255,255,0.08);
+}
+
+/* Filter tabs */
+.apts-filters {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+.apts-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 99px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: rgba(255,255,255,0.45);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  transition: all 0.12s;
+  cursor: pointer;
+}
+.apts-filter-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.75);
+}
+.apts-filter-btn--active {
+  background: rgba(99,179,237,0.12);
+  border-color: rgba(99,179,237,0.3);
+  color: var(--accent);
+}
+.apts-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: rgba(255,255,255,0.08);
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+}
+.apts-filter-btn--active .apts-filter-count {
+  background: rgba(99,179,237,0.2);
+}
+
+/* Grid */
+.apts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+/* Card */
+.apts-card {
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.025);
+  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.apts-card:hover {
+  border-color: rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+}
+.apts-card--upcoming {
+  border-color: rgba(99,179,237,0.3) !important;
+  background: rgba(99,179,237,0.05) !important;
+}
+
+.apts-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.apts-card-dept {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: rgba(255,255,255,0.88);
+}
+.apts-card-status {
+  display: flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 99px;
+}
+
+.apts-card-code {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--accent);
+  margin-bottom: 10px;
+  letter-spacing: 0.06em;
+}
+
+.apts-card-datetime {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.65);
+  margin-bottom: 10px;
+}
+.apts-card-datetime svg { opacity: 0.5; flex-shrink: 0; }
+.apts-card-time {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.35);
+}
+
+.apts-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.apts-card-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.4);
+}
+.apts-card-row svg { opacity: 0.5; flex-shrink: 0; }
+
+.apts-card-purpose {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.45);
+  line-height: 1.45;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  margin-top: 4px;
+}
+.apts-card-notes {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.25);
+  font-style: italic;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.apts-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: rgba(255,255,255,0.25);
+  padding: 60px 0;
+  font-size: 0.85rem;
+}
+.apts-empty p { margin: 0; }
 
 /* ─── LOGIN – YENİ MÜŞTERİ + TAB ────────────────────────────── */
 .lp-section-label {

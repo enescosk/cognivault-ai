@@ -16,6 +16,7 @@ from app.schemas.chat import AgentReply
 from app.schemas.appointment import AppointmentConfirmationCard
 from app.services.appointment_service import format_slot_label
 from app.services.chat_service import add_message, update_workflow_state
+from app.services.notification_service import send_appointment_confirmation
 from app.tools.registry import execute_tool, tool_specs, tool_specs_anthropic
 
 
@@ -45,7 +46,7 @@ def parse_preferred_date(text: str) -> str | None:
     if "yarın" in lower or "tomorrow" in lower:
         return (today + timedelta(days=1)).isoformat()
 
-    # "24.04" veya "24/04" formatları → bu yıl
+    # "Gün.Ay" veya "Gün/Ay" formatları → bu yıl
     match = re.search(r"\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b", text)
     if match:
         day, month = int(match.group(1)), int(match.group(2))
@@ -213,24 +214,32 @@ def run_anthropic_agent(context: AgentContext, user_message: str, language: str)
 
 def run_openai_agent(context: AgentContext, user_message: str, language: str) -> AgentReply:
     client = OpenAI(api_key=settings.openai_api_key)
-    history = [{"role": "system", "content": build_system_prompt()}]
-    history.append(
-        {
-            "role": "system",
-            "content": json.dumps(
-                {
-                    "workflow_state": context.session.workflow_state,
-                    "current_user": {
-                        "id": context.user.id,
-                        "role": context.user.role.name.value,
-                        "locale": context.user.locale,
-                    },
-                }
-            ),
-        }
+
+    # Kullanıcı bağlamını sistem promptuna ekle.
+    # user_phone: AI'ın "kayıtlı numaraya onay göndereyim mi?" akışını tetikler.
+    # Boşsa AI telefon sorar ve save_user_phone ile profil güncellenir.
+    user_phone_display = context.user.phone or ""
+    ctx_block = (
+        f"[Oturum bağlamı] "
+        f"Kullanıcı: {context.user.full_name} | "
+        f"Rol: {context.user.role.name.value} | "
+        f"Dil: {context.user.locale} | "
+        f"user_phone: {user_phone_display} | "
+        f"Workflow: {json.dumps(context.session.workflow_state or {}, ensure_ascii=False)}"
     )
-    for item in context.session.messages[-8:]:
-        history.append({"role": item.sender.value if item.sender != MessageSender.TOOL else "tool", "content": item.content})
+    history: list[dict] = [
+        {"role": "system", "content": build_system_prompt()},
+        {"role": "system", "content": ctx_block},
+    ]
+
+    # Sadece kullanıcı ve asistan mesajlarını geçmişe ekle (tool mesajları OpenAI'da tool_call_id gerektiriyor)
+    for item in context.session.messages[-12:]:
+        if item.sender == MessageSender.USER:
+            history.append({"role": "user", "content": item.content})
+        elif item.sender == MessageSender.ASSISTANT:
+            history.append({"role": "assistant", "content": item.content})
+        # system ve tool mesajları zaten context bloğunda var, atla
+
     history.append({"role": "user", "content": user_message})
 
     for _ in range(6):
@@ -239,7 +248,7 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
             messages=history,
             tools=tool_specs(),
             tool_choice="auto",
-            temperature=0.2,
+            temperature=0.65,
         )
         message = response.choices[0].message
         if message.tool_calls:
@@ -260,6 +269,7 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
                     ],
                 }
             )
+            confirmation_card: AppointmentConfirmationCard | None = None
             for tool_call in message.tool_calls:
                 result = execute_tool(
                     context.db,
@@ -272,29 +282,58 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
                     {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": json.dumps(result),
+                        "content": json.dumps(result, default=str),
                     }
                 )
+
+                # Slot listesi geldi → workflow_state'e kaydet (bir sonraki turda "3" seçimi çalışsın)
+                if tool_call.function.name == "check_available_slots":
+                    state = dict(context.session.workflow_state or {})
+                    state["suggested_slots"] = result.get("slots", [])
+                    update_workflow_state(context.db, context.session, state)
+
+                # Randevu oluşturuldu → kart hazırla + bildirim gönder
                 if tool_call.function.name == "create_appointment":
-                    card = AppointmentConfirmationCard(
+                    scheduled_at_val = result["scheduled_at"]
+                    confirmation_card = AppointmentConfirmationCard(
                         confirmation_code=result["confirmation_code"],
                         department=result["department"],
-                        scheduled_at=result["scheduled_at"],
+                        scheduled_at=scheduled_at_val,
                         location=result["location"],
                         contact_phone=result["contact_phone"],
                         status=result["status"],
                     )
-                    return AgentReply(
-                        message=message.content
-                        or default_reply(
-                            language,
-                            "Randevunuz oluşturuldu.",
-                            "Your appointment has been created.",
-                        ),
+                    # Kullanıcıya bildirim gönder
+                    send_appointment_confirmation(
+                        to_email=context.user.email,
+                        full_name=context.user.full_name,
+                        confirmation_code=result["confirmation_code"],
+                        department=result["department"],
+                        scheduled_at=str(scheduled_at_val),
+                        location=result["location"],
+                        contact_phone=result["contact_phone"],
+                        purpose=result.get("purpose", ""),
                         language=language,
-                        outcome="completed",
-                        confirmation_card=card,
                     )
+
+            # Randevu oluşturulduysa AI'ın güzel onay mesajı yazmasına izin ver
+            if confirmation_card:
+                final = client.chat.completions.create(
+                    model=settings.openai_model,
+                    messages=history,
+                    temperature=0.65,
+                )
+                final_text = final.choices[0].message.content or default_reply(
+                    language,
+                    f"Randevunuz onaylandı! Kod: {confirmation_card.confirmation_code}",
+                    f"Your appointment is confirmed! Code: {confirmation_card.confirmation_code}",
+                )
+                return AgentReply(
+                    message=final_text,
+                    language=language,
+                    outcome="completed",
+                    confirmation_card=confirmation_card,
+                )
             continue
 
         return AgentReply(message=message.content or "", language=language, outcome="needs_input")
@@ -403,6 +442,12 @@ def run_fallback_agent(context: AgentContext, user_message: str, language: str) 
             state["stage"] = "completed"
             state["selected_slot"] = selected_slot
             update_workflow_state(context.db, context.session, state)
+
+            # Telefon profilden gelmemişse (yani yeni alındıysa) kaydet
+            if collected.get("contact_phone") and not context.user.phone:
+                from app.services.user_service import update_user_phone
+                update_user_phone(context.db, context.user, collected["contact_phone"])
+
             card = AppointmentConfirmationCard(
                 confirmation_code=tool_result["confirmation_code"],
                 department=tool_result["department"],
@@ -461,17 +506,54 @@ def run_fallback_agent(context: AgentContext, user_message: str, language: str) 
             )
 
     if not collected.get("contact_phone"):
-        state["stage"] = "collect_phone"
-        update_workflow_state(context.db, context.session, state)
-        return AgentReply(
-            message=default_reply(
-                language,
-                "Randevu teyidi için ulaşabileceğimiz telefon numarasını paylaşır mısınız?",
-                "Please share a phone number we can use for appointment confirmation.",
-            ),
-            language=language,
-            outcome="needs_input",
-        )
+        # Telefon akışı:
+        # - Profilde kayıtlı numara varsa → onay iste, yeni numara isteğini karşıla
+        # - Profilde yoksa → sor ve kaydet
+        saved_phone = context.user.phone
+        if saved_phone and not state.get("phone_confirmation_asked"):
+            # İlk kez soruyoruz — onay isteği gönder
+            state["phone_confirmation_asked"] = True
+            update_workflow_state(context.db, context.session, state)
+            msg = (
+                f"📱 Kayıtlı numaran **{saved_phone}**. Onay kodunu bu numaraya göndereyim mi, yoksa farklı bir numara mı kullanmak istersin?"
+                if language == "tr" else
+                f"📱 Your saved number is **{saved_phone}**. Should I use this for confirmation, or would you prefer a different one?"
+            )
+            return AgentReply(message=msg, language=language, outcome="needs_input")
+
+        if saved_phone and state.get("phone_confirmation_asked"):
+            # Kullanıcı onayladı mı yoksa yeni numara mı verdi?
+            new_phone = parse_phone(user_message)
+            confirm_words = ["evet", "olur", "tamam", "ok", "yes", "sure", "kullan", "gönder", "aynı"]
+            if any(w in user_message.lower() for w in confirm_words) and not new_phone:
+                # Onayladı → kayıtlı telefonu kullan
+                collected["contact_phone"] = saved_phone
+            elif new_phone:
+                # Yeni numara verdi → kaydet
+                from app.services.user_service import update_user_phone
+                update_user_phone(context.db, context.user, new_phone)
+                collected["contact_phone"] = new_phone
+            else:
+                # Belirsiz yanıt — tekrar sor
+                msg = (
+                    f"Kayıtlı numaranı (**{saved_phone}**) kullanmamı ister misin, yoksa yeni bir numara mı yazayım?"
+                    if language == "tr" else
+                    f"Should I use your saved number (**{saved_phone}**) or would you like to enter a new one?"
+                )
+                return AgentReply(message=msg, language=language, outcome="needs_input")
+
+        if not collected.get("contact_phone"):
+            state["stage"] = "collect_phone"
+            update_workflow_state(context.db, context.session, state)
+            return AgentReply(
+                message=default_reply(
+                    language,
+                    "Randevu teyidi için bir telefon numarası paylaşır mısın?",
+                    "Please share a phone number we can use for appointment confirmation.",
+                ),
+                language=language,
+                outcome="needs_input",
+            )
 
     slot_result = execute_tool(
         context.db,
