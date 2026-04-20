@@ -187,7 +187,7 @@ export function Dashboard() {
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
         {view === "appointments" && isCustomer
           ? <AppointmentsPage appointments={appointments} />
-          : <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} onSend={handleSend} />
+          : <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} token={token ?? ""} onSend={handleSend} />
         }
       </main>
       {isCustomer && <AppointmentPanel appointments={appointments} />}
