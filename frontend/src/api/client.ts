@@ -104,3 +104,58 @@ export function deleteSession(sessionId: number, token: string): Promise<{delete
 export function listUsers(token: string): Promise<User[]> {
   return request<User[]>("/users", { method: "GET" }, token);
 }
+
+/**
+ * Ses kaydını OpenAI Whisper ile metne çevirir.
+ */
+export async function transcribeAudio(
+  blob: Blob,
+  token: string,
+  lang = "tr"
+): Promise<string> {
+  const form = new FormData();
+  form.append("file", blob, "recording.webm");
+  form.append("language", lang);
+
+  const res = await fetch(`${API_URL}/voice/transcribe`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Transcription failed" }));
+    throw new Error(err.detail ?? "Transcription failed");
+  }
+
+  const data = await res.json() as { text: string };
+  return data.text;
+}
+
+/**
+ * Metni OpenAI TTS ile sese çevirir.
+ * Backend mp3 stream döner → AudioContext ile çalınır.
+ * Web Speech Synthesis'ten çok daha doğal ses kalitesi.
+ */
+export async function synthesizeSpeech(
+  text: string,
+  token: string,
+  voice = "nova",   // nova | onyx | shimmer | alloy
+  speed = 1.0
+): Promise<ArrayBuffer> {
+  const res = await fetch(`${API_URL}/voice/synthesize`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text, voice, speed }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "TTS failed" }));
+    throw new Error(err.detail ?? "TTS failed");
+  }
+
+  return res.arrayBuffer();
+}
