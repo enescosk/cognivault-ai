@@ -86,6 +86,7 @@ def send_message(
     current_user: User = Depends(get_current_user),
 ) -> SendMessageResponse:
     session = get_session(db, session_id, current_user)
+    # İlk geçiş: ham mesajdan başlık dene
     maybe_update_title(db, session, payload.content)
     add_message(
         db,
@@ -104,7 +105,9 @@ def send_message(
         details={"length": len(payload.content)},
     )
     reply = process_message(AgentContext(db=db, user=current_user, session=session), payload.content)
+    # İkinci geçiş: agent cevabı sonrası workflow_state güncellendi, daha spesifik başlık üretilebilir
     session = get_session(db, session_id, current_user)
+    maybe_update_title(db, session, payload.content, session.workflow_state)
     return SendMessageResponse(
         session=ChatSessionDetail(
             id=session.id,

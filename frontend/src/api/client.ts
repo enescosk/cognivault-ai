@@ -40,6 +40,13 @@ export function login(email: string, password: string): Promise<AuthResponse> {
   });
 }
 
+export function register(fullName: string, email: string, password: string): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ full_name: fullName, email, password, locale: "tr" })
+  });
+}
+
 export function getCurrentUser(token: string): Promise<User> {
   return request<User>("/auth/me", { method: "GET" }, token);
 }
@@ -92,4 +99,8 @@ export function getAppointments(token: string): Promise<Appointment[]> {
 
 export function deleteSession(sessionId: number, token: string): Promise<{deleted: number}> {
   return request<{deleted: number}>(`/chat/sessions/${sessionId}`, { method: "DELETE" }, token);
+}
+
+export function listUsers(token: string): Promise<User[]> {
+  return request<User[]>("/users", { method: "GET" }, token);
 }

@@ -35,6 +35,8 @@ class AppointmentResponse(BaseModel):
     scheduled_at: datetime
     location: str
     created_at: datetime
+    user_name: str | None = None
+    user_id: int | None = None
 
 
 class AppointmentConfirmationCard(BaseModel):

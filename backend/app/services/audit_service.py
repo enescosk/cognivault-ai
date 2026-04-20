@@ -43,20 +43,70 @@ def list_audit_logs(db: Session, current_user: User, limit: int = 100) -> list[A
     return list(db.scalars(query))
 
 
-def get_metrics(db: Session) -> dict:
+def get_metrics(db: Session, current_user: "User | None" = None) -> dict:
     today = datetime.now(timezone.utc).date()
-    active_sessions = db.scalar(select(func.count(ChatSession.id)).where(ChatSession.status == "active")) or 0
-    confirmed_appointments = db.scalar(select(func.count(Appointment.id))) or 0
-    audit_events_today = (
-        db.scalar(select(func.count(AuditLog.id)).where(func.date(AuditLog.timestamp) == today)) or 0
-    )
-    tool_success = (
-        db.scalar(
-            select(func.count(AuditLog.id)).where(AuditLog.tool_name.is_not(None), AuditLog.success.is_(True))
+    is_customer = current_user is not None and current_user.role.name == RoleName.CUSTOMER
+
+    if is_customer:
+        uid = current_user.id  # type: ignore[union-attr]
+        active_sessions = (
+            db.scalar(
+                select(func.count(ChatSession.id)).where(
+                    ChatSession.status == "active", ChatSession.user_id == uid
+                )
+            )
+            or 0
         )
-        or 0
-    )
-    tool_total = db.scalar(select(func.count(AuditLog.id)).where(AuditLog.tool_name.is_not(None))) or 0
+        confirmed_appointments = (
+            db.scalar(
+                select(func.count(Appointment.id)).where(
+                    Appointment.user_id == uid,
+                    Appointment.status == "confirmed",
+                )
+            )
+            or 0
+        )
+        audit_events_today = (
+            db.scalar(
+                select(func.count(AuditLog.id)).where(
+                    func.date(AuditLog.timestamp) == today,
+                    AuditLog.user_id == uid,
+                )
+            )
+            or 0
+        )
+        tool_success = (
+            db.scalar(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.tool_name.is_not(None),
+                    AuditLog.success.is_(True),
+                    AuditLog.user_id == uid,
+                )
+            )
+            or 0
+        )
+        tool_total = (
+            db.scalar(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.tool_name.is_not(None), AuditLog.user_id == uid
+                )
+            )
+            or 0
+        )
+    else:
+        active_sessions = db.scalar(select(func.count(ChatSession.id)).where(ChatSession.status == "active")) or 0
+        confirmed_appointments = db.scalar(select(func.count(Appointment.id))) or 0
+        audit_events_today = (
+            db.scalar(select(func.count(AuditLog.id)).where(func.date(AuditLog.timestamp) == today)) or 0
+        )
+        tool_success = (
+            db.scalar(
+                select(func.count(AuditLog.id)).where(AuditLog.tool_name.is_not(None), AuditLog.success.is_(True))
+            )
+            or 0
+        )
+        tool_total = db.scalar(select(func.count(AuditLog.id)).where(AuditLog.tool_name.is_not(None))) or 0
+
     completion_rate = round((tool_success / tool_total) * 100, 1) if tool_total else 100.0
     return {
         "active_sessions": active_sessions,

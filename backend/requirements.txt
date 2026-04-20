@@ -6,4 +6,5 @@ pydantic-settings==2.9.1
 PyJWT==2.10.1
 python-multipart==0.0.20
 openai==1.76.2
+anthropic==0.49.0
 email-validator==2.2.0

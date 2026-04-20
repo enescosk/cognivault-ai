@@ -6,15 +6,17 @@ type SidebarProps = {
   user: User;
   sessions: ChatSessionSummary[];
   selectedSessionId?: number;
+  activeView: "chat" | "appointments";
   onSelectSession: (sessionId: number) => void;
   onNewSession: () => void;
   onDeleteSession: (sessionId: number) => void;
+  onViewAppointments: () => void;
   onLogout: () => void;
 };
 
 type MenuPos = { top: number; left: number };
 
-export function Sidebar({ user, sessions, selectedSessionId, onSelectSession, onNewSession, onDeleteSession, onLogout }: SidebarProps) {
+export function Sidebar({ user, sessions, selectedSessionId, activeView, onSelectSession, onNewSession, onDeleteSession, onViewAppointments, onLogout }: SidebarProps) {
   const initials = user.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   const roleName = user.role.name.toLowerCase();
   const [language, setLanguage] = useState(user.locale === "tr" ? "Türkçe" : "English");
@@ -97,7 +99,24 @@ export function Sidebar({ user, sessions, selectedSessionId, onSelectSession, on
       <div className="sidebar-body">
         <nav className="sidebar-nav">
           <div className="nav-section-label">Workspace</div>
-          <button className="nav-new-btn" onClick={onNewSession} type="button">
+
+          {/* Randevularım nav item — sadece customer için */}
+          {user.role.name === "customer" && (
+            <button
+              className={`sidebar-nav-item ${activeView === "appointments" ? "sidebar-nav-item--active" : ""}`}
+              type="button"
+              onClick={onViewAppointments}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              Randevularım
+            </button>
+          )}
+
+          <button className="nav-new-btn" onClick={() => { onNewSession(); }} type="button">
             <span>New Session</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"/>
