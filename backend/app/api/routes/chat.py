@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.agent.orchestrator import AgentContext, process_message
+from app.agent.orchestrator import AgentContext, process_message, stream_openai_agent
 from app.api.dependencies import get_current_user, get_db
 from app.models import AuditResultStatus, MessageSender, User
 from app.schemas.chat import (
@@ -120,6 +121,66 @@ def send_message(
         ),
         assistant_reply=reply,
     )
+
+@router.post("/sessions/{session_id}/messages/stream")
+def stream_message(
+    session_id: int,
+    payload: SendMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """
+    SSE streaming endpoint — kullanıcı mesajını alır, AI yanıtını
+    token token Server-Sent Events olarak akar.
+
+    Format:
+      data: {"t":"tk","v":"<token>"}\n\n   — metin parçası
+      data: {"t":"done","card":<dict|null>}\n\n — akış bitti
+
+    Frontend bu stream'i okuyarak her token'ı anlık ekrana yazar.
+    Böylece kullanıcı yanıtın ilk kelimesini <300ms içinde görür.
+    """
+    session = get_session(db, session_id, current_user)
+
+    # Başlık güncelle (ilk geçiş)
+    maybe_update_title(db, session, payload.content)
+
+    # Kullanıcı mesajını hemen kaydet
+    add_message(
+        db,
+        session=session,
+        sender=MessageSender.USER,
+        content=payload.content,
+        language=current_user.locale,
+    )
+    log_action(
+        db,
+        user_id=current_user.id,
+        session_id=session.id,
+        action_type="chat.message_sent",
+        explanation="User sent a message (streaming)",
+        result_status=AuditResultStatus.SUCCESS,
+        details={"length": len(payload.content)},
+    )
+
+    context = AgentContext(db=db, user=current_user, session=session)
+    language = "tr" if current_user.locale == "tr" else "en"
+
+    def event_stream():
+        yield from stream_openai_agent(context, payload.content, language)
+        # Stream bitti — başlığı workflow_state ile yeniden dene
+        updated = get_session(db, session_id, current_user)
+        maybe_update_title(db, updated, payload.content, updated.workflow_state)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # nginx proxy buffering'i kapat
+        },
+    )
+
 
 @router.delete("/sessions/{session_id}")
 def delete_chat_session(

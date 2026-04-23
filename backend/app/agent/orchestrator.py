@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
@@ -339,6 +340,208 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
         return AgentReply(message=message.content or "", language=language, outcome="needs_input")
 
     raise HTTPException(status_code=502, detail="The AI agent could not complete the request")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STREAMING ENGINE
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Mimari:
+#   Faz 1 — Tool Loop   (non-streaming, hızlı JSON turları)
+#     OpenAI'a "tool_choice=auto" ile sor.
+#     Tool call gelirse çalıştır, history'e ekle, tekrar sor.
+#     Bu turlar text üretmez, sadece araç çağırır → ortalama <300ms/tur.
+#
+#   Faz 2 — Stream      (streaming, "tool_choice=none")
+#     Tüm tool'lar tamamlandı, artık sadece metin üretiliyor.
+#     "tool_choice=none" ile OpenAI'ı kilitleyip gerçek SSE stream'i başlat.
+#     Her token chunk → SSE event → frontend'de anlık görünür.
+#
+# Yield formatı (JSON satır başına):
+#   {"t": "tk", "v": "<token>"}          — metin parçası
+#   {"t": "done", "card": <dict|null>}   — akış bitti, kart varsa gönder
+#   {"t": "err",  "v": "<mesaj>"}        — hata
+#
+# Frontend bu stream'i okur, "tk" eventleri bir buffer'a ekler,
+# "done" gelince session'ı yeniler ve kartı gösterir.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_history(context: AgentContext, user_message: str) -> list[dict]:
+    """Ortak history builder — hem streaming hem normal agent kullanır."""
+    user_phone_display = context.user.phone or ""
+    ctx_block = (
+        f"[Oturum bağlamı] "
+        f"Kullanıcı: {context.user.full_name} | "
+        f"Rol: {context.user.role.name.value} | "
+        f"Dil: {context.user.locale} | "
+        f"user_phone: {user_phone_display} | "
+        f"Workflow: {json.dumps(context.session.workflow_state or {}, ensure_ascii=False)}"
+    )
+    history: list[dict] = [
+        {"role": "system", "content": build_system_prompt()},
+        {"role": "system", "content": ctx_block},
+    ]
+    for item in context.session.messages[-12:]:
+        if item.sender == MessageSender.USER:
+            history.append({"role": "user", "content": item.content})
+        elif item.sender == MessageSender.ASSISTANT:
+            history.append({"role": "assistant", "content": item.content})
+    history.append({"role": "user", "content": user_message})
+    return history
+
+
+def _execute_tool_calls(
+    context: AgentContext,
+    message,
+    history: list[dict],
+) -> tuple[list[dict], AppointmentConfirmationCard | None]:
+    """
+    Tool call'ları çalıştırır, history'e ekler.
+    Döner: (güncellenmiş history, confirmation_card | None)
+    Bu fonksiyon hem streaming hem normal agent tarafından kullanılır.
+    """
+    history.append({
+        "role": "assistant",
+        "content": message.content or "",
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+            }
+            for tc in message.tool_calls
+        ],
+    })
+
+    confirmation_card: AppointmentConfirmationCard | None = None
+
+    for tc in message.tool_calls:
+        result = execute_tool(
+            context.db,
+            name=tc.function.name,
+            arguments=tc.function.arguments,
+            current_user=context.user,
+            session=context.session,
+        )
+        history.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": json.dumps(result, default=str),
+        })
+
+        if tc.function.name == "check_available_slots":
+            state = dict(context.session.workflow_state or {})
+            state["suggested_slots"] = result.get("slots", [])
+            update_workflow_state(context.db, context.session, state)
+
+        if tc.function.name == "create_appointment":
+            scheduled_at_val = result["scheduled_at"]
+            confirmation_card = AppointmentConfirmationCard(
+                confirmation_code=result["confirmation_code"],
+                department=result["department"],
+                scheduled_at=scheduled_at_val,
+                location=result["location"],
+                contact_phone=result["contact_phone"],
+                status=result["status"],
+            )
+            send_appointment_confirmation(
+                to_email=context.user.email,
+                full_name=context.user.full_name,
+                confirmation_code=result["confirmation_code"],
+                department=result["department"],
+                scheduled_at=str(scheduled_at_val),
+                location=result["location"],
+                contact_phone=result["contact_phone"],
+                purpose=result.get("purpose", ""),
+                language=context.user.locale,
+            )
+
+    return history, confirmation_card
+
+
+def stream_openai_agent(
+    context: AgentContext,
+    user_message: str,
+    language: str,
+) -> Generator[str, None, None]:
+    """
+    SSE generator — her yield bir "data: ...\n\n" satırıdır.
+
+    Faz 1: Tool loop (non-streaming) — araçları çalıştır.
+    Faz 2: Son yanıt streaming — token token gönder.
+
+    Bu ikili mimari sayesinde:
+    - Tool execution hızlı kalır (streaming overhead yok)
+    - Kullanıcı metin üretimini gerçek zamanlı görür
+    - Tool call'dan sonraki onay mesajı da akarak gelir
+    """
+    def _sse(payload: dict) -> str:
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    history = _build_history(context, user_message)
+    confirmation_card: AppointmentConfirmationCard | None = None
+
+    # ── Faz 1: Tool Loop ─────────────────────────────────────────────────────
+    for _ in range(6):
+        response = client.chat.completions.create(
+            model=settings.openai_model,
+            messages=history,
+            tools=tool_specs(),
+            tool_choice="auto",
+            temperature=0.65,
+        )
+        message = response.choices[0].message
+
+        if not message.tool_calls:
+            # Tool call yok → Faz 2'ye geç (bu history ile stream aç)
+            break
+
+        # Tool call var → çalıştır, history'e ekle, döngüye devam et
+        history, card = _execute_tool_calls(context, message, history)
+        if card:
+            confirmation_card = card
+        # Tool sonuçları history'de, bir sonraki turda AI yanıt üretecek
+
+    # ── Faz 2: Streaming Final Response ──────────────────────────────────────
+    # tool_choice="none" → OpenAI artık yeni tool call açamaz, sadece metin yazar.
+    # stream=True → her token chunk anında yield edilir.
+    try:
+        stream = client.chat.completions.create(
+            model=settings.openai_model,
+            messages=history,
+            stream=True,
+            tool_choice="none",   # Faz 2'de tool call istemiyoruz
+            temperature=0.65,
+        )
+
+        full_text = ""
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            token = delta.content or ""
+            if token:
+                full_text += token
+                yield _sse({"t": "tk", "v": token})
+
+        # Stream bitti — mesajı DB'ye kaydet
+        card_meta = confirmation_card.model_dump(mode="json") if confirmation_card else {}
+        add_message(
+            context.db,
+            session=context.session,
+            sender=MessageSender.ASSISTANT,
+            content=full_text,
+            language=language,
+            metadata_json=card_meta,
+        )
+
+        # Done event: kart varsa frontend confirmation card gösterir
+        yield _sse({
+            "t": "done",
+            "card": card_meta if confirmation_card else None,
+        })
+
+    except Exception as exc:  # noqa: BLE001
+        yield _sse({"t": "err", "v": str(exc)})
 
 
 def run_fallback_agent(context: AgentContext, user_message: str, language: str) -> AgentReply:

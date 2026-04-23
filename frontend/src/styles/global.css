@@ -459,6 +459,23 @@ button { cursor: pointer; border: none; background: none; }
   word-break: break-word;
 }
 .outbound .message-content { color: #dce8f5; font-weight: 400; }
+/* ── Streaming imleç — token akışı sırasında yanıp söner ── */
+.stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--accent);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  animation: blink 0.55s step-end infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.streaming-content { white-space: pre-wrap; word-break: break-word; }
+
 /* AI avatar küçük daire */
 .msg-avatar {
   width: 30px;

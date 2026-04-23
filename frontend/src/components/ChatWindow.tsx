@@ -7,13 +7,14 @@ type ChatWindowProps = {
   user: User;
   sending: boolean;
   pendingMessage: string | null;
+  streamingContent: string | null;  // null=yok, ""=başladı ama token gelmedi, "abc"=akan içerik
   token: string;
   onSend: (content: string) => void;
 };
 
 const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
 
-export function ChatWindow({ session, user, sending, pendingMessage, token, onSend }: ChatWindowProps) {
+export function ChatWindow({ session, user, sending, pendingMessage, streamingContent, token, onSend }: ChatWindowProps) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -293,7 +294,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, token, onSe
           </div>
         )}
 
-        {/* AI düşünüyor */}
+        {/* AI yanıtı — token akışı veya typing indicator */}
         {sending && (
           <div className="message-row">
             <div className="msg-avatar">
@@ -305,11 +306,19 @@ export function ChatWindow({ session, user, sending, pendingMessage, token, onSe
               <div className="message-meta">
                 <span className="message-sender">Cognivault AI</span>
               </div>
-              <div className="typing-indicator">
-                <span className="typing-dot" />
-                <span className="typing-dot" />
-                <span className="typing-dot" />
-              </div>
+              {streamingContent !== null && streamingContent !== "" ? (
+                /* Token'lar akıyor — metin büyüyor + yanıp sönen imleç */
+                <div className="message-content streaming-content">
+                  {streamingContent}<span className="stream-cursor" />
+                </div>
+              ) : (
+                /* Henüz token gelmedi — tool loop çalışıyor */
+                <div className="typing-indicator">
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                </div>
+              )}
             </div>
           </div>
         )}

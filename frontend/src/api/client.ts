@@ -106,6 +106,60 @@ export function listUsers(token: string): Promise<User[]> {
 }
 
 /**
+ * AI yanıtını SSE stream olarak okur.
+ * Her yield: { t: "tk", v: "<token>" }  veya  { t: "done", card: ... }
+ *
+ * Mimari:
+ *   Backend → Faz1 tool loop (sync) → Faz2 OpenAI stream → SSE satırları
+ *   Frontend → ReadableStream → TextDecoder → SSE parser → token buffer
+ */
+export async function* streamMessage(
+  sessionId: number,
+  content: string,
+  token: string
+): AsyncGenerator<{ t: "tk"; v: string } | { t: "done"; card: unknown } | { t: "err"; v: string }> {
+  const res = await fetch(`${API_URL}/chat/sessions/${sessionId}/messages/stream`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ content }),
+  });
+
+  if (!res.ok || !res.body) {
+    const err = await res.json().catch(() => ({ detail: "Stream failed" }));
+    throw new Error((err as { detail?: string }).detail ?? "Stream failed");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE: her mesaj "data: ...\n\n" formatında
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";          // son tamamlanmamış parçayı tut
+
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const payload = JSON.parse(line.slice(6)) as { t: string; v?: string; card?: unknown };
+        if (payload.t === "tk")   yield { t: "tk",   v: payload.v ?? "" };
+        if (payload.t === "done") yield { t: "done", card: payload.card ?? null };
+        if (payload.t === "err")  yield { t: "err",  v: payload.v ?? "Unknown error" };
+      } catch { /* malformed line — skip */ }
+    }
+  }
+}
+
+/**
  * Ses kaydını OpenAI Whisper ile metne çevirir.
  */
 export async function transcribeAudio(
