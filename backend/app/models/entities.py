@@ -34,6 +34,19 @@ class AuditResultStatus(str, Enum):
     INFO = "info"
 
 
+class EnterpriseSessionStatus(str, Enum):
+    ACTIVE = "active"
+    NEEDS_HUMAN = "needs_human"
+    CLOSED = "closed"
+
+
+class EnterpriseTicketStatus(str, Enum):
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    ESCALATED = "escalated"
+    CLOSED = "closed"
+
+
 class Role(Base):
     __tablename__ = "roles"
 
@@ -148,3 +161,136 @@ class AuditLog(Base):
     explanation: Mapped[str] = mapped_column(String(255), nullable=False)
     details: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), default=dict)
 
+
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    domain: Mapped[str | None] = mapped_column(String(160), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    departments: Mapped[list["Department"]] = relationship(back_populates="organization")
+    agents: Mapped[list["EnterpriseAgent"]] = relationship(back_populates="organization")
+    customers: Mapped[list["EnterpriseCustomer"]] = relationship(back_populates="organization")
+    routing_rules: Mapped[list["RoutingRule"]] = relationship(back_populates="organization")
+
+
+class Department(Base):
+    __tablename__ = "departments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(140), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    organization: Mapped["Organization"] = relationship(back_populates="departments")
+    agents: Mapped[list["EnterpriseAgent"]] = relationship(back_populates="department")
+    tickets: Mapped[list["EnterpriseTicket"]] = relationship(back_populates="department")
+    routing_rules: Mapped[list["RoutingRule"]] = relationship(back_populates="department")
+
+
+class EnterpriseAgent(Base):
+    __tablename__ = "enterprise_agents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"))
+    display_name: Mapped[str] = mapped_column(String(140), nullable=False)
+    availability_status: Mapped[str] = mapped_column(String(40), default="available", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    organization: Mapped["Organization"] = relationship(back_populates="agents")
+    user: Mapped["User"] = relationship()
+    department: Mapped["Department"] = relationship(back_populates="agents")
+
+
+class EnterpriseCustomer(Base):
+    __tablename__ = "enterprise_customers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(140), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    external_ref: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    organization: Mapped["Organization"] = relationship(back_populates="customers")
+    sessions: Mapped[list["EnterpriseSession"]] = relationship(back_populates="customer")
+    tickets: Mapped[list["EnterpriseTicket"]] = relationship(back_populates="customer")
+
+
+class EnterpriseSession(Base):
+    __tablename__ = "enterprise_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("enterprise_customers.id"), nullable=False)
+    chat_session_id: Mapped[int] = mapped_column(ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"))
+    channel: Mapped[str] = mapped_column(String(40), default="web_chat", nullable=False)
+    status: Mapped[EnterpriseSessionStatus] = mapped_column(
+        SqlEnum(EnterpriseSessionStatus), default=EnterpriseSessionStatus.ACTIVE, nullable=False
+    )
+    intent: Mapped[str | None] = mapped_column(String(120))
+    confidence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    handoff_package: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), default=dict)
+    metadata_json: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    organization: Mapped["Organization"] = relationship()
+    customer: Mapped["EnterpriseCustomer"] = relationship(back_populates="sessions")
+    chat_session: Mapped["ChatSession"] = relationship()
+    department: Mapped["Department"] = relationship()
+    tickets: Mapped[list["EnterpriseTicket"]] = relationship(back_populates="session")
+
+
+class EnterpriseTicket(Base):
+    __tablename__ = "enterprise_tickets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("enterprise_customers.id"), nullable=False)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("enterprise_sessions.id", ondelete="SET NULL"))
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"))
+    assigned_agent_id: Mapped[int | None] = mapped_column(ForeignKey("enterprise_agents.id"))
+    intent: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[EnterpriseTicketStatus] = mapped_column(
+        SqlEnum(EnterpriseTicketStatus), default=EnterpriseTicketStatus.OPEN, nullable=False
+    )
+    priority: Mapped[str] = mapped_column(String(30), default="normal", nullable=False)
+    confidence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    handoff_package: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    organization: Mapped["Organization"] = relationship()
+    customer: Mapped["EnterpriseCustomer"] = relationship(back_populates="tickets")
+    session: Mapped["EnterpriseSession"] = relationship(back_populates="tickets")
+    department: Mapped["Department"] = relationship(back_populates="tickets")
+    assigned_agent: Mapped["EnterpriseAgent"] = relationship()
+
+
+class RoutingRule(Base):
+    __tablename__ = "routing_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    intent: Mapped[str] = mapped_column(String(120), nullable=False)
+    department_id: Mapped[int] = mapped_column(ForeignKey("departments.id"), nullable=False)
+    keywords: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    confidence_boost: Mapped[int] = mapped_column(Integer, default=70, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    organization: Mapped["Organization"] = relationship(back_populates="routing_rules")
+    department: Mapped["Department"] = relationship(back_populates="routing_rules")

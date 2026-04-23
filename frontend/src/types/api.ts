@@ -105,3 +105,82 @@ export type Appointment = {
   user_name?: string | null;
   user_id?: number | null;
 };
+
+export type Organization = {
+  id: number;
+  name: string;
+  domain?: string | null;
+};
+export type EnterpriseDepartment = {
+  id: number;
+  organization_id: number;
+  name: string;
+  description?: string | null;
+  is_active: boolean;
+};
+export type EnterpriseCustomer = {
+  id: number;
+  organization_id: number;
+  full_name: string;
+  email?: string | null;
+  phone?: string | null;
+  external_ref?: string | null;
+};
+export type EnterpriseTicket = {
+  id: number;
+  session_id?: number | null;
+  customer: EnterpriseCustomer;
+  department?: EnterpriseDepartment | null;
+  intent: string;
+  description: string;
+  status: string;
+  priority: string;
+  confidence: number;
+  handoff_package?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+export type EnterpriseSessionSummary = {
+  id: number;
+  chat_session_id: number;
+  customer: EnterpriseCustomer;
+  department?: EnterpriseDepartment | null;
+  status: string;
+  intent?: string | null;
+  confidence: number;
+  last_message_preview?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type EnterpriseSessionDetail = EnterpriseSessionSummary & {
+  messages: ChatMessage[];
+  handoff_package?: Record<string, unknown> | null;
+};
+export type EnterpriseMetrics = {
+  organization: Organization;
+  total_tickets: number;
+  active_sessions: number;
+  escalations: number;
+  appointments: number;
+};
+export type EnterpriseOverview = {
+  metrics: EnterpriseMetrics;
+  departments: EnterpriseDepartment[];
+  tickets: EnterpriseTicket[];
+  sessions: EnterpriseSessionSummary[];
+};
+export type EnterpriseDecision = {
+  intent: string;
+  department?: EnterpriseDepartment | null;
+  confidence: number;
+  action: string;
+  ticket?: EnterpriseTicket | null;
+  appointment?: Appointment | null;
+  handoff_package?: Record<string, unknown> | null;
+  explanation: string;
+};
+export type EnterpriseMessageResponse = {
+  session: EnterpriseSessionDetail;
+  assistant_message: string;
+  decision: EnterpriseDecision;
+};

@@ -4,6 +4,10 @@ import type {
   AuthResponse,
   ChatSessionDetail,
   ChatSessionSummary,
+  EnterpriseMessageResponse,
+  EnterpriseOverview,
+  EnterpriseSessionDetail,
+  EnterpriseTicket,
   Metrics,
   SendMessageResponse,
   User
@@ -103,6 +107,59 @@ export function deleteSession(sessionId: number, token: string): Promise<{delete
 
 export function listUsers(token: string): Promise<User[]> {
   return request<User[]>("/users", { method: "GET" }, token);
+}
+
+export function getEnterpriseOverview(token: string): Promise<EnterpriseOverview> {
+  return request<EnterpriseOverview>("/enterprise/overview", { method: "GET" }, token);
+}
+
+export function createEnterpriseSession(
+  token: string,
+  payload: { customer_name: string; customer_email?: string; customer_phone?: string }
+): Promise<EnterpriseSessionDetail> {
+  return request<EnterpriseSessionDetail>(
+    "/enterprise/sessions",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function getEnterpriseSession(sessionId: number, token: string): Promise<EnterpriseSessionDetail> {
+  return request<EnterpriseSessionDetail>(`/enterprise/sessions/${sessionId}`, { method: "GET" }, token);
+}
+
+export function sendEnterpriseMessage(
+  sessionId: number,
+  content: string,
+  token: string
+): Promise<EnterpriseMessageResponse> {
+  return request<EnterpriseMessageResponse>(
+    `/enterprise/sessions/${sessionId}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({ content })
+    },
+    token
+  );
+}
+
+export function updateEnterpriseTicketStatus(
+  ticketId: number,
+  status: "open" | "in_progress" | "escalated" | "closed",
+  token: string,
+  resolutionNote?: string
+): Promise<EnterpriseTicket> {
+  return request<EnterpriseTicket>(
+    `/enterprise/tickets/${ticketId}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status, resolution_note: resolutionNote })
+    },
+    token
+  );
 }
 
 /**

@@ -510,6 +510,7 @@ def stream_openai_agent(
         stream = client.chat.completions.create(
             model=settings.openai_model,
             messages=history,
+            tools=tool_specs(),
             stream=True,
             tool_choice="none",   # Faz 2'de tool call istemiyoruz
             temperature=0.65,

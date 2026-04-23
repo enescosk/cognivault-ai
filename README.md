@@ -31,6 +31,26 @@ The AI agent:
 
 The code is structured so an **application submission** flow can be added later with a parallel tool/service path.
 
+## Enterprise Mode
+
+Enterprise Mode is an additive corporate layer for call-center style workflows. It does not replace the individual appointment flow; it reuses the existing chat/session, appointment, RBAC, and audit infrastructure.
+
+Operator/admin users can open **Enterprise Panel** from the sidebar. The panel supports:
+
+- AI-first customer intake
+- intent classification and entity extraction
+- intent-to-department routing with confidence score
+- ticket/case creation
+- human escalation with a stored handoff package
+- appointment creation through the existing scheduling system when appointment intent is detected
+- enterprise dashboard metrics, tickets, departments, and sessions
+
+Enterprise demo scenarios:
+
+- `internet çalışmıyor acil insan temsilci istiyorum` routes to Technical Support, creates an escalated ticket, and stores a handoff package.
+- `fatura tutarı yanlış görünüyor` routes to Billing Operations and creates an open ticket.
+- `randevu almak istiyorum +90 555 111 22 33` uses the existing appointment slot logic and creates an appointment when a slot is available.
+
 ## Architecture summary
 
 The backend follows a clean layered design:
@@ -50,6 +70,16 @@ Core domain models:
 - `appointment_slots`
 - `appointments`
 - `audit_logs`
+
+Enterprise domain models:
+
+- `organizations`
+- `departments`
+- `enterprise_agents`
+- `enterprise_customers`
+- `enterprise_sessions`
+- `enterprise_tickets`
+- `routing_rules`
 
 ## Authentication and roles
 
@@ -86,6 +116,12 @@ Main endpoints:
 - `GET /api/appointments/slots`
 - `GET /api/audit-logs`
 - `GET /api/audit-logs/metrics`
+- `GET /api/enterprise/overview`
+- `GET /api/enterprise/departments`
+- `GET /api/enterprise/tickets`
+- `GET /api/enterprise/sessions`
+- `POST /api/enterprise/sessions`
+- `POST /api/enterprise/sessions/{id}/messages`
 
 ## Local run on a laptop
 

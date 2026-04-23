@@ -1,22 +1,56 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ChatSessionSummary, User } from "../types/api";
+import type { Appointment, ChatSessionSummary, User } from "../types/api";
 
 type SidebarProps = {
   user: User;
   sessions: ChatSessionSummary[];
+  appointments: Appointment[];
   selectedSessionId?: number;
-  activeView: "chat" | "appointments";
+  activeView: "chat" | "appointments" | "enterprise";
   onSelectSession: (sessionId: number) => void;
   onNewSession: () => void;
   onDeleteSession: (sessionId: number) => void;
   onViewAppointments: () => void;
+  onViewEnterprise: () => void;
   onLogout: () => void;
 };
 
 type MenuPos = { top: number; left: number };
 
-export function Sidebar({ user, sessions, selectedSessionId, activeView, onSelectSession, onNewSession, onDeleteSession, onViewAppointments, onLogout }: SidebarProps) {
+const menuDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
+
+function safeAppointmentDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function minutesUntilAppointment(value: string) {
+  const date = safeAppointmentDate(value);
+  if (!date) return Number.POSITIVE_INFINITY;
+  return (date.getTime() - Date.now()) / 60000;
+}
+
+function isActiveAppointment(appointment: Appointment) {
+  const minutes = minutesUntilAppointment(appointment.scheduled_at);
+  return appointment.status === "confirmed" && minutes >= -30 && minutes <= 60;
+}
+
+function isUpcomingAppointment(appointment: Appointment) {
+  const minutes = minutesUntilAppointment(appointment.scheduled_at);
+  return appointment.status === "confirmed" && minutes > 60;
+}
+
+function statusLabel(status: string) {
+  const labels: Record<string, string> = {
+    confirmed: "Onaylı",
+    pending: "Bekliyor",
+    cancelled: "İptal",
+  };
+  return labels[status] ?? status;
+}
+
+export function Sidebar({ user, sessions, appointments, selectedSessionId, activeView, onSelectSession, onNewSession, onDeleteSession, onViewAppointments, onViewEnterprise, onLogout }: SidebarProps) {
   const initials = user.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   const roleName = user.role.name.toLowerCase();
   const [language, setLanguage] = useState(user.locale === "tr" ? "Türkçe" : "English");
@@ -27,6 +61,13 @@ export function Sidebar({ user, sessions, selectedSessionId, activeView, onSelec
   const [openMenu, setOpenMenu] = useState<{ id: number; pos: MenuPos } | null>(null);
   const [settingsPos, setSettingsPos] = useState<MenuPos | null>(null);
   const [showSupport, setShowSupport] = useState(false);
+  const [showMainMenu, setShowMainMenu] = useState(false);
+  const isEnterpriseUser = user.role.name === "operator" || user.role.name === "admin";
+  const operatorActiveAppointments = appointments.filter(isActiveAppointment);
+  const operatorUpcomingAppointments = appointments
+    .filter(isUpcomingAppointment)
+    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+  const operatorMenuAppointments = [...operatorActiveAppointments, ...operatorUpcomingAppointments].slice(0, 4);
   const resizing = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -84,6 +125,17 @@ export function Sidebar({ user, sessions, selectedSessionId, activeView, onSelec
             </svg>
           </div>
           <span className="sidebar-brand-name">Cognivault</span>
+          <button
+            className="hamburger-menu-btn"
+            type="button"
+            onClick={() => setShowMainMenu(true)}
+            aria-label="Menüyü aç"
+            title="Menü"
+          >
+            <span />
+            <span />
+            <span />
+          </button>
         </div>
         <div className="sidebar-profile">
           <div className="sidebar-avatar">{initials}</div>
@@ -116,43 +168,69 @@ export function Sidebar({ user, sessions, selectedSessionId, activeView, onSelec
             </button>
           )}
 
-          <button className="nav-new-btn" onClick={() => { onNewSession(); }} type="button">
-            <span>New Session</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/>
-              <line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-          </button>
-          <div className="nav-section-label">Sessions</div>
-          {sessions.length === 0 ? (
-            <div style={{ padding: "10px 12px", fontSize: "0.82rem", color: "var(--text-3)" }}>No sessions yet</div>
+          {(user.role.name === "operator" || user.role.name === "admin") && (
+            <button
+              className={`sidebar-nav-item ${activeView === "enterprise" ? "sidebar-nav-item--active" : ""}`}
+              type="button"
+              onClick={onViewEnterprise}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 21h18"/>
+                <path d="M5 21V7l8-4v18"/>
+                <path d="M19 21V11l-6-4"/>
+                <path d="M9 9h1M9 13h1M9 17h1M15 13h1M15 17h1"/>
+              </svg>
+              Enterprise Panel
+            </button>
+          )}
+
+          {isEnterpriseUser ? (
+            <div className="enterprise-nav-card">
+              <span>Operator workspace</span>
+              <strong>Kurumsal talepler Enterprise Panel üzerinden yönetilir.</strong>
+              <button type="button" onClick={onViewEnterprise}>Intake ekranına git</button>
+            </div>
           ) : (
-            sessions.map((session) => (
-              <div
-                key={session.id}
-                className="session-item-wrapper"
-                onMouseEnter={() => setHoveredSession(session.id)}
-                onMouseLeave={() => setHoveredSession(null)}
-              >
-                <button
-                  className={`session-item ${selectedSessionId === session.id ? "active" : ""}`}
-                  onClick={() => onSelectSession(session.id)}
-                  type="button"
-                >
-                  <span className="session-title">{session.title}</span>
-                  <span className="session-preview">{session.last_message_preview ?? "No activity yet"}</span>
-                </button>
-                <button
-                  className="session-dots-btn"
-                  type="button"
-                  onClick={(e) => handleDotsClick(e, session.id)}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
-                  </svg>
-                </button>
-              </div>
-            ))
+            <>
+              <button className="nav-new-btn" onClick={() => { onNewSession(); }} type="button">
+                <span>New Session</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+              <div className="nav-section-label">Sessions</div>
+              {sessions.length === 0 ? (
+                <div style={{ padding: "10px 12px", fontSize: "0.82rem", color: "var(--text-3)" }}>No sessions yet</div>
+              ) : (
+                sessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="session-item-wrapper"
+                    onMouseEnter={() => setHoveredSession(session.id)}
+                    onMouseLeave={() => setHoveredSession(null)}
+                  >
+                    <button
+                      className={`session-item ${selectedSessionId === session.id ? "active" : ""}`}
+                      onClick={() => onSelectSession(session.id)}
+                      type="button"
+                    >
+                      <span className="session-title">{session.title}</span>
+                      <span className="session-preview">{session.last_message_preview ?? "No activity yet"}</span>
+                    </button>
+                    <button
+                      className="session-dots-btn"
+                      type="button"
+                      onClick={(e) => handleDotsClick(e, session.id)}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+                      </svg>
+                    </button>
+                  </div>
+                ))
+              )}
+            </>
           )}
         </nav>
 
@@ -177,48 +255,11 @@ export function Sidebar({ user, sessions, selectedSessionId, activeView, onSelec
           className="session-menu"
           style={{ top: openMenu.pos.top, left: openMenu.pos.left }}
         >
-          <button className="session-menu-item" type="button" onClick={() => setOpenMenu(null)}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-            </svg>
-            Paylaş
-          </button>
-          <button className="session-menu-item" type="button" onClick={() => setOpenMenu(null)}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
-            </svg>
-            Yeniden adlandır
-          </button>
-          <button className="session-menu-item session-menu-item--arrow" type="button" onClick={() => setOpenMenu(null)}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-            </svg>
-            <span>Projeye taşı</span>
-            <svg className="session-menu-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 18 15 12 9 6"/>
-            </svg>
-          </button>
-          <div className="session-menu-divider" />
-          <button className="session-menu-item" type="button" onClick={() => setOpenMenu(null)}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17H4a2 2 0 01-2-2V5a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2h-1"/>
-              <polygon points="12 15 17 21 7 21"/>
-            </svg>
-            Sohbeti sabitle
-          </button>
-          <button className="session-menu-item" type="button" onClick={() => setOpenMenu(null)}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/>
-            </svg>
-            Arşivle
-          </button>
-          <div className="session-menu-divider" />
           <button className="session-menu-item danger" type="button" onClick={() => { onDeleteSession(openMenu.id); setOpenMenu(null); }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
             </svg>
-            Sil
+            Sohbeti sil
           </button>
         </div>,
         document.body
@@ -308,6 +349,164 @@ export function Sidebar({ user, sessions, selectedSessionId, activeView, onSelec
               <div className="support-version">v1.0.0-mvp · Cognivault AI</div>
             </div>
           </div>
+        </div>,
+        document.body
+      )}
+
+      {showMainMenu && createPortal(
+        <div className="main-menu-backdrop" onClick={() => setShowMainMenu(false)}>
+          <aside className="main-menu-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="main-menu-header">
+              <div>
+                <span className="main-menu-kicker">Menu</span>
+                <h3>Hesabım</h3>
+              </div>
+              <button className="settings-close" onClick={() => setShowMainMenu(false)} type="button" aria-label="Menüyü kapat">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            <div className="main-menu-account">
+              <div className="main-menu-avatar">{initials}</div>
+              <div className="main-menu-account-info">
+                <strong>{user.full_name}</strong>
+                <span>{user.email}</span>
+                <div className="main-menu-badges">
+                  <span className={`role-badge ${roleName}`}>{roleName}</span>
+                  <span>{user.locale.toUpperCase()}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="main-menu-section">
+              <div className="main-menu-label">Workspace</div>
+              <button
+                className="main-menu-item"
+                type="button"
+                onClick={() => { setShowMainMenu(false); isEnterpriseUser ? onViewEnterprise() : onNewSession(); }}
+              >
+                <span>{isEnterpriseUser ? "Kurumsal intake aç" : "Yeni sohbet başlat"}</span>
+                <small>{isEnterpriseUser ? "Müşteri talebini ticket/routing akışına al" : "Temiz bir AI oturumu aç"}</small>
+              </button>
+              {user.role.name === "customer" && (
+                <button
+                  className="main-menu-item"
+                  type="button"
+                  onClick={() => { setShowMainMenu(false); onViewAppointments(); }}
+                >
+                  <span>Randevularım</span>
+                  <small>Aktif ve geçmiş randevuları gör</small>
+                </button>
+              )}
+              {(user.role.name === "operator" || user.role.name === "admin") && (
+                <button
+                  className="main-menu-item"
+                  type="button"
+                  onClick={() => { setShowMainMenu(false); onViewEnterprise(); }}
+                >
+                  <span>Enterprise Panel</span>
+                  <small>Ticket, routing ve handoff ekranı</small>
+                </button>
+              )}
+            </div>
+
+            {user.role.name === "operator" && (
+              <div className="main-menu-section">
+                <div className="main-menu-label">Operatör Paneli</div>
+                <div className="main-menu-operator-summary">
+                  <div className="main-menu-op-stat">
+                    <strong>{operatorActiveAppointments.length}</strong>
+                    <span>Aktif</span>
+                  </div>
+                  <div className="main-menu-op-stat">
+                    <strong>{operatorUpcomingAppointments.length}</strong>
+                    <span>Yaklaşan</span>
+                  </div>
+                  <div className="main-menu-op-stat">
+                    <strong>{appointments.length}</strong>
+                    <span>Toplam</span>
+                  </div>
+                </div>
+
+                {operatorMenuAppointments.length === 0 ? (
+                  <div className="main-menu-op-empty">Şu anda takip edilecek aktif randevu yok.</div>
+                ) : (
+                  <div className="main-menu-op-list">
+                    {operatorMenuAppointments.map((appointment) => {
+                      const appointmentDate = safeAppointmentDate(appointment.scheduled_at);
+                      const active = isActiveAppointment(appointment);
+                      return (
+                        <div className={`main-menu-op-item ${active ? "main-menu-op-item--active" : ""}`} key={appointment.id}>
+                          <div className="main-menu-op-row">
+                            <strong>{appointment.user_name ?? "Müşteri"}</strong>
+                            <span>{statusLabel(appointment.status)}</span>
+                          </div>
+                          <div className="main-menu-op-dept">{appointment.department}</div>
+                          <div className="main-menu-op-meta">
+                            <span>{appointment.confirmation_code}</span>
+                            <span>{appointmentDate ? menuDateTime.format(appointmentDate) : "Tarih yok"}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="main-menu-section">
+              <div className="main-menu-label">Tercihler</div>
+              <label className="main-menu-control">
+                <span>Dil</span>
+                <select className="settings-select" value={language} onChange={(e) => setLanguage(e.target.value)}>
+                  <option>Türkçe</option>
+                  <option>English</option>
+                </select>
+              </label>
+              <label className="main-menu-control">
+                <span>Bildirimler</span>
+                <button className={`settings-toggle ${notifications ? "on" : ""}`} onClick={() => setNotifications(!notifications)} type="button">
+                  <span className="toggle-knob" />
+                </button>
+              </label>
+              <label className="main-menu-control">
+                <span>Kompakt mod</span>
+                <button className={`settings-toggle ${compact ? "on" : ""}`} onClick={() => setCompact(!compact)} type="button">
+                  <span className="toggle-knob" />
+                </button>
+              </label>
+            </div>
+
+            <div className="main-menu-section">
+              <div className="main-menu-label">Yardım ve güvenlik</div>
+              <button
+                className="main-menu-item"
+                type="button"
+                onClick={() => { setShowMainMenu(false); setShowSupport(true); }}
+              >
+                <span>Destek merkezi</span>
+                <small>SSS ve iletişim bilgileri</small>
+              </button>
+              <div className="main-menu-note">
+                Oturum, rol bazlı yetkiler ve aksiyon kayıtları audit trail üzerinden takip edilir.
+              </div>
+            </div>
+
+            <button
+              className="main-menu-logout"
+              type="button"
+              onClick={() => { setShowMainMenu(false); onLogout(); }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              Hesaptan çıkış yap
+            </button>
+          </aside>
         </div>,
         document.body
       )}

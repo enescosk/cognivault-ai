@@ -1,9 +1,14 @@
+import json
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import selectinload
 
 from app.agent.orchestrator import AgentContext, process_message, stream_openai_agent
 from app.api.dependencies import get_current_user, get_db
+from app.db.session import SessionLocal
 from app.models import AuditResultStatus, MessageSender, User
 from app.schemas.chat import (
     ChatSessionCreateRequest,
@@ -163,14 +168,33 @@ def stream_message(
         details={"length": len(payload.content)},
     )
 
-    context = AgentContext(db=db, user=current_user, session=session)
+    current_user_id = current_user.id
     language = "tr" if current_user.locale == "tr" else "en"
+    content = payload.content
 
     def event_stream():
-        yield from stream_openai_agent(context, payload.content, language)
-        # Stream bitti — başlığı workflow_state ile yeniden dene
-        updated = get_session(db, session_id, current_user)
-        maybe_update_title(db, updated, payload.content, updated.workflow_state)
+        # FastAPI closes request-scoped dependencies before a long-lived stream
+        # finishes, so the SSE worker owns its own DB session.
+        stream_db = SessionLocal()
+        try:
+            stream_user = stream_db.scalars(
+                select(User).options(selectinload(User.role)).where(User.id == current_user_id)
+            ).first()
+            if stream_user is None:
+                yield f"data: {json.dumps({'t': 'err', 'v': 'Oturum kullanıcısı bulunamadı.'}, ensure_ascii=False)}\n\n"
+                return
+
+            stream_session = get_session(stream_db, session_id, stream_user)
+            context = AgentContext(db=stream_db, user=stream_user, session=stream_session)
+            yield from stream_openai_agent(context, content, language)
+
+            # Stream bitti — başlığı workflow_state ile yeniden dene
+            updated = get_session(stream_db, session_id, stream_user)
+            maybe_update_title(stream_db, updated, content, updated.workflow_state)
+        except Exception:  # noqa: BLE001
+            yield f"data: {json.dumps({'t': 'err', 'v': 'Mesaj işlenirken backend tarafında hata oluştu. Lütfen tekrar deneyin.'}, ensure_ascii=False)}\n\n"
+        finally:
+            stream_db.close()
 
     return StreamingResponse(
         event_stream(),

@@ -17,8 +17,8 @@ import { AuditLogPanel } from "./AuditLogPanel";
 import { AppointmentPanel } from "./AppointmentPanel";
 import { AppointmentsPage } from "./AppointmentsPage";
 import { AdminPanel } from "./AdminPanel";
-import { OperatorPanel } from "./OperatorPanel";
 import { ChatWindow } from "./ChatWindow";
+import { EnterprisePanel } from "./EnterprisePanel";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
 
@@ -35,7 +35,7 @@ export function Dashboard() {
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "appointments">("chat");
+  const [view, setView] = useState<"chat" | "appointments" | "enterprise">("chat");
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
@@ -44,6 +44,9 @@ export function Dashboard() {
 
   useEffect(() => {
     if (!token || !user) return;
+    if (user.role.name === "operator" || user.role.name === "admin") {
+      setView("enterprise");
+    }
     void loadDashboard();
   }, [token, user]);
 
@@ -188,28 +191,32 @@ export function Dashboard() {
   if (loading && !selectedSession) return <div className="loading-shell">Loading workspace...</div>;
 
   return (
-    <div className="dashboard-shell">
+    <div className={`dashboard-shell ${isOperator ? "operator-view" : ""}`}>
       <Sidebar
         user={user}
         sessions={sessions}
+        appointments={appointments}
         selectedSessionId={selectedSession?.id}
         activeView={view}
-        onSelectSession={(id) => { setView("chat"); handleSelectSession(id); }}
-        onNewSession={() => { setView("chat"); handleNewSession(); }}
+        onSelectSession={(id) => { setView(isCustomer ? "chat" : "enterprise"); if (isCustomer) handleSelectSession(id); }}
+        onNewSession={() => { if (isCustomer) { setView("chat"); handleNewSession(); } else { setView("enterprise"); } }}
         onDeleteSession={handleDeleteSession}
         onViewAppointments={() => setView("appointments")}
+        onViewEnterprise={() => setView("enterprise")}
         onLogout={logout}
       />
       <main className="main-panel">
         <MetricsBar metrics={metrics} appointments={appointments} role={role} />
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        {view === "appointments" && isCustomer
-          ? <AppointmentsPage appointments={appointments} />
-          : <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
-        }
+        {view === "enterprise" && (isOperator || isAdmin) ? (
+          <EnterprisePanel token={token ?? ""} appointments={appointments} />
+        ) : view === "appointments" && isCustomer ? (
+          <AppointmentsPage appointments={appointments} />
+        ) : (
+          <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
+        )}
       </main>
       {isCustomer && <AppointmentPanel appointments={appointments} />}
-      {isOperator && <OperatorPanel appointments={appointments} />}
       {isAdmin    && <AdminPanel users={users} appointments={appointments} logs={logs} />}
     </div>
   );

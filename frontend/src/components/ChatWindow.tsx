@@ -14,6 +14,59 @@ type ChatWindowProps = {
 
 const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
 
+async function requestMicrophoneStream(): Promise<MediaStream> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new DOMException("Microphone access is not supported in this browser.", "NotSupportedError");
+  }
+
+  if (typeof MediaRecorder === "undefined") {
+    throw new DOMException("Audio recording is not supported in this browser.", "NotSupportedError");
+  }
+
+  try {
+    const permission = await navigator.permissions?.query({ name: "microphone" as PermissionName });
+    if (permission?.state === "denied") {
+      throw new DOMException("Microphone permission is blocked for this site.", "NotAllowedError");
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotAllowedError") {
+      throw error;
+    }
+    // Safari and some embedded browsers do not support microphone permission queries.
+    // In that case, getUserMedia below is still the correct way to trigger the prompt.
+  }
+
+  return navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  });
+}
+
+function getMicrophoneErrorMessage(error: unknown): string {
+  const name = error instanceof DOMException ? error.name : "";
+
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return "Mikrofon izni tarayıcıda engellenmiş. Adres çubuğundaki site izinlerinden mikrofonu açıp sayfayı yenileyin.";
+  }
+
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "Mikrofon bulunamadı. Lütfen bağlı bir mikrofon olduğundan emin olun.";
+  }
+
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "Mikrofona erişilemedi. Başka bir uygulama kullanıyor olabilir.";
+  }
+
+  if (name === "NotSupportedError") {
+    return "Bu tarayıcı sesli yazmayı desteklemiyor. Chrome veya Safari ile tekrar deneyin.";
+  }
+
+  return "Mikrofon izni alınamadı. Tarayıcı izinlerini kontrol edip tekrar deneyin.";
+}
+
 export function ChatWindow({ session, user, sending, pendingMessage, streamingContent, token, onSend }: ChatWindowProps) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -61,12 +114,14 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
       return;
     }
 
-    // Mikrofon izni iste
+    // Mikrofon izni iste. İlk kullanımda tarayıcının izin penceresini tetikler.
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      setVoiceError("Mikrofon izni reddedildi.");
+      setVoiceError("Mikrofon izni isteniyor...");
+      stream = await requestMicrophoneStream();
+      setVoiceError(null);
+    } catch (error) {
+      setVoiceError(getMicrophoneErrorMessage(error));
       return;
     }
 
@@ -213,9 +268,8 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
                 )}
                 <div className="message-bubble">
                   <div className="message-meta">
-                    {isUser && <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>}
                     <span className="message-sender">{isUser ? user.full_name : "Cognivault AI"}</span>
-                    {!isUser && <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>}
+                    <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>
                     {/* Sesli okuma butonu — sadece AI mesajlarında */}
                     {!isUser && (
                       <button
@@ -286,8 +340,8 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
           <div className="message-row outbound">
             <div className="message-bubble">
               <div className="message-meta">
-                <span className="message-time">şimdi</span>
                 <span className="message-sender">{user.full_name}</span>
+                <span className="message-time">şimdi</span>
               </div>
               <div className="message-content">{pendingMessage}</div>
             </div>
