@@ -2,6 +2,8 @@ from collections.abc import Generator
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
@@ -30,7 +32,11 @@ def get_current_user(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
 
-    user = db.get(User, int(payload["sub"]))
+    user = db.scalars(
+        select(User)
+        .options(joinedload(User.role))
+        .where(User.id == int(payload["sub"]))
+    ).first()
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not available")
     return user
