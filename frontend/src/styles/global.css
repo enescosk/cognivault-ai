@@ -629,9 +629,22 @@ button { cursor: pointer; border: none; background: none; }
 .audit-header { padding: 20px 20px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .audit-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .audit-title { font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; letter-spacing: -0.02em; }
+.audit-export-actions { display: flex; align-items: center; gap: 5px; }
 .export-btn { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-size: 0.75rem; font-family: var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; transition: var(--transition); }
 .export-btn:hover { border-color: var(--border-hover); color: var(--text); }
 .audit-subtitle { font-size: 0.78rem; color: var(--text-3); font-family: var(--font-mono); }
+.audit-filters { display: grid; grid-template-columns: 1fr auto; gap: 7px; margin-top: 12px; }
+.audit-filters input,
+.audit-filters select {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255,255,255,0.035);
+  color: var(--text);
+  outline: none;
+  padding: 7px 8px;
+  font-size: 0.76rem;
+}
 .audit-section-label { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); padding: 14px 20px 8px; flex-shrink: 0; }
 .audit-list { flex: 1; overflow-y: auto; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px; }
 .audit-item { padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); transition: var(--transition); }
@@ -844,16 +857,23 @@ button { cursor: pointer; border: none; background: none; }
 @media (max-width: 1400px) {
   :root { --audit-w: 280px; }
   .metrics-topbar { grid-template-columns: repeat(4, 1fr); }
+  .enterprise-metrics { grid-template-columns: repeat(3, 1fr); }
   .upcoming-cell { display: none; }
 }
 @media (max-width: 1100px) {
   .dashboard-shell { grid-template-columns: var(--sidebar-w) 1fr; }
   .audit-panel { display: none; }
+  .enterprise-grid { grid-template-columns: 1fr; }
+  .enterprise-chat-card { grid-row: auto; }
 }
 @media (max-width: 720px) {
   .dashboard-shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .metrics-topbar { grid-template-columns: repeat(2, 1fr); }
+  .enterprise-metrics { grid-template-columns: repeat(2, 1fr); }
+  .enterprise-intake-form,
+  .enterprise-composer,
+  .enterprise-knowledge-search { grid-template-columns: 1fr; }
   .login-shell { grid-template-columns: 1fr; }
   .brand-panel { display: none; }
 }
@@ -2103,7 +2123,7 @@ button { cursor: pointer; border: none; background: none; }
 .enterprise-error { margin-bottom: 14px; }
 .enterprise-metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -2312,6 +2332,51 @@ button { cursor: pointer; border: none; background: none; }
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
+.enterprise-ticket-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.enterprise-ticket-badges span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-2);
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.enterprise-priority.high,
+.enterprise-priority.urgent {
+  border-color: rgba(252,129,129,0.24);
+  background: rgba(252,129,129,0.08);
+  color: var(--red);
+}
+.enterprise-priority.low {
+  border-color: rgba(104,211,145,0.2);
+  background: rgba(104,211,145,0.07);
+  color: var(--green);
+}
+.enterprise-sla.ok {
+  border-color: rgba(104,211,145,0.2);
+  color: var(--green);
+}
+.enterprise-sla.warning {
+  border-color: rgba(246,173,85,0.24);
+  background: rgba(246,173,85,0.08);
+  color: var(--amber);
+}
+.enterprise-sla.danger {
+  border-color: rgba(252,129,129,0.24);
+  background: rgba(252,129,129,0.08);
+  color: var(--red);
+}
 .enterprise-ticket p,
 .enterprise-department span,
 .enterprise-session span,
@@ -2327,6 +2392,38 @@ button { cursor: pointer; border: none; background: none; }
   font-family: var(--font-mono);
   font-size: 0.68rem;
   color: var(--text-3);
+}
+.enterprise-ticket-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.enterprise-ticket-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.enterprise-ticket-controls select {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.045);
+  color: var(--text);
+  padding: 7px 8px;
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.enterprise-ticket-controls select:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
 }
 .enterprise-ticket-note {
   margin-top: 9px;
@@ -2360,6 +2457,62 @@ button { cursor: pointer; border: none; background: none; }
   color: var(--text);
   font-size: 0.78rem;
   text-align: right;
+}
+.enterprise-copilot {
+  margin-top: 9px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(99,179,237,0.14);
+  background: rgba(99,179,237,0.06);
+}
+.enterprise-copilot-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.enterprise-copilot p {
+  margin-top: 7px;
+  color: var(--text-2);
+  font-size: 0.76rem;
+}
+.enterprise-copilot small {
+  display: block;
+  margin-top: 6px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+}
+.enterprise-risk {
+  color: var(--green);
+}
+.enterprise-risk.medium { color: var(--amber); }
+.enterprise-risk.high { color: var(--red); }
+.enterprise-knowledge-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 9px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(104,211,145,0.14);
+  background: rgba(104,211,145,0.045);
+}
+.enterprise-knowledge-hints span {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.enterprise-knowledge-hints strong {
+  color: var(--text);
+  font-size: 0.78rem;
 }
 .enterprise-ticket-actions {
   display: grid;
@@ -2398,7 +2551,8 @@ button { cursor: pointer; border: none; background: none; }
 }
 .enterprise-session:hover,
 .enterprise-ticket:hover,
-.enterprise-department:hover {
+.enterprise-department:hover,
+.enterprise-knowledge-item:hover {
   border-color: var(--border-hover);
   background: var(--surface-hover);
 }
@@ -2447,6 +2601,106 @@ button { cursor: pointer; border: none; background: none; }
   color: var(--text-3);
   font-family: var(--font-mono);
   font-size: 0.68rem;
+}
+.enterprise-knowledge-card {
+  grid-row: span 2;
+}
+.enterprise-knowledge-search,
+.enterprise-knowledge-create {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.enterprise-knowledge-search {
+  grid-template-columns: 1fr auto;
+}
+.enterprise-knowledge-search input,
+.enterprise-knowledge-create input,
+.enterprise-knowledge-create textarea {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.035);
+  color: var(--text);
+  outline: none;
+  padding: 9px 11px;
+  font-size: 0.82rem;
+}
+.enterprise-knowledge-create textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+.enterprise-knowledge-search button,
+.enterprise-knowledge-create button {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 800;
+}
+.enterprise-knowledge-create button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.enterprise-knowledge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 12px;
+}
+.enterprise-knowledge-item {
+  padding: 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.028);
+}
+.enterprise-knowledge-item div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.enterprise-knowledge-item strong {
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+}
+.enterprise-knowledge-item span {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+}
+.enterprise-knowledge-item p {
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+.enterprise-knowledge-item small {
+  display: block;
+  margin-top: 7px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+}
+
+@media (max-width: 1400px) {
+  .enterprise-metrics { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 1100px) {
+  .enterprise-grid { grid-template-columns: 1fr; }
+  .enterprise-chat-card,
+  .enterprise-knowledge-card { grid-row: auto; }
+}
+@media (max-width: 720px) {
+  .enterprise-metrics { grid-template-columns: repeat(2, 1fr); }
+  .enterprise-intake-form,
+  .enterprise-composer,
+  .enterprise-knowledge-search { grid-template-columns: 1fr; }
+  .enterprise-header { flex-direction: column; }
 }
 
 /* ─── RANDEVULARIM TAM SAYFA ──────────────────────────────────── */
@@ -2662,6 +2916,126 @@ button { cursor: pointer; border: none; background: none; }
   font-style: italic;
   margin-top: 4px;
   line-height: 1.4;
+}
+.apts-error {
+  margin-bottom: 14px;
+}
+.apts-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.apts-card-actions button {
+  border: 1px solid rgba(99,179,237,0.22);
+  border-radius: 9px;
+  background: rgba(99,179,237,0.08);
+  color: var(--accent);
+  padding: 8px 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  transition: var(--transition);
+}
+.apts-card-actions button:hover:not(:disabled) {
+  border-color: rgba(99,179,237,0.38);
+  background: rgba(99,179,237,0.14);
+}
+.apts-card-actions button.danger {
+  border-color: rgba(252,129,129,0.22);
+  background: rgba(252,129,129,0.08);
+  color: var(--red);
+}
+.apts-card-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.apts-reschedule {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(4,8,14,0.62);
+  backdrop-filter: blur(10px);
+}
+.apts-reschedule-panel {
+  width: min(460px, 100%);
+  max-height: min(620px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(13,20,31,0.98);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.38);
+}
+.apts-reschedule-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.apts-reschedule-top span {
+  display: block;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.apts-reschedule-top strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text);
+  font-family: var(--font-display);
+}
+.apts-reschedule-top button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.045);
+  color: var(--text-2);
+  padding: 7px 10px;
+}
+.apts-slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 440px;
+  overflow-y: auto;
+  padding: 12px;
+}
+.apts-slot-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.035);
+  color: var(--text-2);
+  padding: 11px 12px;
+  text-align: left;
+  transition: var(--transition);
+}
+.apts-slot-list button:hover:not(:disabled) {
+  border-color: var(--border-active);
+  background: var(--surface-active);
+  color: var(--text);
+}
+.apts-slot-list span {
+  font-size: 0.78rem;
+}
+.apts-slot-list strong {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.apts-empty-slot {
+  padding: 20px;
+  color: var(--text-3);
+  text-align: center;
 }
 
 .apts-empty {

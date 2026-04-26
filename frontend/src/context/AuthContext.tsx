@@ -6,7 +6,12 @@ import {
   type ReactNode
 } from "react";
 
-import { getCurrentUser, login as loginRequest, register as registerRequest } from "../api/client";
+import {
+  getCurrentUser,
+  login as loginRequest,
+  register as registerRequest,
+  updateCurrentUserLocale
+} from "../api/client";
 import type { User } from "../types/api";
 
 type AuthContextValue = {
@@ -15,6 +20,7 @@ type AuthContextValue = {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (fullName: string, email: string, password: string) => Promise<void>;
+  updateLocale: (locale: "tr" | "en") => Promise<void>;
   logout: () => void;
 };
 
@@ -44,17 +50,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   async function login(email: string, password: string) {
-    const response = await loginRequest(email, password);
+    const response = await loginRequest(email.trim(), password);
     localStorage.setItem(TOKEN_KEY, response.access_token);
     setToken(response.access_token);
     setUser(response.user);
   }
 
   async function register(fullName: string, email: string, password: string) {
-    const response = await registerRequest(fullName, email, password);
+    const response = await registerRequest(fullName.trim(), email.trim(), password);
     localStorage.setItem(TOKEN_KEY, response.access_token);
     setToken(response.access_token);
     setUser(response.user);
+  }
+
+  async function updateLocale(locale: "tr" | "en") {
+    if (!token) return;
+    const nextUser = await updateCurrentUserLocale(token, locale);
+    setUser(nextUser);
   }
 
   function logout() {
@@ -71,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         login,
         register,
+        updateLocale,
         logout
       }}
     >

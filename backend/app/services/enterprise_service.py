@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import re
 
 from fastapi import HTTPException, status
@@ -12,6 +13,7 @@ from app.models import (
     AuditResultStatus,
     ChatSession,
     Department,
+    EnterpriseAgent,
     EnterpriseCustomer,
     EnterpriseSession,
     EnterpriseSessionStatus,
@@ -92,6 +94,63 @@ def build_handoff_package(session: EnterpriseSession, decision: RoutingDecision,
         "last_messages": _last_messages(session),
         "latest_customer_message": user_message,
     }
+
+
+def analyze_customer_signal(content: str, decision: RoutingDecision) -> dict:
+    text = content.lower()
+    negative_terms = ["acil", "urgent", "çalışmıyor", "calismiyor", "hata", "error", "şikayet", "sikayet", "kızgın", "angry"]
+    positive_terms = ["teşekkür", "tesekkur", "thanks", "great", "harika", "memnun"]
+    risk_terms = ["manager", "iptal", "cancel", "yasal", "legal", "ceza", "penalty", "down", "blocked", "kritik", "critical"]
+
+    negative_hits = [term for term in negative_terms if term in text]
+    positive_hits = [term for term in positive_terms if term in text]
+    risk_hits = [term for term in risk_terms if term in text]
+
+    if negative_hits and not positive_hits:
+        sentiment = "negative"
+    elif positive_hits and not negative_hits:
+        sentiment = "positive"
+    else:
+        sentiment = "neutral"
+
+    if decision.needs_handoff or decision.action == "escalate" or len(risk_hits) >= 2:
+        risk = "high"
+    elif negative_hits or risk_hits or decision.confidence < 65:
+        risk = "medium"
+    else:
+        risk = "low"
+
+    suggested_next_action = {
+        "high": "Assign a human owner, confirm impact, and send an SLA update.",
+        "medium": "Confirm missing details and keep the ticket visible in the queue.",
+        "low": "Continue self-service or normal queue handling.",
+    }[risk]
+
+    return {
+        "sentiment": sentiment,
+        "risk": risk,
+        "signals": negative_hits + risk_hits + positive_hits,
+        "summary": decision.explanation,
+        "suggested_next_action": suggested_next_action,
+    }
+
+
+def _knowledge_suggestions_for_message(db: Session, current_user: User, content: str) -> list[dict]:
+    try:
+        from app.services.knowledge_service import search_knowledge_articles
+
+        return [
+            {
+                "id": article.id,
+                "title": article.title,
+                "content": article.content[:220],
+                "tags": article.tags,
+                "score": score,
+            }
+            for article, score in search_knowledge_articles(db, current_user, content, limit=3)
+        ]
+    except Exception:
+        return []
 
 
 def route_enterprise_request(db: Session, organization: Organization, content: str) -> RoutingDecision:
@@ -262,18 +321,34 @@ def list_enterprise_tickets(db: Session, current_user: User) -> list[EnterpriseT
             .options(
                 selectinload(EnterpriseTicket.customer),
                 selectinload(EnterpriseTicket.department),
+                selectinload(EnterpriseTicket.assigned_agent),
             )
             .order_by(EnterpriseTicket.created_at.desc())
         )
     )
 
 
-def update_enterprise_ticket_status(
+def list_enterprise_agents(db: Session, current_user: User) -> list[EnterpriseAgent]:
+    ensure_enterprise_access(current_user)
+    organization = get_default_organization(db)
+    return list(
+        db.scalars(
+            select(EnterpriseAgent)
+            .where(EnterpriseAgent.organization_id == organization.id)
+            .order_by(EnterpriseAgent.display_name.asc())
+        )
+    )
+
+
+def update_enterprise_ticket(
     db: Session,
     *,
     current_user: User,
     ticket_id: int,
-    status_value: str,
+    status_value: str | None = None,
+    priority: str | None = None,
+    assigned_agent_id: int | None = None,
+    assigned_agent_id_provided: bool = False,
     resolution_note: str | None = None,
 ) -> EnterpriseTicket:
     ensure_enterprise_access(current_user)
@@ -283,28 +358,43 @@ def update_enterprise_ticket_status(
             selectinload(EnterpriseTicket.customer),
             selectinload(EnterpriseTicket.department),
             selectinload(EnterpriseTicket.session),
+            selectinload(EnterpriseTicket.assigned_agent),
         )
         .where(EnterpriseTicket.id == ticket_id)
     ).first()
     if ticket is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enterprise ticket not found")
 
-    try:
-        next_status = EnterpriseTicketStatus(status_value)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported ticket status") from exc
+    next_status = ticket.status
+    if status_value:
+        try:
+            next_status = EnterpriseTicketStatus(status_value)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported ticket status") from exc
+        ticket.status = next_status
+        if next_status == EnterpriseTicketStatus.ESCALATED and priority is None:
+            ticket.priority = "high"
+        elif next_status == EnterpriseTicketStatus.CLOSED and priority is None:
+            ticket.priority = "normal"
 
-    ticket.status = next_status
-    if next_status == EnterpriseTicketStatus.ESCALATED:
-        ticket.priority = "high"
-    elif next_status == EnterpriseTicketStatus.CLOSED:
-        ticket.priority = "normal"
+    if priority is not None:
+        ticket.priority = priority
+
+    if assigned_agent_id_provided and assigned_agent_id is None:
+        ticket.assigned_agent_id = None
+    elif assigned_agent_id is not None:
+        agent = db.get(EnterpriseAgent, assigned_agent_id)
+        if agent is None or agent.organization_id != ticket.organization_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assigned agent is not available")
+        ticket.assigned_agent_id = agent.id
 
     notes = dict(ticket.handoff_package or {})
     history = list(notes.get("status_history") or [])
     history.append(
         {
             "status": next_status.value,
+            "priority": ticket.priority,
+            "assigned_agent_id": ticket.assigned_agent_id,
             "updated_by_user_id": current_user.id,
             "note": resolution_note,
         }
@@ -332,11 +422,34 @@ def update_enterprise_ticket_status(
         user_id=current_user.id,
         session_id=ticket.session.chat_session_id if ticket.session else None,
         action_type="enterprise.ticket_status_updated",
-        explanation=f"Enterprise ticket marked as {next_status.value}",
+        explanation=f"Enterprise ticket updated as {next_status.value}",
         result_status=AuditResultStatus.SUCCESS,
-        details={"ticket_id": ticket.id, "status": next_status.value, "resolution_note": resolution_note},
+        details={
+            "ticket_id": ticket.id,
+            "status": next_status.value,
+            "priority": ticket.priority,
+            "assigned_agent_id": ticket.assigned_agent_id,
+            "resolution_note": resolution_note,
+        },
     )
     return ticket
+
+
+def update_enterprise_ticket_status(
+    db: Session,
+    *,
+    current_user: User,
+    ticket_id: int,
+    status_value: str,
+    resolution_note: str | None = None,
+) -> EnterpriseTicket:
+    return update_enterprise_ticket(
+        db,
+        current_user=current_user,
+        ticket_id=ticket_id,
+        status_value=status_value,
+        resolution_note=resolution_note,
+    )
 
 
 def _create_ticket(
@@ -417,7 +530,16 @@ def process_enterprise_message(
     )
 
     decision = route_enterprise_request(db, organization, content)
-    handoff_package = build_handoff_package(session, decision, content) if decision.needs_handoff or decision.action == "escalate" else {}
+    handoff_package = (
+        build_handoff_package(session, decision, content)
+        if decision.needs_handoff or decision.action in {"create_ticket", "escalate", "schedule_appointment"}
+        else {}
+    )
+    copilot_insights = analyze_customer_signal(content, decision)
+    knowledge_suggestions = _knowledge_suggestions_for_message(db, current_user, content)
+    if handoff_package:
+        handoff_package["copilot_insights"] = copilot_insights
+        handoff_package["knowledge_suggestions"] = knowledge_suggestions
 
     ticket: EnterpriseTicket | None = None
     appointment: Appointment | None = None
@@ -442,6 +564,7 @@ def process_enterprise_message(
         )
         if appointment is None:
             ticket = _create_ticket(db, session=session, decision=decision, user_message=content, handoff_package=handoff_package)
+            session.handoff_package = handoff_package
             assistant_message = (
                 "Randevu talebini algıladım ancak randevuyu tamamlamak için telefon/uygun slot eksik. Talep için ticket oluşturdum."
                 if current_user.locale == "tr"
@@ -455,9 +578,9 @@ def process_enterprise_message(
             )
     else:
         ticket = _create_ticket(db, session=session, decision=decision, user_message=content, handoff_package=handoff_package)
+        session.handoff_package = handoff_package
         if decision.action == "escalate":
             session.status = EnterpriseSessionStatus.NEEDS_HUMAN
-            session.handoff_package = handoff_package
             assistant_message = (
                 f"Talep {decision.department.name if decision.department else GENERAL_DEPARTMENT} ekibine eskale edildi. İnsan temsilci için handoff paketi hazırlandı."
                 if current_user.locale == "tr"
@@ -520,6 +643,31 @@ def enterprise_metrics(db: Session, current_user: User) -> dict:
     ensure_enterprise_access(current_user)
     organization = get_default_organization(db)
     total_tickets = db.scalar(select(func.count(EnterpriseTicket.id)).where(EnterpriseTicket.organization_id == organization.id)) or 0
+    open_tickets = (
+        db.scalar(
+            select(func.count(EnterpriseTicket.id)).where(
+                EnterpriseTicket.organization_id == organization.id,
+                EnterpriseTicket.status.in_(
+                    [
+                        EnterpriseTicketStatus.OPEN,
+                        EnterpriseTicketStatus.IN_PROGRESS,
+                        EnterpriseTicketStatus.ESCALATED,
+                    ]
+                ),
+            )
+        )
+        or 0
+    )
+    high_priority_tickets = (
+        db.scalar(
+            select(func.count(EnterpriseTicket.id)).where(
+                EnterpriseTicket.organization_id == organization.id,
+                EnterpriseTicket.priority.in_(["high", "urgent"]),
+                EnterpriseTicket.status != EnterpriseTicketStatus.CLOSED,
+            )
+        )
+        or 0
+    )
     active_sessions = (
         db.scalar(
             select(func.count(EnterpriseSession.id)).where(
@@ -539,9 +687,34 @@ def enterprise_metrics(db: Session, current_user: User) -> dict:
         or 0
     )
     appointments = db.scalar(select(func.count(Appointment.id))) or 0
+    ticket_rows = list(
+        db.scalars(
+            select(EnterpriseTicket).where(
+                EnterpriseTicket.organization_id == organization.id,
+                EnterpriseTicket.status != EnterpriseTicketStatus.CLOSED,
+            )
+        )
+    )
+    now = datetime.now(timezone.utc)
+    sla_limits = {"urgent": 2, "high": 4, "normal": 24, "low": 72}
+    sla_breached = 0
+    for ticket in ticket_rows:
+        created_at = ticket.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        elapsed_hours = (now - created_at).total_seconds() / 3600
+        if elapsed_hours >= sla_limits.get(ticket.priority, 24):
+            sla_breached += 1
+    avg_confidence_value = db.scalar(
+        select(func.avg(EnterpriseTicket.confidence)).where(EnterpriseTicket.organization_id == organization.id)
+    )
     return {
         "organization": organization,
         "total_tickets": total_tickets,
+        "open_tickets": open_tickets,
+        "high_priority_tickets": high_priority_tickets,
+        "sla_breached": sla_breached,
+        "avg_confidence": round(float(avg_confidence_value or 0), 1),
         "active_sessions": active_sessions,
         "escalations": escalations,
         "appointments": appointments,

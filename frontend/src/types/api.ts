@@ -126,11 +126,19 @@ export type EnterpriseCustomer = {
   phone?: string | null;
   external_ref?: string | null;
 };
+export type EnterpriseAgent = {
+  id: number;
+  user_id: number;
+  department_id?: number | null;
+  display_name: string;
+  availability_status: string;
+};
 export type EnterpriseTicket = {
   id: number;
   session_id?: number | null;
   customer: EnterpriseCustomer;
   department?: EnterpriseDepartment | null;
+  assigned_agent?: EnterpriseAgent | null;
   intent: string;
   description: string;
   status: string;
@@ -159,6 +167,10 @@ export type EnterpriseSessionDetail = EnterpriseSessionSummary & {
 export type EnterpriseMetrics = {
   organization: Organization;
   total_tickets: number;
+  open_tickets: number;
+  high_priority_tickets: number;
+  sla_breached: number;
+  avg_confidence: number;
   active_sessions: number;
   escalations: number;
   appointments: number;
@@ -166,6 +178,7 @@ export type EnterpriseMetrics = {
 export type EnterpriseOverview = {
   metrics: EnterpriseMetrics;
   departments: EnterpriseDepartment[];
+  agents: EnterpriseAgent[];
   tickets: EnterpriseTicket[];
   sessions: EnterpriseSessionSummary[];
 };
@@ -183,4 +196,17 @@ export type EnterpriseMessageResponse = {
   session: EnterpriseSessionDetail;
   assistant_message: string;
   decision: EnterpriseDecision;
+};
+export type KnowledgeArticle = {
+  id: number;
+  organization_id: number;
+  title: string;
+  content: string;
+  tags: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+export type KnowledgeSearchResult = KnowledgeArticle & {
+  score: number;
 };

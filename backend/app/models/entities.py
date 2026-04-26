@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, ForeignKey, Integer, JSON, String, Text, func
-from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -174,6 +174,7 @@ class Organization(Base):
     agents: Mapped[list["EnterpriseAgent"]] = relationship(back_populates="organization")
     customers: Mapped[list["EnterpriseCustomer"]] = relationship(back_populates="organization")
     routing_rules: Mapped[list["RoutingRule"]] = relationship(back_populates="organization")
+    knowledge_articles: Mapped[list["KnowledgeArticle"]] = relationship(back_populates="organization")
 
 
 class Department(Base):
@@ -294,3 +295,20 @@ class RoutingRule(Base):
 
     organization: Mapped["Organization"] = relationship(back_populates="routing_rules")
     department: Mapped["Department"] = relationship(back_populates="routing_rules")
+
+
+class KnowledgeArticle(Base):
+    __tablename__ = "knowledge_articles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list[str]] = mapped_column(MutableList.as_mutable(JSON), default=list, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    organization: Mapped["Organization"] = relationship(back_populates="knowledge_articles")

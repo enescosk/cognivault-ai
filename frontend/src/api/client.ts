@@ -8,6 +8,8 @@ import type {
   EnterpriseOverview,
   EnterpriseSessionDetail,
   EnterpriseTicket,
+  KnowledgeArticle,
+  KnowledgeSearchResult,
   Metrics,
   SendMessageResponse,
   User
@@ -55,6 +57,17 @@ export function getCurrentUser(token: string): Promise<User> {
   return request<User>("/auth/me", { method: "GET" }, token);
 }
 
+export function updateCurrentUserLocale(token: string, locale: "tr" | "en"): Promise<User> {
+  return request<User>(
+    "/users/me",
+    {
+      method: "PATCH",
+      body: JSON.stringify({ locale })
+    },
+    token
+  );
+}
+
 export function listSessions(token: string): Promise<ChatSessionSummary[]> {
   return request<ChatSessionSummary[]>("/chat/sessions", { method: "GET" }, token);
 }
@@ -99,6 +112,37 @@ export function getMetrics(token: string): Promise<Metrics> {
 
 export function getAppointments(token: string): Promise<Appointment[]> {
   return request<Appointment[]>("/appointments", { method: "GET" }, token);
+}
+
+export type AppointmentSlot = {
+  id: number;
+  department: string;
+  start_time: string;
+  end_time: string;
+  location: string;
+  is_booked: boolean;
+};
+
+export function getAppointmentSlots(token: string, department?: string): Promise<AppointmentSlot[]> {
+  const params = new URLSearchParams();
+  if (department) params.set("department", department);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<AppointmentSlot[]>(`/appointments/slots${suffix}`, { method: "GET" }, token);
+}
+
+export function cancelAppointment(appointmentId: number, token: string): Promise<Appointment> {
+  return request<Appointment>(`/appointments/${appointmentId}/cancel`, { method: "PATCH" }, token);
+}
+
+export function rescheduleAppointment(appointmentId: number, slotId: number, token: string): Promise<Appointment> {
+  return request<Appointment>(
+    `/appointments/${appointmentId}/reschedule`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ slot_id: slotId })
+    },
+    token
+  );
 }
 
 export function deleteSession(sessionId: number, token: string): Promise<{deleted: number}> {
@@ -160,6 +204,49 @@ export function updateEnterpriseTicketStatus(
     },
     token
   );
+}
+
+export function updateEnterpriseTicket(
+  ticketId: number,
+  payload: {
+    status?: "open" | "in_progress" | "escalated" | "closed";
+    priority?: "low" | "normal" | "high" | "urgent";
+    assigned_agent_id?: number | null;
+    resolution_note?: string;
+  },
+  token: string
+): Promise<EnterpriseTicket> {
+  return request<EnterpriseTicket>(
+    `/enterprise/tickets/${ticketId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function listKnowledgeArticles(token: string): Promise<KnowledgeArticle[]> {
+  return request<KnowledgeArticle[]>("/knowledge/articles", { method: "GET" }, token);
+}
+
+export function createKnowledgeArticle(
+  token: string,
+  payload: { title: string; content: string; tags: string[] }
+): Promise<KnowledgeArticle> {
+  return request<KnowledgeArticle>(
+    "/knowledge/articles",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function searchKnowledgeArticles(token: string, query: string): Promise<KnowledgeSearchResult[]> {
+  const params = new URLSearchParams({ q: query, limit: "5" });
+  return request<KnowledgeSearchResult[]>(`/knowledge/search?${params.toString()}`, { method: "GET" }, token);
 }
 
 /**

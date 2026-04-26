@@ -1,11 +1,16 @@
 .DS_Store
 .env
 __pycache__/
+**/__pycache__/
 *.pyc
+.pytest_cache/
+.coverage
+.venv/
 backend/.venv/
 backend/data/*.db
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts

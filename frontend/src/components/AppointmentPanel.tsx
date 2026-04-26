@@ -1,6 +1,6 @@
 import type { Appointment } from "../types/api";
 
-type Props = { appointments: Appointment[] };
+type Props = { appointments: Appointment[]; locale: string };
 
 const dateFormatter = new Intl.DateTimeFormat("tr-TR", { dateStyle: "medium", timeStyle: "short" });
 
@@ -9,21 +9,22 @@ function safeFormat(d: string) {
   return isNaN(date.getTime()) ? "—" : dateFormatter.format(date);
 }
 
-const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
-  confirmed: { label: "Onaylandı", color: "var(--green)", bg: "var(--green-bg)" },
-  pending: { label: "Bekliyor", color: "var(--amber)", bg: "var(--amber-bg)" },
-  cancelled: { label: "İptal", color: "var(--red)", bg: "var(--red-bg)" },
+const statusConfig: Record<string, { tr: string; en: string; color: string; bg: string }> = {
+  confirmed: { tr: "Onaylandı", en: "Confirmed", color: "var(--green)", bg: "var(--green-bg)" },
+  pending: { tr: "Bekliyor", en: "Pending", color: "var(--amber)", bg: "var(--amber-bg)" },
+  cancelled: { tr: "İptal", en: "Cancelled", color: "var(--red)", bg: "var(--red-bg)" },
 };
 
-export function AppointmentPanel({ appointments }: Props) {
+export function AppointmentPanel({ appointments, locale }: Props) {
+  const en = locale === "en";
   return (
     <aside className="appointment-panel">
       <div className="apanel-header">
         <div className="apanel-title-row">
-          <span className="apanel-title">Randevularım</span>
+          <span className="apanel-title">{en ? "My Appointments" : "Randevularım"}</span>
           <span className="apanel-count">{appointments.length}</span>
         </div>
-        <div className="apanel-subtitle">Aktif ve geçmiş randevularınız</div>
+        <div className="apanel-subtitle">{en ? "Active and past appointments" : "Aktif ve geçmiş randevularınız"}</div>
       </div>
 
       {appointments.length === 0 ? (
@@ -36,8 +37,8 @@ export function AppointmentPanel({ appointments }: Props) {
               <line x1="3" y1="10" x2="21" y2="10"/>
             </svg>
           </div>
-          <p>Henüz randevunuz yok</p>
-          <span>Sohbet üzerinden randevu alabilirsiniz</span>
+          <p>{en ? "No appointments yet" : "Henüz randevunuz yok"}</p>
+          <span>{en ? "You can book through chat" : "Sohbet üzerinden randevu alabilirsiniz"}</span>
         </div>
       ) : (
         <div className="apanel-list">
@@ -48,7 +49,7 @@ export function AppointmentPanel({ appointments }: Props) {
                 <div className="apanel-card-top">
                   <div className="apanel-dept">{apt.department}</div>
                   <span className="apanel-status" style={{ color: status.color, background: status.bg }}>
-                    {status.label}
+                    {en ? status.en : status.tr}
                   </span>
                 </div>
                 <div className="apanel-code">{apt.confirmation_code}</div>
@@ -84,7 +85,7 @@ export function AppointmentPanel({ appointments }: Props) {
             <line x1="12" y1="8" x2="12" y2="12"/>
             <line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
-          Randevu almak veya iptal etmek için sohbet kutusunu kullanın
+          {en ? "Use chat to book or manage appointments" : "Randevu almak veya iptal etmek için sohbet kutusunu kullanın"}
         </div>
       </div>
     </aside>

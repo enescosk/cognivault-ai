@@ -19,6 +19,7 @@ from app.models import (
     EnterpriseSessionStatus,
     EnterpriseTicket,
     EnterpriseTicketStatus,
+    KnowledgeArticle,
     MessageSender,
     Organization,
     Role,
@@ -169,7 +170,9 @@ def seed_database(db: Session) -> None:
 
 
 def seed_enterprise_demo(db: Session) -> None:
-    if db.scalars(select(Organization)).first():
+    existing_organization = db.scalars(select(Organization)).first()
+    if existing_organization:
+        seed_knowledge_articles(db, existing_organization.id)
         return
 
     organization = Organization(name="Cognivault Enterprise Demo", domain="cognivault.local")
@@ -251,6 +254,7 @@ def seed_enterprise_demo(db: Session) -> None:
     ]
     db.add_all(routing_rules)
     db.commit()
+    seed_knowledge_articles(db, organization.id)
 
     demo_customer = EnterpriseCustomer(
         organization_id=organization.id,
@@ -321,4 +325,50 @@ def seed_enterprise_demo(db: Session) -> None:
             handoff_package=demo_session.handoff_package,
         )
     )
+    db.commit()
+
+
+def seed_knowledge_articles(db: Session, organization_id: int) -> None:
+    if db.scalars(select(KnowledgeArticle).where(KnowledgeArticle.organization_id == organization_id)).first():
+        return
+
+    articles = [
+        KnowledgeArticle(
+            organization_id=organization_id,
+            title="VPN and internet outage triage",
+            content=(
+                "Confirm whether the customer is on VPN or office network. Ask for error message, affected service, "
+                "start time, and whether colleagues are affected. If business-critical access is blocked, mark priority high."
+            ),
+            tags=["technical", "vpn", "internet", "incident"],
+        ),
+        KnowledgeArticle(
+            organization_id=organization_id,
+            title="Invoice dispute playbook",
+            content=(
+                "Capture invoice number, billing period, contract reference, disputed amount and requested correction. "
+                "Route to Billing Operations and keep the ticket open until finance confirms the adjustment."
+            ),
+            tags=["billing", "invoice", "payment"],
+        ),
+        KnowledgeArticle(
+            organization_id=organization_id,
+            title="Appointment and reschedule policy",
+            content=(
+                "Appointments require a reachable phone number and an available slot. For reschedules, release the previous "
+                "slot and book the newly selected slot before sending confirmation."
+            ),
+            tags=["appointment", "reschedule", "scheduling"],
+        ),
+        KnowledgeArticle(
+            organization_id=organization_id,
+            title="Human handoff quality checklist",
+            content=(
+                "A handoff should include customer identity, intent, department, urgency, latest message, matched knowledge, "
+                "confidence score and the next best action for the operator."
+            ),
+            tags=["handoff", "quality", "operator"],
+        ),
+    ]
+    db.add_all(articles)
     db.commit()

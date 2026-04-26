@@ -36,10 +36,33 @@ def log_action(
     return entry
 
 
-def list_audit_logs(db: Session, current_user: User, limit: int = 100) -> list[AuditLog]:
+def list_audit_logs(
+    db: Session,
+    current_user: User,
+    limit: int = 100,
+    *,
+    action_type: str | None = None,
+    result_status: str | None = None,
+    success: bool | None = None,
+    user_id: int | None = None,
+    from_ts: datetime | None = None,
+    to_ts: datetime | None = None,
+) -> list[AuditLog]:
     query = select(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit)
     if current_user.role.name == RoleName.CUSTOMER:
         query = query.where(AuditLog.user_id == current_user.id)
+    elif user_id is not None:
+        query = query.where(AuditLog.user_id == user_id)
+    if action_type:
+        query = query.where(AuditLog.action_type.ilike(f"%{action_type.strip()}%"))
+    if result_status:
+        query = query.where(AuditLog.result_status == AuditResultStatus(result_status))
+    if success is not None:
+        query = query.where(AuditLog.success.is_(success))
+    if from_ts is not None:
+        query = query.where(AuditLog.timestamp >= from_ts)
+    if to_ts is not None:
+        query = query.where(AuditLog.timestamp <= to_ts)
     return list(db.scalars(query))
 
 

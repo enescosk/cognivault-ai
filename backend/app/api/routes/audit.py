@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
@@ -13,10 +15,26 @@ router = APIRouter(prefix="/audit-logs", tags=["audit"])
 @router.get("", response_model=list[AuditLogResponse])
 def get_audit_logs(
     limit: int = 100,
+    action_type: str | None = None,
+    result_status: str | None = Query(default=None, pattern="^(success|failure|info)$"),
+    success: bool | None = None,
+    user_id: int | None = None,
+    from_ts: datetime | None = None,
+    to_ts: datetime | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[AuditLogResponse]:
-    logs = list_audit_logs(db, current_user, limit)
+    logs = list_audit_logs(
+        db,
+        current_user,
+        limit,
+        action_type=action_type,
+        result_status=result_status,
+        success=success,
+        user_id=user_id,
+        from_ts=from_ts,
+        to_ts=to_ts,
+    )
     return [
         AuditLogResponse(
             id=entry.id,

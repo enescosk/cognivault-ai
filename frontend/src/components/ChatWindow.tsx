@@ -215,6 +215,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
 
   const roleName = user.role.name;
   const locale = user.locale.toUpperCase();
+  const en = user.locale === "en";
   const messages = session?.messages ?? [];
 
   return (
@@ -222,7 +223,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
       <div className="chat-header">
         <div className="chat-header-left">
           <div className="chat-title">{session?.title ?? "Agent Workspace"}</div>
-          <div className="chat-subtitle">Guided enterprise workflow · RBAC enforced</div>
+          <div className="chat-subtitle">{en ? "Guided enterprise workflow · RBAC enforced" : "Yönlendirmeli kurumsal akış · RBAC aktif"}</div>
         </div>
         <div className="chat-badges">
           <span className="chat-badge">
@@ -234,7 +235,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
               <path d="M7 11V7a5 5 0 0110 0v4"/>
             </svg>
-            Audited
+            {en ? "Audited" : "Denetleniyor"}
           </span>
         </div>
       </div>
@@ -249,8 +250,8 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
                 <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
               </svg>
             </div>
-            <h4>Konuşmayı başlat</h4>
-            <p>Yazarak veya 🎙️ mikrofon butonu ile sesli yazın. Türkçe ve İngilizce desteklenir.</p>
+            <h4>{en ? "Start the conversation" : "Konuşmayı başlat"}</h4>
+            <p>{en ? "Type or use the microphone button for voice input. Turkish and English are supported." : "Yazarak veya mikrofon butonu ile sesli yazın. Türkçe ve İngilizce desteklenir."}</p>
           </div>
         ) : (
           messages.map((msg) => {
@@ -276,7 +277,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
                         className={`tts-btn ${speakingId === msg.id ? "tts-btn--active" : ""}`}
                         onClick={() => void handleSpeak(msg.id, msg.content)}
                         disabled={ttsLoading !== null}
-                        title={speakingId === msg.id ? "Durdur" : "Sesli oku (OpenAI)"}
+                        title={speakingId === msg.id ? (en ? "Stop" : "Durdur") : (en ? "Read aloud (OpenAI)" : "Sesli oku (OpenAI)")}
                         type="button"
                       >
                         {ttsLoading === msg.id ? (
@@ -304,26 +305,26 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
                   {msg.appointment && (
                     <div className="confirmation-card">
                       <div className="confirmation-header">
-                        <span className="confirmation-label">Randevu Onaylandı</span>
-                        <span className="status-badge success">Onaylı</span>
+                        <span className="confirmation-label">{en ? "Appointment Confirmed" : "Randevu Onaylandı"}</span>
+                        <span className="status-badge success">{en ? "Confirmed" : "Onaylı"}</span>
                       </div>
                       <div className="confirmation-grid">
                         <div>
-                          <span className="cf-label">Departman</span>
+                          <span className="cf-label">{en ? "Department" : "Departman"}</span>
                           <span className="cf-value">{msg.appointment.department}</span>
                         </div>
                         <div>
-                          <span className="cf-label">Kod</span>
+                          <span className="cf-label">{en ? "Code" : "Kod"}</span>
                           <span className="cf-value" style={{ fontFamily: "var(--font-mono)", color: "var(--green)" }}>
                             {msg.appointment.confirmation_code}
                           </span>
                         </div>
                         <div>
-                          <span className="cf-label">Tarih</span>
+                          <span className="cf-label">{en ? "Date" : "Tarih"}</span>
                           <span className="cf-value">{trDateTime.format(new Date(msg.appointment.scheduled_at))}</span>
                         </div>
                         <div>
-                          <span className="cf-label">Amaç</span>
+                          <span className="cf-label">{en ? "Purpose" : "Amaç"}</span>
                           <span className="cf-value">{msg.appointment.purpose ?? "—"}</span>
                         </div>
                       </div>
@@ -341,7 +342,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
             <div className="message-bubble">
               <div className="message-meta">
                 <span className="message-sender">{user.full_name}</span>
-                <span className="message-time">şimdi</span>
+                <span className="message-time">{en ? "now" : "şimdi"}</span>
               </div>
               <div className="message-content">{pendingMessage}</div>
             </div>
@@ -387,9 +388,9 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
             className={`mic-btn ${recording ? "mic-btn--recording" : ""} ${transcribing ? "mic-btn--transcribing" : ""}`}
             onClick={toggleRecording}
             disabled={sending || transcribing}
-            title={recording ? "Kaydı durdur" : "Sesli yaz"}
+            title={recording ? (en ? "Stop recording" : "Kaydı durdur") : (en ? "Voice input" : "Sesli yaz")}
             type="button"
-            aria-label={recording ? "Kaydı durdur" : "Sesli yaz"}
+            aria-label={recording ? (en ? "Stop recording" : "Kaydı durdur") : (en ? "Voice input" : "Sesli yaz")}
           >
             {transcribing ? (
               // Whisper işliyor — dönen nokta
@@ -414,14 +415,14 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
 
           <textarea
             className="composer-textarea"
-            placeholder={recording ? "🔴 Dinliyorum..." : "Yazın veya 🎙️ ile sesli konuşun..."}
+            placeholder={recording ? (en ? "Recording..." : "Dinliyorum...") : (en ? "Type or use voice input..." : "Yazın veya sesli konuşun...")}
             value={input}
             rows={1}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={sending || recording}
           />
-          <button className="send-btn" onClick={handleSubmit} disabled={sending || recording || !input.trim()} type="button" aria-label="Gönder">
+          <button className="send-btn" onClick={handleSubmit} disabled={sending || recording || !input.trim()} type="button" aria-label={en ? "Send" : "Gönder"}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="22" y1="2" x2="11" y2="13"/>
               <polygon points="22 2 15 22 11 13 2 9 22 2"/>
@@ -436,8 +437,8 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
 
         <div className="composer-hint">
           {recording
-            ? "🔴 Kayıt devam ediyor — durdurmak için tekrar bas"
-            : "Enter gönder · Shift+Enter yeni satır · 🎙️ sesli yaz · 🔊 AI mesajını dinle"}
+            ? (en ? "Recording in progress - press again to stop" : "Kayıt devam ediyor - durdurmak için tekrar bas")
+            : (en ? "Enter to send · Shift+Enter for newline · voice input · listen to AI messages" : "Enter gönder · Shift+Enter yeni satır · sesli yaz · AI mesajını dinle")}
         </div>
       </div>
     </div>

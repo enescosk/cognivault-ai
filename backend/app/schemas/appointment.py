@@ -23,6 +23,10 @@ class AppointmentCreateRequest(BaseModel):
     language: str = "en"
 
 
+class AppointmentRescheduleRequest(BaseModel):
+    slot_id: int
+
+
 class AppointmentResponse(BaseModel):
     id: int
     confirmation_code: str

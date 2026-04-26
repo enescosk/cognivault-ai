@@ -23,7 +23,7 @@ import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
 
 export function Dashboard() {
-  const { token, user, logout } = useAuth();
+  const { token, user, logout, updateLocale } = useAuth();
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState<ChatSessionDetail | null>(null);
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -203,20 +203,21 @@ export function Dashboard() {
         onDeleteSession={handleDeleteSession}
         onViewAppointments={() => setView("appointments")}
         onViewEnterprise={() => setView("enterprise")}
+        onUpdateLocale={updateLocale}
         onLogout={logout}
       />
       <main className="main-panel">
-        <MetricsBar metrics={metrics} appointments={appointments} role={role} />
+        <MetricsBar metrics={metrics} appointments={appointments} role={role} locale={user.locale} />
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
         {view === "enterprise" && (isOperator || isAdmin) ? (
-          <EnterprisePanel token={token ?? ""} appointments={appointments} />
+          <EnterprisePanel token={token ?? ""} appointments={appointments} locale={user.locale} />
         ) : view === "appointments" && isCustomer ? (
-          <AppointmentsPage appointments={appointments} />
+          <AppointmentsPage appointments={appointments} token={token ?? ""} locale={user.locale} onChanged={() => loadDashboard(selectedSession?.id)} />
         ) : (
           <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
         )}
       </main>
-      {isCustomer && <AppointmentPanel appointments={appointments} />}
+      {isCustomer && <AppointmentPanel appointments={appointments} locale={user.locale} />}
       {isAdmin    && <AdminPanel users={users} appointments={appointments} logs={logs} />}
     </div>
   );

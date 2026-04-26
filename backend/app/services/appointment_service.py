@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from app.models import Appointment, AppointmentSlot, AuditResultStatus, RoleName, User
+from app.models import Appointment, AppointmentSlot, AppointmentStatus, AuditResultStatus, RoleName, User
 from app.services.audit_service import log_action
 
 
@@ -120,6 +120,78 @@ def list_appointments(db: Session, current_user: User) -> list[Appointment]:
     if current_user.role.name == RoleName.CUSTOMER:
         query = query.where(Appointment.user_id == current_user.id)
     return list(db.scalars(query))
+
+
+def get_manageable_appointment(db: Session, appointment_id: int, current_user: User) -> Appointment:
+    appointment = db.get(Appointment, appointment_id)
+    if appointment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found")
+    if current_user.role.name == RoleName.CUSTOMER and appointment.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Customers can only manage their own appointments")
+    return appointment
+
+
+def cancel_appointment(db: Session, *, appointment_id: int, current_user: User) -> Appointment:
+    appointment = get_manageable_appointment(db, appointment_id, current_user)
+    if appointment.status == AppointmentStatus.CANCELLED:
+        return appointment
+
+    appointment.status = AppointmentStatus.CANCELLED
+    if appointment.slot:
+        appointment.slot.is_booked = False
+        db.add(appointment.slot)
+    db.add(appointment)
+    db.commit()
+    db.refresh(appointment)
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action_type="appointment.cancelled",
+        explanation="Appointment cancelled successfully",
+        result_status=AuditResultStatus.SUCCESS,
+        tool_name="cancel_appointment",
+        details={"appointment_id": appointment.id, "slot_id": appointment.slot_id},
+    )
+    return appointment
+
+
+def reschedule_appointment(db: Session, *, appointment_id: int, slot_id: int, current_user: User) -> Appointment:
+    appointment = get_manageable_appointment(db, appointment_id, current_user)
+    if appointment.status == AppointmentStatus.CANCELLED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cancelled appointments cannot be rescheduled")
+
+    new_slot = db.get(AppointmentSlot, slot_id)
+    if new_slot is None or new_slot.is_booked:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected slot is not available")
+
+    previous_slot_id = appointment.slot_id
+    if appointment.slot:
+        appointment.slot.is_booked = False
+        db.add(appointment.slot)
+
+    appointment.slot_id = new_slot.id
+    appointment.department = new_slot.department
+    new_slot.is_booked = True
+    db.add(new_slot)
+    db.add(appointment)
+    db.commit()
+    db.refresh(appointment)
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action_type="appointment.rescheduled",
+        explanation="Appointment rescheduled successfully",
+        result_status=AuditResultStatus.SUCCESS,
+        tool_name="reschedule_appointment",
+        details={
+            "appointment_id": appointment.id,
+            "previous_slot_id": previous_slot_id,
+            "new_slot_id": new_slot.id,
+        },
+    )
+    return appointment
 
 
 def appointment_payload(appointment: Appointment) -> dict:

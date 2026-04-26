@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db, require_roles
 from app.models import RoleName, User
-from app.schemas.auth import RoleResponse, UserResponse
-from app.services.user_service import list_roles, list_users
+from app.schemas.auth import RoleResponse, UserLocaleUpdateRequest, UserResponse
+from app.services.user_service import list_roles, list_users, update_user_locale
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -13,6 +13,15 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse.model_validate(current_user)
+
+
+@router.patch("/me", response_model=UserResponse)
+def patch_me(
+    payload: UserLocaleUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserResponse:
+    return UserResponse.model_validate(update_user_locale(db, current_user, payload.locale))
 
 
 @router.get("", response_model=list[UserResponse])

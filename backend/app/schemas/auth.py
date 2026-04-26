@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LoginRequest(BaseModel):
@@ -11,6 +11,10 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     locale: str = "tr"
+
+
+class UserLocaleUpdateRequest(BaseModel):
+    locale: str = Field(pattern="^(tr|en)$")
 
 
 class RoleResponse(BaseModel):
