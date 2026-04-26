@@ -34,6 +34,32 @@ export type AppointmentInMessage = {
   purpose?: string | null;
   status: string;
 };
+export type IntelligenceActivityEvent = {
+  label: string;
+  status: "completed" | "in_progress" | "pending" | "blocked" | string;
+};
+export type IntelligenceActivity = {
+  type: "external_outreach";
+  job_id: number;
+  company: string;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  source_url?: string | null;
+  source_kind?: string | null;
+  source_label?: string | null;
+  confidence: number;
+  status: string;
+  failure_reason?: string | null;
+  extracted_terms?: {
+    company?: string;
+    location?: string | null;
+    purpose?: string | null;
+    search_query?: string;
+    entity_type?: "company" | "category" | string;
+  };
+  events: IntelligenceActivityEvent[];
+};
 export type ChatMessage = {
   id: number;
   sender: "user" | "assistant" | "system" | "tool";

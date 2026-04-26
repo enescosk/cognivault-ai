@@ -17,6 +17,8 @@ from app.schemas.chat import AgentReply
 from app.schemas.appointment import AppointmentConfirmationCard
 from app.services.appointment_service import format_slot_label
 from app.services.chat_service import add_message, update_workflow_state
+from app.services.external_intent_service import extract_external_request_terms
+from app.services.intelligence_service import discover_company_contact_for_agent
 from app.services.notification_service import send_appointment_confirmation
 from app.tools.registry import execute_tool, tool_specs, tool_specs_anthropic
 
@@ -85,6 +87,269 @@ def parse_department(text: str) -> str | None:
         if any(keyword in normalized for keyword in keywords):
             return department.title()
     return None
+
+
+_OUTREACH_KEYWORDS = [
+    "görüşme",
+    "gorusme",
+    "arama",
+    "ara",
+    "telefon",
+    "iletişim",
+    "iletisim",
+    "call",
+    "contact",
+    "reach",
+    "randevu",
+    "talep",
+    "muayene",
+    "doktor",
+    "hekim",
+    "hastane",
+    "danışmanlık",
+    "danismanlik",
+]
+
+_PLACE_CATEGORIES: list[tuple[list[str], str]] = [
+    (["diş", "dis", "dentist", "ortodonti"], "diş doktoru"),
+    (["göz", "goz", "oftalmoloji"], "göz doktoru"),
+    (["fizik tedavi", "fizyoterapi"], "fizik tedavi merkezi"),
+    (["psikolog", "psikiyatri", "terapi"], "psikolog"),
+    (["sağlık", "saglik", "hastane", "klinik", "doktor", "hekim", "muayene"], "sağlık merkezi"),
+    (["veteriner"], "veteriner kliniği"),
+    (["spor salonu", "fitness", "gym", "macfit"], "spor salonu"),
+    (["banka", "kredi", "akbank"], "banka"),
+    (["ihracat", "danışmanlık", "danismanlik"], "ihracat danışmanlığı"),
+]
+
+
+def _normalize_tr(value: str) -> str:
+    return (
+        value.lower()
+        .replace("ı", "i")
+        .replace("ğ", "g")
+        .replace("ü", "u")
+        .replace("ş", "s")
+        .replace("ö", "o")
+        .replace("ç", "c")
+    )
+
+
+def infer_place_category(text: str) -> str | None:
+    normalized = _normalize_tr(text)
+    for keywords, category in _PLACE_CATEGORIES:
+        if any(_normalize_tr(keyword) in normalized for keyword in keywords):
+            return category
+    return None
+
+
+def _clean_term(value: str) -> str:
+    cleaned = re.sub(r"\s+", " ", value.strip(" .,!?:;"))
+    cleaned = re.sub(r"^(ben|biz|şimdi|simdi|bir|bu)\s+", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
+def extract_outreach_terms(text: str) -> dict | None:
+    structured_terms = extract_external_request_terms(text)
+    if structured_terms:
+        return structured_terms
+
+    lower = text.lower()
+    if not any(keyword in lower for keyword in _OUTREACH_KEYWORDS):
+        return None
+
+    known_companies = [
+        (r"\bods(?:\s+consulting(?:\s+group)?)?\b", "ODS Consulting Group"),
+        (r"\bmac\s*fit\b|\bmacfit\b", "MACFit"),
+        (r"\bak\s*bank\b|\bakbank\b", "Akbank"),
+        (r"\bflorence(?:\s+nightingale)?\b", "Ataşehir Florence Nightingale Hastanesi"),
+    ]
+    company = None
+    for pattern, canonical in known_companies:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            company = canonical
+            break
+
+    location = None
+    loc_match = re.search(
+        r"\b([a-zçğıöşüİÇĞÖŞÜ]+)(?:'?(?:deki|daki|teki|taki|de|da|te|ta))\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if loc_match:
+        location = _clean_term(loc_match.group(1)).title()
+    if not location:
+        known_locations = [
+            "ataşehir",
+            "atasehir",
+            "kadıköy",
+            "kadikoy",
+            "üsküdar",
+            "uskudar",
+            "ümraniye",
+            "umraniye",
+            "beşiktaş",
+            "besiktas",
+            "şişli",
+            "sisli",
+        ]
+        normalized_text = _normalize_tr(text)
+        for item in known_locations:
+            if _normalize_tr(item) in normalized_text:
+                location = item.replace("atasehir", "ataşehir").replace("kadikoy", "kadıköy").replace("umraniye", "ümraniye").title()
+                break
+
+    purpose = None
+    purpose_for_matches = re.findall(r"([^.?!]{3,120}?)\s+(?:için|icin)\b", text, flags=re.IGNORECASE)
+    if purpose_for_matches:
+        purpose = _clean_term(purpose_for_matches[-1])
+    purpose_match = re.search(
+        r"(?:ile|için|icin|ilgili)\s+(.+?)(?:\s+(?:talep\s+ediyorum|istiyorum|ayarla|başlat|baslat)|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not purpose and purpose_match:
+        purpose = _clean_term(purpose_match.group(1))
+    if not purpose:
+        purpose_match = re.search(r"((?:kredi|ihracat|müşteri|musteri|kayıt|kayit).{0,80})", text, flags=re.IGNORECASE)
+        if purpose_match:
+            purpose = _clean_term(purpose_match.group(1))
+
+    category = infer_place_category(text)
+
+    if category and "muayene" in lower:
+        purpose = f"{category} muayenesi"
+
+    if not company and not category:
+        match = re.search(r"(.+?)\s+ile\s+.+?(?:görüşme|gorusme|arama|iletişim|iletisim)", text, flags=re.IGNORECASE)
+        if match:
+            candidate = _clean_term(match.group(1))
+            if 2 <= len(candidate) <= 120:
+                company = candidate
+
+    if category and (not purpose or purpose in {"ilgili görüşme", "görüşme", "gorusme"}):
+        purpose = f"{category} görüşmesi"
+
+    if not company and category:
+        company = category
+
+    if not company:
+        return None
+    search_query = f"{company} {location or ''}".strip()
+    return {
+        "company": company,
+        "category": category,
+        "location": location,
+        "purpose": purpose or "görüşme talebi",
+        "search_query": search_query,
+    }
+
+
+def parse_company_outreach_request(text: str) -> str | None:
+    terms = extract_outreach_terms(text)
+    return terms["search_query"] if terms else None
+
+
+def _outreach_activity_payload(job, terms: dict) -> dict:
+    lead = job.leads[0] if job.leads else None
+    contacts = lead.contact_points if lead else []
+    phone = next((item for item in contacts if item.kind.value == "phone"), None)
+    email = next((item for item in contacts if item.kind.value == "email"), None)
+    provenance = lead.provenance if lead else {}
+    source_label = {
+        "website": "approved public website catalog",
+        "google_places": "Google Places",
+    }.get(lead.source_kind.value if lead else "", "public source")
+    return {
+        "type": "external_outreach",
+        "job_id": job.id,
+        "company": lead.organization_name if lead else job.query,
+        "address": lead.location if lead else None,
+        "phone": phone.value if phone else None,
+        "email": email.value if email else None,
+        "source_url": lead.source_url if lead else None,
+        "source_kind": lead.source_kind.value if lead else None,
+        "source_label": source_label,
+        "confidence": lead.confidence if lead else 0,
+        "status": "call_prepared" if phone else "contact_not_found",
+        "failure_reason": provenance.get("mode") if not phone else None,
+        "extracted_terms": terms,
+        "events": [
+            {"label": f"{'Firma' if terms.get('entity_type') == 'company' else 'İhtiyaç'} algılandı: {terms['company']}", "status": "completed"},
+            {"label": f"Lokasyon/amaç çıkarıldı: {terms.get('location') or 'genel'} · {terms.get('purpose')}", "status": "completed"},
+            {"label": f"{source_label} ile iletişim bilgisi arandı", "status": "completed"},
+            {
+                "label": "Telefon bulundu" if phone else "Telefon bulunamadı",
+                "status": "completed" if phone else "blocked",
+            },
+            {
+                "label": "Arama hazırlığı başlatıldı" if phone else "Operatör incelemesi gerekiyor",
+                "status": "in_progress" if phone else "pending",
+            },
+        ],
+    }
+
+
+def handle_company_outreach_request(context: AgentContext, user_message: str, language: str) -> AgentReply | None:
+    terms = extract_outreach_terms(user_message)
+    if not terms:
+        return None
+    job = discover_company_contact_for_agent(
+        context.db,
+        current_user=context.user,
+        query=terms["search_query"],
+        target_location=terms.get("location") or "Türkiye",
+    )
+    activity = _outreach_activity_payload(job, terms)
+    if activity.get("phone"):
+        entity_label = "firma" if terms.get("entity_type") == "company" else "ihtiyaç"
+        message = default_reply(
+            language,
+            (
+                f"{activity['company']} için public kaynaklarda iletişim bilgisini buldum.\n"
+                f"Çıkardığım terimler: {entity_label}={terms['company']}, lokasyon={terms.get('location') or 'genel'}, amaç={terms.get('purpose')}.\n"
+                f"Kaynak: {activity.get('source_label')}.\n"
+                f"Adres: {activity['address']}\n"
+                f"Telefon: {activity['phone']}\n\n"
+                f"{terms.get('purpose')} için arama hazırlığına geçiyorum. "
+                "Şimdilik bu aşama simülasyon modunda; gerçek arama için operatör onayı gerekecek."
+            ),
+            (
+                f"I found public contact details for {activity['company']}.\n"
+                f"Extracted terms: entity={terms['company']}, location={terms.get('location') or 'general'}, purpose={terms.get('purpose')}.\n"
+                f"Source: {activity.get('source_label')}.\n"
+                f"Address: {activity['address']}\n"
+                f"Phone: {activity['phone']}\n\n"
+                f"I am preparing the call for {terms.get('purpose')}. "
+                "For now this is simulated; a real call will require operator approval."
+            ),
+        )
+        outcome = "external_contact_prepared"
+    else:
+        entity_label = "firma" if terms.get("entity_type") == "company" else "ihtiyaç"
+        reason = activity.get("failure_reason")
+        setup_hint = ""
+        if reason == "google_places_not_configured":
+            setup_hint = " Google Places canlı araması için GOOGLE_PLACES_API_KEY yapılandırılmalı."
+        elif reason == "external_intelligence_disabled":
+            setup_hint = " Google Places canlı araması için INTELLIGENCE_EXTERNAL_ENABLED=true yapılmalı."
+        message = default_reply(
+            language,
+            (
+                f"{terms['company']} için güvenilir public telefon bilgisi bulamadım. "
+                f"Çıkardığım terimler: {entity_label}={terms['company']}, lokasyon={terms.get('location') or 'genel'}, amaç={terms.get('purpose')}. "
+                f"Aranan kaynak: {activity.get('source_label')}.{setup_hint} "
+                "Operatör incelemesine alıyorum."
+            ),
+            f"I could not find a reliable public phone number for {terms['company']}. I am routing it for operator review.",
+        )
+        outcome = "external_contact_needs_review"
+    return AgentReply(
+        message=message,
+        language=language,
+        outcome=outcome,
+        metadata_json={"intelligence_activity": activity},
+    )
 
 
 def parse_slot_selection(text: str, suggested_slots: list[dict]) -> dict | None:
@@ -478,6 +743,23 @@ def stream_openai_agent(
     def _sse(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
+    outreach_reply = handle_company_outreach_request(context, user_message, language)
+    if outreach_reply:
+        full_text = outreach_reply.message
+        words = re.findall(r"\S+\s*", full_text)
+        for word in words:
+            yield _sse({"t": "tk", "v": word})
+        add_message(
+            context.db,
+            session=context.session,
+            sender=MessageSender.ASSISTANT,
+            content=full_text,
+            language=language,
+            metadata_json=outreach_reply.metadata_json or {},
+        )
+        yield _sse({"t": "done", "card": None})
+        return
+
     client = OpenAI(api_key=settings.openai_api_key)
     history = _build_history(context, user_message)
     confirmation_card: AppointmentConfirmationCard | None = None
@@ -799,6 +1081,18 @@ def run_fallback_agent(context: AgentContext, user_message: str, language: str) 
 
 def process_message(context: AgentContext, user_message: str) -> AgentReply:
     language = detect_language(user_message, context.user.locale)
+    outreach_reply = handle_company_outreach_request(context, user_message, language)
+    if outreach_reply:
+        add_message(
+            context.db,
+            session=context.session,
+            sender=MessageSender.ASSISTANT,
+            content=outreach_reply.message,
+            language=outreach_reply.language,
+            metadata_json=outreach_reply.metadata_json or {},
+        )
+        return outreach_reply
+
     if openai_enabled():
         try:
             reply = run_openai_agent(context, user_message, language)
@@ -807,9 +1101,9 @@ def process_message(context: AgentContext, user_message: str) -> AgentReply:
     else:
         reply = run_fallback_agent(context, user_message, language)
 
-    metadata = {}
+    metadata = reply.metadata_json or {}
     if reply.confirmation_card:
-        metadata = reply.confirmation_card.model_dump(mode="json")
+        metadata = {**metadata, **reply.confirmation_card.model_dump(mode="json")}
     add_message(
         context.db,
         session=context.session,

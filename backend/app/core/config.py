@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-mini"
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-5"
+    intelligence_external_enabled: bool = False
+    intelligence_allowed_sources: str = "manual,website,google_places,x_api,reddit_api"
+    intelligence_max_results_per_job: int = 25
+    intelligence_default_rate_limit_per_minute: int = 30
+    google_places_api_key: str = ""
     # E-posta bildirimi (isteğe bağlı — boş bırakılırsa simülasyon modu)
     smtp_host: str = ""
     smtp_port: int = 587
@@ -44,6 +49,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def intelligence_allowed_source_list(self) -> list[str]:
+        return [source.strip() for source in self.intelligence_allowed_sources.split(",") if source.strip()]
 
 
 @lru_cache

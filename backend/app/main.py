@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import appointments, audit, auth, chat, enterprise, users, voice
+from app.api.routes import appointments, audit, auth, chat, enterprise, intelligence, users, voice
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
@@ -42,6 +42,7 @@ app.include_router(appointments.router, prefix=settings.api_prefix)
 app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(enterprise.router, prefix=settings.api_prefix)
+app.include_router(intelligence.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

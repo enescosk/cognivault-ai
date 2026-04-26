@@ -48,6 +48,7 @@ class AgentReply(BaseModel):
     language: str
     outcome: str
     confirmation_card: AppointmentConfirmationCard | None = None
+    metadata_json: dict | None = None
 
 
 class SendMessageResponse(BaseModel):
