@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.appointment import AppointmentConfirmationCard
 
@@ -40,7 +40,7 @@ class ChatSessionDetail(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
-    content: str
+    content: str = Field(min_length=1, max_length=2000)
 
 
 class AgentReply(BaseModel):

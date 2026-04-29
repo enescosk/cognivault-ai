@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AppointmentSlotResponse(BaseModel):
@@ -16,11 +16,11 @@ class AppointmentSlotResponse(BaseModel):
 
 class AppointmentCreateRequest(BaseModel):
     slot_id: int
-    purpose: str
-    contact_phone: str
-    notes: str | None = None
+    purpose: str = Field(min_length=1, max_length=500)
+    contact_phone: str = Field(min_length=7, max_length=20)
+    notes: str | None = Field(default=None, max_length=1000)
     target_user_id: int | None = None
-    language: str = "en"
+    language: str = Field(default="en", max_length=10)
 
 
 class AppointmentResponse(BaseModel):

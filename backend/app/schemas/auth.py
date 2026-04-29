@@ -1,16 +1,16 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
 
 
 class RegisterRequest(BaseModel):
-    full_name: str
-    email: str
-    password: str
-    locale: str = "tr"
+    full_name: str = Field(min_length=1, max_length=100)
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=128)
+    locale: str = Field(default="tr", max_length=10)
 
 
 class RoleResponse(BaseModel):

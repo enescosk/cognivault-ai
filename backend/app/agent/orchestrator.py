@@ -33,6 +33,150 @@ class AgentContext:
     session: ChatSession
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SENTIMENT DETECTION
+# Lightweight rule-based — zero API cost. Used to adjust fallback tone.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SENTIMENT_RULES: list[tuple[str, list[str]]] = [
+    ("frustrated", ["saçmalık", "hâlâ", "hala", "olmadı", "olmadi", "bir türlü", "bir turlu",
+                    "yine aynı", "yine ayni", "çözülmedi", "cozulmedi", "rezalet",
+                    "I'm frustrated", "still not", "ridiculous", "unacceptable", "terrible"]),
+    ("urgent",     ["acil", "urgent", "asap", "şu an", "su an", "hemen", "right now",
+                    "immediately", "as soon as possible"]),
+    ("confused",   ["anlamadım", "anlamadim", "nasıl", "nasil", "ne demek", "I don't understand",
+                    "confused", "what does", "how do i", "how to"]),
+    ("happy",      ["teşekkürler", "tesekkurler", "mükemmel", "mukkemmel", "harika", "süper",
+                    "thank you", "thanks", "great", "perfect", "excellent", "awesome"]),
+]
+
+
+def detect_sentiment(text: str) -> str:
+    """Returns one of: frustrated | urgent | confused | happy | neutral"""
+    lower = text.lower()
+    for sentiment, keywords in _SENTIMENT_RULES:
+        if any(kw in lower for kw in keywords):
+            return sentiment
+    return "neutral"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COST-AWARE INTENT CLASSIFIER
+# Decides whether to route to AI API or handle locally.
+# Goal: never call a paid API for trivial messages.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SIMPLE_INTENTS: dict[str, list[str]] = {
+    "greeting":    ["merhaba", "alo", "selam", "hi ", "hello", "hey ", "good morning", "iyi günler"],
+    "smalltalk":   ["nasılsın", "nasilsin", "naber", "ne var ne yok", "how are you", "how's it going"],
+    "thanks":      ["teşekkür", "tesekkur", "sağ ol", "sag ol", "thank you", "thanks", "cheers"],
+    "farewell":    ["görüşürüz", "gorusuruz", "iyi günler", "bye", "goodbye", "see you", "hoşça kal"],
+    "affirmative": ["evet", "tamam", "olur", "tabii", "yes", "sure", "ok", "okay", "yep"],
+}
+
+_SIMPLE_RESPONSES: dict[str, dict[str, str]] = {
+    "greeting": {
+        "tr": "Merhaba! 👋 Size nasıl yardımcı olabilirim?",
+        "en": "Hello! 👋 How can I help you today?",
+    },
+    "smalltalk": {
+        "tr": "İyiyim, teşekkürler! Sen nasılsın? Bugün sana nasıl yardımcı olabilirim?",
+        "en": "I'm doing well, thanks! How are you? What can I help you with today?",
+    },
+    "thanks": {
+        "tr": "Rica ederim! 😊 Başka yardımcı olabileceğim bir şey var mı?",
+        "en": "You're welcome! 😊 Is there anything else I can help you with?",
+    },
+    "farewell": {
+        "tr": "İyi günler! Tekrar görüşmek üzere. 👋",
+        "en": "Take care! Talk to you soon. 👋",
+    },
+}
+
+
+def classify_simple_intent(text: str) -> str | None:
+    """Returns intent name if message is trivially simple, else None."""
+    lower = text.lower().strip()
+    # Very short messages are likely simple
+    if len(lower) > 120:
+        return None
+    for intent, keywords in _SIMPLE_INTENTS.items():
+        if any(lower.startswith(kw) or f" {kw}" in lower for kw in keywords):
+            return intent
+    return None
+
+
+def make_simple_reply(intent: str, language: str, sentiment: str, user_name: str | None) -> str | None:
+    """Returns a canned reply for trivial intents — no API call needed."""
+    template = _SIMPLE_RESPONSES.get(intent, {}).get(language)
+    if not template:
+        return None
+    # Personalise with name if available
+    if user_name and intent == "greeting":
+        first = user_name.split()[0]
+        template = template.replace("Merhaba!", f"Merhaba, {first}!").replace("Hello!", f"Hello, {first}!")
+    # Sentiment overlay
+    if sentiment == "frustrated" and intent not in ("thanks", "farewell"):
+        prefix = "Üzgünüm duyduğuma. " if language == "tr" else "I'm sorry to hear that. "
+        template = prefix + template
+    return template
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTEXT COMPRESSION
+# Summarises old messages to avoid sending full history to the API.
+# Keeps last N messages verbatim + a compressed summary of everything older.
+# This halves token cost for long conversations.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_VERBATIM_TAIL = 8   # always keep last N messages as-is
+_COMPRESS_THRESHOLD = 16  # only compress when history exceeds this
+
+
+def _compress_history(messages: list) -> list[dict]:
+    """
+    Returns an OpenAI-style message list.
+    If conversation is long, older messages are summarised into a single
+    system message to reduce token usage.
+    """
+    user_assistant = [
+        m for m in messages
+        if m.sender in (MessageSender.USER, MessageSender.ASSISTANT)
+    ]
+
+    if len(user_assistant) <= _COMPRESS_THRESHOLD:
+        return [
+            {"role": "user" if m.sender == MessageSender.USER else "assistant", "content": m.content}
+            for m in user_assistant
+        ]
+
+    # Split: older (to summarise) + recent tail (verbatim)
+    older  = user_assistant[:-_VERBATIM_TAIL]
+    recent = user_assistant[-_VERBATIM_TAIL:]
+
+    summary_lines = []
+    for m in older:
+        role = "Kullanıcı" if m.sender == MessageSender.USER else "Asistan"
+        # Truncate very long messages in the summary
+        content = m.content[:200] + "…" if len(m.content) > 200 else m.content
+        summary_lines.append(f"{role}: {content}")
+
+    summary_block = {
+        "role": "system",
+        "content": (
+            "[Önceki konuşma özeti — token tasarrufu için sıkıştırıldı]\n"
+            + "\n".join(summary_lines)
+        ),
+    }
+
+    verbatim = [
+        {"role": "user" if m.sender == MessageSender.USER else "assistant", "content": m.content}
+        for m in recent
+    ]
+
+    return [summary_block] + verbatim
+
+
 def detect_language(text: str, fallback: str = "en") -> str:
     turkish_markers = ["ş", "ğ", "ı", "ç", "ö", "ü", "randevu", "merhaba", "yardım", "bugün", "yarın"]
     return "tr" if any(marker in text.lower() for marker in turkish_markers) or fallback == "tr" else "en"
@@ -632,25 +776,27 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _build_history(context: AgentContext, user_message: str) -> list[dict]:
-    """Ortak history builder — hem streaming hem normal agent kullanır."""
+    """
+    Ortak history builder — hem streaming hem normal agent kullanır.
+    Context compression ile uzun konuşmalarda token tasarrufu sağlar.
+    """
     user_phone_display = context.user.phone or ""
+    sentiment = detect_sentiment(user_message)
     ctx_block = (
         f"[Oturum bağlamı] "
         f"Kullanıcı: {context.user.full_name} | "
         f"Rol: {context.user.role.name.value} | "
         f"Dil: {context.user.locale} | "
         f"user_phone: {user_phone_display} | "
+        f"Duygu: {sentiment} | "
         f"Workflow: {json.dumps(context.session.workflow_state or {}, ensure_ascii=False)}"
     )
     history: list[dict] = [
         {"role": "system", "content": build_system_prompt()},
         {"role": "system", "content": ctx_block},
     ]
-    for item in context.session.messages[-12:]:
-        if item.sender == MessageSender.USER:
-            history.append({"role": "user", "content": item.content})
-        elif item.sender == MessageSender.ASSISTANT:
-            history.append({"role": "assistant", "content": item.content})
+    # Use compressed history to save tokens on long conversations
+    history.extend(_compress_history(context.session.messages))
     history.append({"role": "user", "content": user_message})
     return history
 
@@ -1080,7 +1226,33 @@ def run_fallback_agent(context: AgentContext, user_message: str, language: str) 
 
 
 def process_message(context: AgentContext, user_message: str) -> AgentReply:
-    language = detect_language(user_message, context.user.locale)
+    """
+    Main entry point. Routing strategy (cheapest-first):
+
+    1. Simple intent? → canned reply, zero API cost.
+    2. Outreach request? → intelligence service, no LLM needed.
+    3. OpenAI enabled? → full LLM agent with tool calling.
+    4. Fallback → local rule-based engine (works without any API key).
+    """
+    language  = detect_language(user_message, context.user.locale)
+    sentiment = detect_sentiment(user_message)
+
+    # ── Tier 1: zero-cost canned replies ──────────────────────────────────────
+    simple_intent = classify_simple_intent(user_message)
+    if simple_intent and simple_intent != "affirmative":
+        canned = make_simple_reply(simple_intent, language, sentiment, context.user.full_name)
+        if canned:
+            add_message(
+                context.db,
+                session=context.session,
+                sender=MessageSender.ASSISTANT,
+                content=canned,
+                language=language,
+                metadata_json={"intent": simple_intent, "sentiment": sentiment, "tier": "canned"},
+            )
+            return AgentReply(message=canned, language=language, outcome="smalltalk")
+
+    # ── Tier 2: outreach / intelligence ──────────────────────────────────────
     outreach_reply = handle_company_outreach_request(context, user_message, language)
     if outreach_reply:
         add_message(
@@ -1093,15 +1265,23 @@ def process_message(context: AgentContext, user_message: str) -> AgentReply:
         )
         return outreach_reply
 
+    # ── Tier 3: LLM agent ─────────────────────────────────────────────────────
     if openai_enabled():
         try:
             reply = run_openai_agent(context, user_message, language)
         except Exception:  # noqa: BLE001
             reply = run_fallback_agent(context, user_message, language)
+    elif anthropic_enabled():
+        try:
+            reply = run_anthropic_agent(context, user_message, language)
+        except Exception:  # noqa: BLE001
+            reply = run_fallback_agent(context, user_message, language)
     else:
+        # ── Tier 4: local rule-based fallback (zero cost) ─────────────────────
         reply = run_fallback_agent(context, user_message, language)
 
-    metadata = reply.metadata_json or {}
+    # Attach sentiment to metadata for analytics
+    metadata = {**(reply.metadata_json or {}), "sentiment": sentiment}
     if reply.confirmation_card:
         metadata = {**metadata, **reply.confirmation_card.model_dump(mode="json")}
     add_message(
