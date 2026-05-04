@@ -184,6 +184,7 @@ SAMPLE_CONVERSATIONS = [
 
 def seed_database(db: Session) -> None:
     if db.scalars(select(Role)).first():
+        ensure_demo_users(db)
         seed_enterprise_demo(db)
         return
 
@@ -384,6 +385,56 @@ def seed_database(db: Session) -> None:
         )
 
     seed_enterprise_demo(db)
+
+
+def ensure_demo_users(db: Session) -> None:
+    role_lookup = {role.name: role for role in db.scalars(select(Role)).all()}
+    profile_groups = [
+        (CUSTOMER_PROFILES, RoleName.CUSTOMER),
+        (OPERATOR_PROFILES, RoleName.OPERATOR),
+        (ADMIN_PROFILES, RoleName.ADMIN),
+    ]
+
+    changed = False
+    for profiles, role_name in profile_groups:
+        role = role_lookup.get(role_name)
+        if role is None:
+            role = Role(name=role_name, description=role_name.value)
+            db.add(role)
+            db.flush()
+            role_lookup[role_name] = role
+            changed = True
+
+        for profile in profiles:
+            user = db.scalars(select(User).where(User.email == profile["email"])).first()
+            if user is None:
+                user = User(
+                    full_name=profile["full_name"],
+                    email=profile["email"],
+                    hashed_password=hash_password("demo123"),
+                    locale=profile["locale"],
+                    department=profile["dept"],
+                    title=profile["title"],
+                    phone=profile.get("phone"),
+                    role_id=role.id,
+                    is_active=True,
+                )
+                db.add(user)
+                changed = True
+                continue
+
+            user.full_name = profile["full_name"]
+            user.locale = profile["locale"]
+            user.department = profile["dept"]
+            user.title = profile["title"]
+            user.phone = profile.get("phone")
+            user.role_id = role.id
+            user.hashed_password = hash_password("demo123")
+            user.is_active = True
+            changed = True
+
+    if changed:
+        db.commit()
 
 
 def seed_enterprise_demo(db: Session) -> None:
