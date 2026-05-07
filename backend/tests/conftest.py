@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.db.session import SessionLocal
@@ -10,9 +11,13 @@ from app.api.dependencies import get_db
 from app.models import Role, RoleName, User
 from app.core.security import hash_password
 
-SQLITE_URL = "sqlite:///./test.db"
+SQLITE_URL = "sqlite://"
 
-engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    SQLITE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -26,6 +31,7 @@ def override_get_db():
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
 

@@ -18,7 +18,7 @@ import { AppointmentPanel } from "./AppointmentPanel";
 import { AppointmentsPage } from "./AppointmentsPage";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
-import { EnterprisePanel } from "./EnterprisePanel";
+import { ClinicalPanel } from "./ClinicalPanel";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
 
@@ -35,7 +35,7 @@ export function Dashboard() {
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "appointments" | "enterprise">("chat");
+  const [view, setView] = useState<"chat" | "appointments" | "clinical">("chat");
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
@@ -45,7 +45,7 @@ export function Dashboard() {
   useEffect(() => {
     if (!token || !user) return;
     if (user.role.name === "operator" || user.role.name === "admin") {
-      setView("enterprise");
+      setView("clinical");
     }
     void loadDashboard();
   }, [token, user]);
@@ -190,26 +190,28 @@ export function Dashboard() {
   if (!user) return null;
   if (loading && !selectedSession) return <div className="loading-shell">Loading workspace...</div>;
 
+  const isClinicalView = view === "clinical" && (isOperator || isAdmin);
+
   return (
-    <div className={`dashboard-shell ${isOperator ? "operator-view" : ""}`}>
+    <div className={`dashboard-shell ${isOperator ? "operator-view" : ""} ${isClinicalView ? "clinical-view" : ""}`}>
       <Sidebar
         user={user}
         sessions={sessions}
         appointments={appointments}
         selectedSessionId={selectedSession?.id}
         activeView={view}
-        onSelectSession={(id) => { setView(isCustomer ? "chat" : "enterprise"); if (isCustomer) handleSelectSession(id); }}
-        onNewSession={() => { if (isCustomer) { setView("chat"); handleNewSession(); } else { setView("enterprise"); } }}
+        onSelectSession={(id) => { setView(isCustomer ? "chat" : "clinical"); if (isCustomer) handleSelectSession(id); }}
+        onNewSession={() => { if (isCustomer) { setView("chat"); handleNewSession(); } else { setView("clinical"); } }}
         onDeleteSession={handleDeleteSession}
         onViewAppointments={() => setView("appointments")}
-        onViewEnterprise={() => setView("enterprise")}
+        onViewClinical={() => setView("clinical")}
         onLogout={logout}
       />
       <main className="main-panel">
-        <MetricsBar metrics={metrics} appointments={appointments} role={role} />
+        {!isClinicalView ? <MetricsBar metrics={metrics} appointments={appointments} role={role} /> : null}
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        {view === "enterprise" && (isOperator || isAdmin) ? (
-          <EnterprisePanel token={token ?? ""} appointments={appointments} />
+        {isClinicalView ? (
+          <ClinicalPanel token={token ?? ""} />
         ) : view === "appointments" && isCustomer ? (
           <AppointmentsPage appointments={appointments} />
         ) : (
@@ -217,7 +219,7 @@ export function Dashboard() {
         )}
       </main>
       {isCustomer && <AppointmentPanel appointments={appointments} />}
-      {isAdmin    && <AdminPanel users={users} appointments={appointments} logs={logs} />}
+      {isAdmin && !isClinicalView && <AdminPanel users={users} appointments={appointments} logs={logs} />}
     </div>
   );
 }
