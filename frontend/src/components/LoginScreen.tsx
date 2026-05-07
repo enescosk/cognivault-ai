@@ -8,13 +8,13 @@ type Props = {
 const staffUsers = [
   {
     label: "Operator",
-    email: "operator@cognivault.com",
+    email: "operator@cognivault.local",
     password: "demo123",
     description: "Müşteri iş akışlarını ve operasyonel kayıtları yönetir.",
   },
   {
     label: "Admin",
-    email: "admin@cognivault.com",
+    email: "admin@cognivault.local",
     password: "demo123",
     description: "Logları, kullanıcıları ve platform aktivitesini görüntüler.",
   },
@@ -208,7 +208,7 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
                 type="email"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder="email@cognivault.com"
+                placeholder="email@cognivault.local"
                 required
               />
             </div>

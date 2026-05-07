@@ -7,12 +7,12 @@ type SidebarProps = {
   sessions: ChatSessionSummary[];
   appointments: Appointment[];
   selectedSessionId?: number;
-  activeView: "chat" | "appointments" | "clinical";
+  activeView: "chat" | "appointments" | "enterprise";
   onSelectSession: (sessionId: number) => void;
   onNewSession: () => void;
   onDeleteSession: (sessionId: number) => void;
   onViewAppointments: () => void;
-  onViewClinical: () => void;
+  onViewEnterprise: () => void;
   onLogout: () => void;
 };
 
@@ -50,7 +50,7 @@ function statusLabel(status: string) {
   return labels[status] ?? status;
 }
 
-export function Sidebar({ user, sessions, appointments, selectedSessionId, activeView, onSelectSession, onNewSession, onDeleteSession, onViewAppointments, onViewClinical, onLogout }: SidebarProps) {
+export function Sidebar({ user, sessions, appointments, selectedSessionId, activeView, onSelectSession, onNewSession, onDeleteSession, onViewAppointments, onViewEnterprise, onLogout }: SidebarProps) {
   const initials = user.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   const roleName = user.role.name.toLowerCase();
   const [language, setLanguage] = useState(user.locale === "tr" ? "Türkçe" : "English");
@@ -62,7 +62,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
   const [settingsPos, setSettingsPos] = useState<MenuPos | null>(null);
   const [showSupport, setShowSupport] = useState(false);
   const [showMainMenu, setShowMainMenu] = useState(false);
-  const isClinicalStaff = user.role.name === "operator" || user.role.name === "admin";
+  const isEnterpriseUser = user.role.name === "operator" || user.role.name === "admin";
   const operatorActiveAppointments = appointments.filter(isActiveAppointment);
   const operatorUpcomingAppointments = appointments
     .filter(isUpcomingAppointment)
@@ -169,26 +169,26 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
           )}
 
           {(user.role.name === "operator" || user.role.name === "admin") && (
-            <>
-              <button
-                className={`sidebar-nav-item ${activeView === "clinical" ? "sidebar-nav-item--active" : ""}`}
-                type="button"
-                onClick={onViewClinical}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0016.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 002 8.5c0 2.3 1.5 4.05 3 5.5l7 7z"/>
-                  <path d="M12 5v16"/>
-                </svg>
-                Clinical Panel
-              </button>
-            </>
+            <button
+              className={`sidebar-nav-item ${activeView === "enterprise" ? "sidebar-nav-item--active" : ""}`}
+              type="button"
+              onClick={onViewEnterprise}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 21h18"/>
+                <path d="M5 21V7l8-4v18"/>
+                <path d="M19 21V11l-6-4"/>
+                <path d="M9 9h1M9 13h1M9 17h1M15 13h1M15 17h1"/>
+              </svg>
+              Enterprise Panel
+            </button>
           )}
 
-          {isClinicalStaff ? (
+          {isEnterpriseUser ? (
             <div className="enterprise-nav-card">
               <span>Operator workspace</span>
-              <strong>Ozel klinik ve dis klinigi hasta aramalari, doktor onayi ve randevu uyarilari bu ekranda yonetilir.</strong>
-              <button type="button" onClick={onViewClinical}>Klinik paneline git</button>
+              <strong>Kurumsal talepler Enterprise Panel üzerinden yönetilir.</strong>
+              <button type="button" onClick={onViewEnterprise}>Intake ekranına git</button>
             </div>
           ) : (
             <>
@@ -385,10 +385,10 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
               <button
                 className="main-menu-item"
                 type="button"
-                onClick={() => { setShowMainMenu(false); isClinicalStaff ? onViewClinical() : onNewSession(); }}
+                onClick={() => { setShowMainMenu(false); isEnterpriseUser ? onViewEnterprise() : onNewSession(); }}
               >
-                <span>{isClinicalStaff ? "Klinik hasta paneli" : "Yeni sohbet başlat"}</span>
-                <small>{isClinicalStaff ? "Arama, WhatsApp, doktor inbox ve randevu uyarılarını yönet" : "Temiz bir AI oturumu aç"}</small>
+                <span>{isEnterpriseUser ? "Kurumsal intake aç" : "Yeni sohbet başlat"}</span>
+                <small>{isEnterpriseUser ? "Müşteri talebini ticket/routing akışına al" : "Temiz bir AI oturumu aç"}</small>
               </button>
               {user.role.name === "customer" && (
                 <button
@@ -404,10 +404,10 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                 <button
                   className="main-menu-item"
                   type="button"
-                  onClick={() => { setShowMainMenu(false); onViewClinical(); }}
+                  onClick={() => { setShowMainMenu(false); onViewEnterprise(); }}
                 >
-                  <span>Medikal Klinik Paneli</span>
-                  <small>Doktor inbox, AI ses personasi ve kanal ayarlari</small>
+                  <span>Enterprise Panel</span>
+                  <small>Ticket, routing ve handoff ekranı</small>
                 </button>
               )}
             </div>

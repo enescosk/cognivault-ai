@@ -87,10 +87,10 @@ The MVP uses mock role-based authentication with seeded users:
 
 | Role | Email | Password | Permissions |
 | --- | --- | --- | --- |
-| Customer | `ayse@cognivault.com` | `demo123` | Can create and view only her own appointments and logs |
-| Customer | `john@cognivault.com` | `demo123` | Can create and view only his own appointments and logs |
-| Operator | `operator@cognivault.com` | `demo123` | Can manage requests and view operational records |
-| Admin | `admin@cognivault.com` | `demo123` | Can view all records, logs, and users |
+| Customer | `ayse@cognivault.local` | `demo123` | Can create and view only her own appointments and logs |
+| Customer | `john@cognivault.local` | `demo123` | Can create and view only his own appointments and logs |
+| Operator | `operator@cognivault.local` | `demo123` | Can manage requests and view operational records |
+| Admin | `admin@cognivault.local` | `demo123` | Can view all records, logs, and users |
 
 ## Bilingual behavior
 
@@ -149,14 +149,6 @@ Then start the app in two terminals:
 Frontend: [http://localhost:5173](http://localhost:5173)  
 Backend: [http://localhost:8000](http://localhost:8000)
 
-If demo users or seeded enterprise cases drift during local testing, reset the SQLite demo database:
-
-```bash
-./scripts/reset_demo_db.sh
-```
-
-The backend will also create and seed a missing local database automatically on startup.
-
 ## Running locally without Docker
 
 ### 1. Prepare environment
@@ -212,18 +204,11 @@ Services:
 - Backend: [http://localhost:8000](http://localhost:8000)
 - PostgreSQL: `localhost:5432`
 
-## CI checks
-
-GitHub Actions runs the core quality gates on every push and pull request:
-
-- backend: installs `backend/requirements.txt` and runs `python -m pytest -q`
-- frontend: installs with `npm ci` and runs `npm run build`
-
 ## Sample demo flow
 
 Customer demo in Turkish:
 
-1. Sign in as `ayse@cognivault.com`
+1. Sign in as `ayse@cognivault.local`
 2. Open a new session
 3. Send: `Teknik destek için randevu almak istiyorum.`
 4. Let the agent collect the purpose and phone number
@@ -232,14 +217,14 @@ Customer demo in Turkish:
 
 Customer demo in English:
 
-1. Sign in as `john@cognivault.com`
+1. Sign in as `john@cognivault.local`
 2. Send: `I need an appointment with billing operations.`
 3. Complete the guided steps
 4. Review the confirmation code and recent records
 
 Admin demo:
 
-1. Sign in as `admin@cognivault.com`
+1. Sign in as `admin@cognivault.local`
 2. Inspect conversations, metrics, and audit activity
 3. Export the audit log JSON from the right-side panel
 
