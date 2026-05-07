@@ -1,38 +1,16 @@
-import re
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
-def normalize_email(value: str) -> str:
-    email = value.strip().lower()
-    if not EMAIL_RE.fullmatch(email):
-        raise ValueError("Geçerli bir e-posta adresi girin")
-    return email
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str = Field(min_length=1, max_length=128)
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        return normalize_email(value)
 
 
 class RegisterRequest(BaseModel):
     full_name: str = Field(min_length=1, max_length=100)
-    email: str
+    email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     locale: str = Field(default="tr", max_length=10)
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        return normalize_email(value)
 
 
 class RoleResponse(BaseModel):
