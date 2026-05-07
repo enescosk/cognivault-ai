@@ -82,8 +82,12 @@ class ClinicalMetricsResponse(BaseModel):
     conversations_today: int
     total_conversations: int
     pending_shadow_reviews: int
+    triage_reviews: int
+    emergency_reviews: int
+    same_day_reviews: int
     doctor_inbox_count: int
     phone_calls_today: int
+    whatsapp_threads_today: int
     auto_reply_rate: float
     appointments_pending: int
     reminders_due: int

@@ -16,6 +16,7 @@ from app.models import (
     ClinicConversation,
     ClinicConversationStatus,
     ClinicMembership,
+    ClinicIntent,
     ClinicMessage,
     ClinicMessageSender,
     ClinicPatient,
@@ -506,6 +507,10 @@ def update_shadow_review(
 
 
 def clinical_metrics(db: Session, clinic: Clinic) -> dict:
+    def review_urgency(review: ShadowReview) -> str | None:
+        triage = (review.metadata_json or {}).get("triage")
+        return triage.get("urgency") if isinstance(triage, dict) else None
+
     today_start = datetime.combine(datetime.now(timezone.utc).date(), time.min, tzinfo=timezone.utc)
     total_conversations = db.scalar(select(func.count(ClinicConversation.id)).where(ClinicConversation.clinic_id == clinic.id)) or 0
     conversations_today = (
@@ -517,14 +522,25 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
         )
         or 0
     )
-    pending_shadow = (
-        db.scalar(
-            select(func.count(ShadowReview.id)).where(
+    pending_review_items = list(
+        db.scalars(
+            select(ShadowReview).where(
                 ShadowReview.clinic_id == clinic.id,
                 ShadowReview.status == ShadowReviewStatus.PENDING,
             )
         )
-        or 0
+    )
+    pending_shadow = len(pending_review_items)
+    triage_reviews = sum(1 for item in pending_review_items if item.intent in {ClinicIntent.SYMPTOM_TRIAGE, ClinicIntent.MEDICAL_EMERGENCY})
+    emergency_reviews = sum(
+        1
+        for item in pending_review_items
+        if review_urgency(item) == "emergency"
+    )
+    same_day_reviews = sum(
+        1
+        for item in pending_review_items
+        if review_urgency(item) == "same_day"
     )
     doctor_inbox_count = (
         db.scalar(
@@ -542,6 +558,16 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
             select(func.count(ClinicConversation.id)).where(
                 ClinicConversation.clinic_id == clinic.id,
                 ClinicConversation.channel == ClinicChannel.PHONE,
+                ClinicConversation.created_at >= today_start,
+            )
+        )
+        or 0
+    )
+    whatsapp_threads_today = (
+        db.scalar(
+            select(func.count(ClinicConversation.id)).where(
+                ClinicConversation.clinic_id == clinic.id,
+                ClinicConversation.channel == ClinicChannel.WHATSAPP,
                 ClinicConversation.created_at >= today_start,
             )
         )
@@ -581,8 +607,12 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
         "conversations_today": conversations_today,
         "total_conversations": total_conversations,
         "pending_shadow_reviews": pending_shadow,
+        "triage_reviews": triage_reviews,
+        "emergency_reviews": emergency_reviews,
+        "same_day_reviews": same_day_reviews,
         "doctor_inbox_count": doctor_inbox_count,
         "phone_calls_today": phone_calls_today,
+        "whatsapp_threads_today": whatsapp_threads_today,
         "auto_reply_rate": round(assistant_messages / patient_messages, 2) if patient_messages else 0.0,
         "appointments_pending": appointments_pending,
         "reminders_due": reminders_due,

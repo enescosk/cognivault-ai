@@ -276,8 +276,12 @@ export type ClinicalMetrics = {
   conversations_today: number;
   total_conversations: number;
   pending_shadow_reviews: number;
+  triage_reviews: number;
+  emergency_reviews: number;
+  same_day_reviews: number;
   doctor_inbox_count: number;
   phone_calls_today: number;
+  whatsapp_threads_today: number;
   auto_reply_rate: number;
   appointments_pending: number;
   reminders_due: number;
