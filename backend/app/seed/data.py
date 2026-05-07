@@ -13,6 +13,10 @@ from app.models import (
     AuditResultStatus,
     ChatMessage,
     ChatSession,
+    Clinic,
+    ClinicMembership,
+    ClinicMessage,
+    ClinicUserRole,
     Department,
     EnterpriseAgent,
     EnterpriseCustomer,
@@ -28,6 +32,7 @@ from app.models import (
     User,
 )
 from app.services.audit_service import log_action
+from app.services.clinical_service import IncomingClinicalMessage, ensure_default_clinic, ingest_clinical_message
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -186,6 +191,7 @@ def seed_database(db: Session) -> None:
     if db.scalars(select(Role)).first():
         ensure_demo_users(db)
         seed_enterprise_demo(db)
+        seed_clinical_demo(db)
         return
 
     # ── Roles ────────────────────────────────────────────────────────────────
@@ -385,6 +391,7 @@ def seed_database(db: Session) -> None:
         )
 
     seed_enterprise_demo(db)
+    seed_clinical_demo(db)
 
 
 def ensure_demo_users(db: Session) -> None:
@@ -444,6 +451,7 @@ def seed_enterprise_demo(db: Session) -> None:
     organization = Organization(name="Cognivault Enterprise Demo", domain="cognivault.local")
     db.add(organization)
     db.commit()
+
     db.refresh(organization)
 
     departments = [
@@ -677,3 +685,51 @@ def seed_enterprise_demo(db: Session) -> None:
         handoff_package=billing_session.handoff_package,
     ))
     db.commit()
+
+
+def seed_clinical_demo(db: Session) -> None:
+    clinic = ensure_default_clinic(db)
+    if db.scalars(select(ClinicMessage).where(ClinicMessage.clinic_id == clinic.id)).first():
+        return
+
+    users = {u.email: u for u in db.scalars(select(User)).all()}
+    for email, role in [
+        ("admin@cognivault.com", ClinicUserRole.OWNER),
+        ("operator@cognivault.com", ClinicUserRole.OPERATOR),
+        ("operator2@cognivault.com", ClinicUserRole.OPERATOR),
+    ]:
+        user = users.get(email)
+        if user is None:
+            continue
+        exists = db.scalars(
+            select(ClinicMembership).where(ClinicMembership.clinic_id == clinic.id, ClinicMembership.user_id == user.id)
+        ).first()
+        if exists is None:
+            db.add(ClinicMembership(clinic_id=clinic.id, user_id=user.id, role=role))
+    db.commit()
+
+    samples = [
+        IncomingClinicalMessage(
+            from_phone="+905551112233",
+            body="Merhaba, yarin dermatoloji icin randevu var mi?",
+            patient_name="Ayse Hasta",
+            external_message_id="demo-wa-001",
+            raw_payload={"seed": True},
+        ),
+        IncomingClinicalMessage(
+            from_phone="+905322004455",
+            body="Fiyatlariniz ve SGK geciyor mu bilgi alabilir miyim?",
+            patient_name="Mehmet Hasta",
+            external_message_id="demo-wa-002",
+            raw_payload={"seed": True},
+        ),
+        IncomingClinicalMessage(
+            from_phone="+905413006677",
+            body="Gogsumde agri var nefes almakta zorlaniyorum ne yapmaliyim?",
+            patient_name="Fatma Hasta",
+            external_message_id="demo-wa-003",
+            raw_payload={"seed": True},
+        ),
+    ]
+    for item in samples:
+        ingest_clinical_message(db, item, clinic=clinic)

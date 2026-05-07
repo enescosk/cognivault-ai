@@ -4,13 +4,19 @@ import type {
   AuthResponse,
   ChatSessionDetail,
   ChatSessionSummary,
+  ClinicalConversationDetail,
+  ClinicalOverview,
+  ClinicalAppointment,
+  ClinicalPersona,
   EnterpriseMessageResponse,
   EnterpriseOverview,
   EnterpriseSessionDetail,
   EnterpriseTicket,
   Metrics,
   SendMessageResponse,
-  User
+  ShadowReview,
+  User,
+  WebhookIngestionResponse
 } from "../types/api";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -160,6 +166,79 @@ export function updateEnterpriseTicketStatus(
     },
     token
   );
+}
+
+export function getClinicalOverview(token: string): Promise<ClinicalOverview> {
+  return request<ClinicalOverview>("/clinical/overview", { method: "GET" }, token);
+}
+
+export function getClinicalConversation(conversationId: number, token: string): Promise<ClinicalConversationDetail> {
+  return request<ClinicalConversationDetail>(`/clinical/conversations/${conversationId}`, { method: "GET" }, token);
+}
+
+export function simulateWhatsAppMessage(
+  token: string,
+  payload: { from_phone: string; body: string; patient_name?: string }
+): Promise<WebhookIngestionResponse> {
+  return request<WebhookIngestionResponse>(
+    "/clinical/simulate-whatsapp",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function updateShadowReview(
+  reviewId: number,
+  token: string,
+  payload: { status: "approved" | "edited" | "rejected"; final_reply?: string }
+): Promise<ShadowReview> {
+  return request<ShadowReview>(
+    `/clinical/shadow-reviews/${reviewId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function getClinicalPersonas(token: string): Promise<ClinicalPersona[]> {
+  return request<ClinicalPersona[]>("/clinical/personas", { method: "GET" }, token);
+}
+
+export function simulateVoiceCall(
+  token: string,
+  payload: { from_phone: string; speech: string; patient_name?: string; persona_id?: "selin" | "arzu" | "can" }
+): Promise<WebhookIngestionResponse> {
+  return request<WebhookIngestionResponse>(
+    "/clinical/simulate-voice-call",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function createClinicalAppointment(
+  token: string,
+  payload: { conversation_id: number; department: string; starts_at?: string | null; notes?: string }
+): Promise<ClinicalAppointment> {
+  return request<ClinicalAppointment>(
+    "/clinical/appointments",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function getUpcomingClinicalAppointments(token: string, withinMinutes = 120): Promise<ClinicalAppointment[]> {
+  return request<ClinicalAppointment[]>(`/clinical/appointments/upcoming?within_minutes=${withinMinutes}`, { method: "GET" }, token);
 }
 
 /**

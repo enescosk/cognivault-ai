@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -76,6 +76,281 @@ class OutreachDraftStatus(str, Enum):
     APPROVED = "approved"
     SENT = "sent"
     REJECTED = "rejected"
+
+
+class ClinicUserRole(str, Enum):
+    OWNER = "owner"
+    OPERATOR = "operator"
+    CLINICIAN = "clinician"
+
+
+class ClinicChannel(str, Enum):
+    WHATSAPP = "whatsapp"
+    WEB_CHAT = "web_chat"
+    PHONE = "phone"
+    MANUAL = "manual"
+
+
+class ClinicConversationStatus(str, Enum):
+    ACTIVE = "active"
+    WAITING_HUMAN = "waiting_human"
+    APPOINTMENT_PENDING = "appointment_pending"
+    CLOSED = "closed"
+
+
+class ClinicMessageSender(str, Enum):
+    PATIENT = "patient"
+    ASSISTANT = "assistant"
+    OPERATOR = "operator"
+    SYSTEM = "system"
+
+
+class ClinicIntent(str, Enum):
+    BOOK_APPOINTMENT = "book_appointment"
+    RESCHEDULE_APPOINTMENT = "reschedule_appointment"
+    CANCEL_APPOINTMENT = "cancel_appointment"
+    ASK_PRICE = "ask_price"
+    ASK_INSURANCE = "ask_insurance"
+    ASK_LOCATION = "ask_location"
+    ASK_WORKING_HOURS = "ask_working_hours"
+    MEDICAL_EMERGENCY = "medical_emergency"
+    GENERAL_QUESTION = "general_question"
+    UNKNOWN = "unknown"
+
+
+class ShadowReviewStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    EDITED = "edited"
+    REJECTED = "rejected"
+
+
+class ClinicalAppointmentStatus(str, Enum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+
+
+class ReminderStatus(str, Enum):
+    SCHEDULED = "scheduled"
+    SENT = "sent"
+    FAILED = "failed"
+
+
+class Clinic(Base):
+    __tablename__ = "clinics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(180), nullable=False)
+    slug: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
+    default_language: Mapped[str] = mapped_column(String(8), default="tr", nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Istanbul", nullable=False)
+    whatsapp_phone_number_id: Mapped[str | None] = mapped_column(String(120))
+    emergency_disclaimer: Mapped[str] = mapped_column(
+        Text,
+        default="This may be urgent. Please call emergency services or go to the nearest emergency department.",
+        nullable=False,
+    )
+    ai_auto_reply_threshold: Mapped[float] = mapped_column(Float, default=0.9, nullable=False)
+    shadow_review_threshold: Mapped[float] = mapped_column(Float, default=0.75, nullable=False)
+    settings_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    branches: Mapped[list["ClinicBranch"]] = relationship(back_populates="clinic")
+    memberships: Mapped[list["ClinicMembership"]] = relationship(back_populates="clinic")
+    patients: Mapped[list["ClinicPatient"]] = relationship(back_populates="clinic")
+    conversations: Mapped[list["ClinicConversation"]] = relationship(back_populates="clinic")
+
+
+class ClinicBranch(Base):
+    __tablename__ = "clinic_branches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    address: Mapped[str | None] = mapped_column(Text)
+    phone: Mapped[str | None] = mapped_column(String(40))
+    working_hours_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    clinic: Mapped["Clinic"] = relationship(back_populates="branches")
+
+
+class ClinicMembership(Base):
+    __tablename__ = "clinic_memberships"
+    __table_args__ = (UniqueConstraint("clinic_id", "user_id", name="uq_clinic_membership_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    role: Mapped[ClinicUserRole] = mapped_column(SqlEnum(ClinicUserRole), default=ClinicUserRole.OPERATOR, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    clinic: Mapped["Clinic"] = relationship(back_populates="memberships")
+    user: Mapped["User"] = relationship()
+
+
+class ClinicPatient(Base):
+    __tablename__ = "clinic_patients"
+    __table_args__ = (UniqueConstraint("clinic_id", "phone", name="uq_clinic_patient_phone"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    full_name: Mapped[str | None] = mapped_column(String(160))
+    phone: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    language: Mapped[str] = mapped_column(String(8), default="tr", nullable=False)
+    source: Mapped[ClinicChannel] = mapped_column(SqlEnum(ClinicChannel), default=ClinicChannel.WHATSAPP, nullable=False)
+    external_ref: Mapped[str | None] = mapped_column(String(120))
+    metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    clinic: Mapped["Clinic"] = relationship(back_populates="patients")
+    conversations: Mapped[list["ClinicConversation"]] = relationship(back_populates="patient")
+
+
+class ClinicConversation(Base):
+    __tablename__ = "clinic_conversations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("clinic_patients.id"), nullable=False, index=True)
+    channel: Mapped[ClinicChannel] = mapped_column(SqlEnum(ClinicChannel), default=ClinicChannel.WHATSAPP, nullable=False)
+    status: Mapped[ClinicConversationStatus] = mapped_column(
+        SqlEnum(ClinicConversationStatus), default=ClinicConversationStatus.ACTIVE, nullable=False
+    )
+    language: Mapped[str] = mapped_column(String(8), default="tr", nullable=False)
+    intent: Mapped[ClinicIntent | None] = mapped_column(SqlEnum(ClinicIntent))
+    confidence_score: Mapped[float | None] = mapped_column(Float)
+    last_patient_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    external_thread_id: Mapped[str | None] = mapped_column(String(160), index=True)
+    metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    clinic: Mapped["Clinic"] = relationship(back_populates="conversations")
+    patient: Mapped["ClinicPatient"] = relationship(back_populates="conversations")
+    messages: Mapped[list["ClinicMessage"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan", order_by="ClinicMessage.created_at"
+    )
+    shadow_reviews: Mapped[list["ShadowReview"]] = relationship(back_populates="conversation")
+
+
+class ClinicMessage(Base):
+    __tablename__ = "clinic_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("clinic_conversations.id"), nullable=False, index=True)
+    sender: Mapped[ClinicMessageSender] = mapped_column(SqlEnum(ClinicMessageSender), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    language: Mapped[str] = mapped_column(String(8), default="tr", nullable=False)
+    intent: Mapped[ClinicIntent | None] = mapped_column(SqlEnum(ClinicIntent))
+    confidence_score: Mapped[float | None] = mapped_column(Float)
+    external_message_id: Mapped[str | None] = mapped_column(String(160), index=True)
+    metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    conversation: Mapped["ClinicConversation"] = relationship(back_populates="messages")
+
+
+class ShadowReview(Base):
+    __tablename__ = "shadow_reviews"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("clinic_conversations.id"), nullable=False, index=True)
+    patient_message_id: Mapped[int] = mapped_column(ForeignKey("clinic_messages.id"), nullable=False)
+    draft_reply: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[ClinicIntent] = mapped_column(SqlEnum(ClinicIntent), default=ClinicIntent.UNKNOWN, nullable=False)
+    confidence_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    risk_reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[ShadowReviewStatus] = mapped_column(
+        SqlEnum(ShadowReviewStatus), default=ShadowReviewStatus.PENDING, nullable=False
+    )
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    final_reply: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    conversation: Mapped["ClinicConversation"] = relationship(back_populates="shadow_reviews")
+    patient_message: Mapped["ClinicMessage"] = relationship(foreign_keys=[patient_message_id])
+    reviewed_by: Mapped["User"] = relationship()
+
+
+class ClinicalAppointment(Base):
+    __tablename__ = "clinical_appointments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("clinic_patients.id"), nullable=False, index=True)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_conversations.id"))
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_branches.id"))
+    department: Mapped[str] = mapped_column(String(140), nullable=False)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[ClinicalAppointmentStatus] = mapped_column(
+        SqlEnum(ClinicalAppointmentStatus), default=ClinicalAppointmentStatus.PENDING, nullable=False
+    )
+    external_ref: Mapped[str | None] = mapped_column(String(140))
+    notes: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PreIntake(Base):
+    __tablename__ = "pre_intakes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("clinic_patients.id"), nullable=False, index=True)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_conversations.id"))
+    answers_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    is_complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    appointment_id: Mapped[int] = mapped_column(ForeignKey("clinical_appointments.id"), nullable=False, index=True)
+    channel: Mapped[ClinicChannel] = mapped_column(SqlEnum(ClinicChannel), default=ClinicChannel.WHATSAPP, nullable=False)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[ReminderStatus] = mapped_column(SqlEnum(ReminderStatus), default=ReminderStatus.SCHEDULED, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class FrustrationLog(Base):
+    __tablename__ = "frustration_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_conversations.id"))
+    trigger: Mapped[str] = mapped_column(String(160), nullable=False)
+    severity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    message_excerpt: Mapped[str] = mapped_column(String(500), nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Role(Base):

@@ -18,6 +18,7 @@ import { AppointmentPanel } from "./AppointmentPanel";
 import { AppointmentsPage } from "./AppointmentsPage";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
+import { ClinicalPanel } from "./ClinicalPanel";
 import { EnterprisePanel } from "./EnterprisePanel";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
@@ -35,7 +36,7 @@ export function Dashboard() {
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "appointments" | "enterprise">("chat");
+  const [view, setView] = useState<"chat" | "appointments" | "enterprise" | "clinical">("chat");
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
@@ -45,7 +46,7 @@ export function Dashboard() {
   useEffect(() => {
     if (!token || !user) return;
     if (user.role.name === "operator" || user.role.name === "admin") {
-      setView("enterprise");
+      setView("clinical");
     }
     void loadDashboard();
   }, [token, user]);
@@ -203,12 +204,15 @@ export function Dashboard() {
         onDeleteSession={handleDeleteSession}
         onViewAppointments={() => setView("appointments")}
         onViewEnterprise={() => setView("enterprise")}
+        onViewClinical={() => setView("clinical")}
         onLogout={logout}
       />
       <main className="main-panel">
         <MetricsBar metrics={metrics} appointments={appointments} role={role} />
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        {view === "enterprise" && (isOperator || isAdmin) ? (
+        {view === "clinical" && (isOperator || isAdmin) ? (
+          <ClinicalPanel token={token ?? ""} />
+        ) : view === "enterprise" && (isOperator || isAdmin) ? (
           <EnterprisePanel token={token ?? ""} appointments={appointments} />
         ) : view === "appointments" && isCustomer ? (
           <AppointmentsPage appointments={appointments} />
