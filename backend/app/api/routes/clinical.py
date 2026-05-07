@@ -92,6 +92,7 @@ def conversation_summary_payload(conversation: ClinicConversation) -> ClinicalCo
         last_urgency=metadata.get("last_urgency"),
         doctor_summary=metadata.get("doctor_summary"),
         possible_conditions=metadata.get("possible_conditions") or [],
+        appointment_draft=metadata.get("appointment_draft"),
         doctor_inbox=conversation.status.value in {"waiting_human", "appointment_pending"},
         last_message_preview=last_preview,
         created_at=conversation.created_at,
@@ -151,6 +152,7 @@ def ingestion_payload(result) -> WebhookIngestionResponse:
         action=result.action,
         reply=result.reply,
         shadow_review_id=result.shadow_review.id if result.shadow_review else None,
+        appointment_id=result.appointment.id if result.appointment else None,
     )
 
 

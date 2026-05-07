@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+import re
 from urllib.parse import parse_qs
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -53,6 +55,7 @@ class IngestionResult:
     action: str
     reply: str | None = None
     shadow_review: ShadowReview | None = None
+    appointment: ClinicalAppointment | None = None
 
 
 def normalize_phone(value: str) -> str:
@@ -225,6 +228,194 @@ def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPat
     return conversation
 
 
+def _clinic_timezone(clinic: Clinic) -> ZoneInfo:
+    try:
+        return ZoneInfo(clinic.timezone or "Europe/Istanbul")
+    except Exception:
+        return ZoneInfo("Europe/Istanbul")
+
+
+def _has_appointment_signal(text: str, intent: ClinicIntent) -> bool:
+    lowered = text.lower()
+    if intent == ClinicIntent.BOOK_APPOINTMENT:
+        return True
+    appointment_terms = {
+        "randevu",
+        "muayene",
+        "kontrol",
+        "doktor görebilir",
+        "doktor gorebilir",
+        "hekim görebilir",
+        "hekim gorebilir",
+        "yarın gelebilir",
+        "yarin gelebilir",
+        "bugün gelebilir",
+        "bugun gelebilir",
+    }
+    return any(term in lowered for term in appointment_terms)
+
+
+def _infer_department(text: str) -> str:
+    lowered = text.lower()
+    if any(term in lowered for term in ("implant", "dis", "diş", "kanal", "dolgu", "yirmilik", "20lik", "diş taşı", "dis tasi")):
+        if "implant" in lowered:
+            return "Implant degerlendirme"
+        if "kanal" in lowered:
+            return "Endodonti / kanal tedavisi"
+        if "dolgu" in lowered:
+            return "Restoratif dis tedavisi"
+        if "diş taşı" in lowered or "dis tasi" in lowered:
+            return "Dis tasi temizligi"
+        return "Dis hekimligi muayenesi"
+    if any(term in lowered for term in ("dermatoloji", "cilt", "ben kontrol", "leke", "dokuntu", "döküntü")):
+        return "Dermatoloji muayenesi"
+    if any(term in lowered for term in ("botoks", "estetik", "mezoterapi", "dolgu")):
+        return "Estetik gorusme"
+    return "Muayene"
+
+
+def _next_weekday(base: datetime, target_weekday: int) -> datetime:
+    days_ahead = (target_weekday - base.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    return base + timedelta(days=days_ahead)
+
+
+def _infer_requested_start(text: str, clinic: Clinic) -> tuple[datetime | None, list[str]]:
+    lowered = text.lower()
+    tz = _clinic_timezone(clinic)
+    now = datetime.now(tz)
+    base_date: datetime | None = None
+    inferred_fields: list[str] = []
+
+    if "yarın" in lowered or "yarin" in lowered:
+        base_date = now + timedelta(days=1)
+        inferred_fields.append("day")
+    elif "bugün" in lowered or "bugun" in lowered:
+        base_date = now
+        inferred_fields.append("day")
+    else:
+        weekdays = {
+            "pazartesi": 0,
+            "salı": 1,
+            "sali": 1,
+            "çarşamba": 2,
+            "carsamba": 2,
+            "perşembe": 3,
+            "persembe": 3,
+            "cuma": 4,
+            "cumartesi": 5,
+        }
+        for label, weekday in weekdays.items():
+            if label in lowered:
+                base_date = _next_weekday(now, weekday)
+                inferred_fields.append("weekday")
+                break
+
+    hour: int | None = None
+    minute = 0
+    for time_match in re.finditer(r"(?:saat\s*)?(\d{1,2})(?:[:.](\d{2}))?", lowered):
+        candidate = int(time_match.group(1))
+        if 7 <= candidate <= 21:
+            hour = candidate
+            minute = int(time_match.group(2) or 0)
+            break
+    if hour is None and base_date is not None:
+        hour = 10
+        inferred_fields.append("time_defaulted")
+
+    if base_date is None or hour is None:
+        return None, inferred_fields
+
+    requested = datetime.combine(base_date.date(), time(hour=hour, minute=minute), tzinfo=tz)
+    if requested <= now:
+        requested = requested + timedelta(days=1)
+    return requested.astimezone(timezone.utc), inferred_fields
+
+
+def _appointment_draft_payload(appointment: ClinicalAppointment, missing_fields: list[str] | None = None) -> dict:
+    return {
+        "id": appointment.id,
+        "department": appointment.department,
+        "starts_at": appointment.starts_at.isoformat() if appointment.starts_at else None,
+        "status": appointment.status.value,
+        "missing_fields": missing_fields or (appointment.metadata_json or {}).get("missing_fields", []),
+        "source": (appointment.metadata_json or {}).get("created_from", "conversation"),
+    }
+
+
+def _find_conversation_appointment(db: Session, clinic: Clinic, conversation: ClinicConversation) -> ClinicalAppointment | None:
+    return db.scalars(
+        select(ClinicalAppointment)
+        .where(
+            ClinicalAppointment.clinic_id == clinic.id,
+            ClinicalAppointment.conversation_id == conversation.id,
+            ClinicalAppointment.status.in_([ClinicalAppointmentStatus.PENDING, ClinicalAppointmentStatus.CONFIRMED]),
+        )
+        .order_by(ClinicalAppointment.created_at.desc())
+    ).first()
+
+
+def _create_or_update_appointment_draft(
+    db: Session,
+    clinic: Clinic,
+    patient: ClinicPatient,
+    conversation: ClinicConversation,
+    message: ClinicMessage,
+    text: str,
+    intent: ClinicIntent,
+    doctor_summary: str | None,
+) -> ClinicalAppointment | None:
+    if intent == ClinicIntent.MEDICAL_EMERGENCY or not _has_appointment_signal(text, intent):
+        return None
+
+    requested_start, inferred_fields = _infer_requested_start(text, clinic)
+    missing_fields: list[str] = []
+    if requested_start is None:
+        missing_fields.append("preferred_time")
+    if not patient.full_name:
+        missing_fields.append("patient_name")
+
+    existing = _find_conversation_appointment(db, clinic, conversation)
+    if existing is not None and existing.status == ClinicalAppointmentStatus.CONFIRMED:
+        conversation.metadata_json = {
+            **(conversation.metadata_json or {}),
+            "appointment_draft": _appointment_draft_payload(existing),
+        }
+        return existing
+
+    metadata = {
+        "created_from": "ai_conversation_draft",
+        "source_message_id": message.id,
+        "patient_phrase": text[:500],
+        "missing_fields": missing_fields,
+        "inferred_fields": inferred_fields,
+        "doctor_summary": doctor_summary,
+    }
+
+    appointment = existing or ClinicalAppointment(
+        clinic_id=clinic.id,
+        patient_id=patient.id,
+        conversation_id=conversation.id,
+        department=_infer_department(text),
+        status=ClinicalAppointmentStatus.PENDING,
+        metadata_json={},
+    )
+    appointment.department = _infer_department(text)
+    appointment.starts_at = requested_start
+    appointment.status = ClinicalAppointmentStatus.PENDING
+    appointment.notes = doctor_summary or f"Hasta talebi: {text[:500]}"
+    appointment.metadata_json = {**(appointment.metadata_json or {}), **metadata}
+    db.add(appointment)
+    db.flush()
+
+    conversation.metadata_json = {
+        **(conversation.metadata_json or {}),
+        "appointment_draft": _appointment_draft_payload(appointment, missing_fields),
+    }
+    return appointment
+
+
 def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None) -> IngestionResult:
     clinic = clinic or ensure_default_clinic(db)
     patient = _find_or_create_patient(db, clinic, incoming)
@@ -279,6 +470,16 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         "doctor_summary": doctor_summary,
         "possible_conditions": possible_conditions,
     }
+    appointment = _create_or_update_appointment_draft(
+        db,
+        clinic,
+        patient,
+        conversation,
+        message,
+        incoming.body,
+        ai_result.intent,
+        doctor_summary,
+    )
 
     if detect_frustration(incoming.body):
         db.add(
@@ -329,6 +530,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
             message=message,
             action="shadow_review",
             shadow_review=review,
+            appointment=appointment,
         )
 
     assistant_message = ClinicMessage(
@@ -351,6 +553,8 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
             "possible_conditions": possible_conditions,
         },
     )
+    if appointment is not None:
+        conversation.status = ClinicConversationStatus.APPOINTMENT_PENDING
     db.add(message)
     db.add(assistant_message)
     db.add(conversation)
@@ -363,6 +567,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         message=message,
         action="auto_reply",
         reply=ai_result.reply,
+        appointment=appointment,
     )
 
 
@@ -425,17 +630,30 @@ def create_clinical_appointment_from_conversation(
     notes: str | None = None,
 ) -> ClinicalAppointment:
     conversation = get_clinical_conversation(db, clinic, conversation_id)
-    appointment = ClinicalAppointment(
-        clinic_id=clinic.id,
-        patient_id=conversation.patient_id,
-        conversation_id=conversation.id,
-        department=department.strip() or "Muayene",
-        starts_at=starts_at,
-        status=ClinicalAppointmentStatus.PENDING if starts_at is None else ClinicalAppointmentStatus.CONFIRMED,
-        notes=notes,
-        metadata_json={"created_from": "doctor_inbox"},
-    )
+    appointment = _find_conversation_appointment(db, clinic, conversation)
+    if appointment is None:
+        appointment = ClinicalAppointment(
+            clinic_id=clinic.id,
+            patient_id=conversation.patient_id,
+            conversation_id=conversation.id,
+            metadata_json={},
+        )
+    appointment.department = department.strip() or appointment.department or "Muayene"
+    appointment.starts_at = starts_at
+    appointment.status = ClinicalAppointmentStatus.PENDING if starts_at is None else ClinicalAppointmentStatus.CONFIRMED
+    appointment.notes = notes
+    appointment.metadata_json = {
+        **(appointment.metadata_json or {}),
+        "created_from": (appointment.metadata_json or {}).get("created_from", "doctor_inbox"),
+        "confirmed_from": "doctor_inbox" if starts_at is not None else None,
+    }
     conversation.status = ClinicConversationStatus.APPOINTMENT_PENDING if starts_at is None else ClinicConversationStatus.ACTIVE
+    db.add(appointment)
+    db.flush()
+    conversation.metadata_json = {
+        **(conversation.metadata_json or {}),
+        "appointment_draft": _appointment_draft_payload(appointment),
+    }
     db.add(appointment)
     db.add(conversation)
     db.commit()

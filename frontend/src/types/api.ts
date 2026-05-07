@@ -246,6 +246,7 @@ export type ClinicalConversationSummary = {
   last_urgency?: string | null;
   doctor_summary?: string | null;
   possible_conditions?: Array<Record<string, unknown>>;
+  appointment_draft?: Record<string, unknown> | null;
   doctor_inbox: boolean;
   last_message_preview?: string | null;
   created_at: string;
@@ -302,6 +303,7 @@ export type WebhookIngestionResponse = {
   action: string;
   reply?: string | null;
   shadow_review_id?: number | null;
+  appointment_id?: number | null;
 };
 export type ClinicalPersona = {
   id: "selin" | "arzu" | "can";

@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta, timezone
+
+
 def test_operator_can_simulate_whatsapp_message(client, operator_token):
     res = client.post(
         "/api/clinical/simulate-whatsapp",
@@ -14,6 +17,49 @@ def test_operator_can_simulate_whatsapp_message(client, operator_token):
     assert data["ok"] is True
     assert data["action"] in {"auto_reply", "shadow_review"}
     assert data["conversation_id"] > 0
+
+
+def test_appointment_draft_is_created_from_conversation_and_confirmed(client, operator_token):
+    res = client.post(
+        "/api/clinical/simulate-whatsapp",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={
+            "from_phone": "+90 555 303 40 50",
+            "patient_name": "Randevu Hasta",
+            "body": "Yarin saat 10 dis tasi temizligi icin randevu almak istiyorum.",
+        },
+    )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["appointment_id"] is not None
+
+    detail = client.get(
+        f"/api/clinical/conversations/{data['conversation_id']}",
+        headers={"Authorization": f"Bearer {operator_token}"},
+    )
+    assert detail.status_code == 200
+    draft = detail.json()["appointment_draft"]
+    assert draft["id"] == data["appointment_id"]
+    assert draft["department"] == "Dis tasi temizligi"
+    assert draft["status"] == "pending"
+
+    starts_at = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
+    confirmed = client.post(
+        "/api/clinical/appointments",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={
+            "conversation_id": data["conversation_id"],
+            "department": draft["department"],
+            "starts_at": starts_at.isoformat(),
+            "notes": "Doktor onayi ile randevu kesinlestirildi.",
+        },
+    )
+
+    assert confirmed.status_code == 200
+    payload = confirmed.json()
+    assert payload["id"] == data["appointment_id"]
+    assert payload["status"] == "confirmed"
 
 
 def test_medical_emergency_routes_to_shadow_mode(client, operator_token):

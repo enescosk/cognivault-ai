@@ -3002,7 +3002,7 @@ button { cursor: pointer; border: none; background: none; }
 }
 .patient-brief-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -3074,6 +3074,33 @@ button { cursor: pointer; border: none; background: none; }
   border-radius: 8px;
   background: #f8fcfb;
   padding: 12px;
+}
+.appointment-draft-card {
+  border: 1px solid rgba(47,111,237,0.16);
+  border-radius: 8px;
+  background: #f2f6ff;
+  padding: 10px;
+}
+.appointment-draft-card b,
+.appointment-draft-card strong,
+.appointment-draft-card small {
+  display: block;
+}
+.appointment-draft-card b {
+  color: #2f6fed;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+.appointment-draft-card strong {
+  color: #172727;
+  margin-top: 4px;
+}
+.appointment-draft-card small {
+  color: #607088;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin-top: 4px;
 }
 .appointment-composer input {
   width: 100%;
@@ -3266,6 +3293,146 @@ button { cursor: pointer; border: none; background: none; }
   .form-pair {
     grid-template-columns: 1fr;
   }
+}
+
+/* ─── MEDICAL LOGIN EXPERIENCE ───────────────────────────────── */
+.login-shell {
+  grid-template-columns: minmax(0, 1fr) 440px;
+  background: linear-gradient(180deg, #f6f8fb 0%, #eef5f3 100%);
+  color: #142321;
+}
+.login-shell .brand-panel {
+  border-right: 1px solid rgba(27,52,65,0.12);
+  background: rgba(255,255,255,0.72);
+}
+.login-shell .brand-panel::before {
+  display: none;
+}
+.login-shell .brand-wordmark span,
+.login-shell .brand-hero h1,
+.login-shell .sample-user-card strong,
+.login-shell .lp-customer-name,
+.login-shell .login-card-header h2 {
+  color: #111f1f;
+}
+.login-shell .brand-icon {
+  background: linear-gradient(135deg, #1f6f68, #2f6fed);
+  border-radius: 8px;
+}
+.login-product-kicker {
+  color: #1f6f68;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  margin-bottom: 12px;
+}
+.login-shell .brand-hero h1 {
+  max-width: 780px;
+  letter-spacing: 0;
+}
+.login-shell .brand-hero h1 em {
+  color: #1f6f68;
+}
+.login-shell .brand-hero p,
+.login-shell .login-card-header p,
+.login-shell .sample-user-card p,
+.login-shell .lp-customer-email,
+.login-shell .form-field label {
+  color: #5c6d6d;
+}
+.login-pillar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.login-pillar-row span {
+  border: 1px solid rgba(31,111,104,0.16);
+  border-radius: 999px;
+  background: #edf6f3;
+  color: #1f6f68;
+  padding: 7px 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.login-shell .lp-section-label {
+  color: #6b7d7d;
+}
+.login-shell .lp-customer-card,
+.login-shell .sample-user-card {
+  border-color: rgba(27,52,65,0.12);
+  background: rgba(255,255,255,0.78);
+  border-radius: 8px;
+}
+.login-shell .lp-customer-card:hover,
+.login-shell .sample-user-card:hover {
+  border-color: rgba(31,111,104,0.26);
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+.login-shell .lp-customer-card--new {
+  border-style: solid;
+  background: #f8fcfb;
+}
+.login-shell .lp-customer-avatar {
+  background: #edf6f3;
+  color: #1f6f68;
+}
+.login-shell .sample-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+.login-shell .sample-user-card .role-tag {
+  color: #2f6fed;
+  letter-spacing: 0;
+}
+.login-compliance-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  color: #718282;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+.login-shell .login-card {
+  border-left: 1px solid rgba(27,52,65,0.12);
+  background: #ffffff;
+}
+.login-shell .login-badge {
+  border-color: rgba(31,111,104,0.2);
+  background: #edf6f3;
+  color: #1f6f68;
+  letter-spacing: 0;
+}
+.login-shell .lp-tab-bar {
+  background: #edf2f4;
+}
+.login-shell .lp-tab {
+  color: #5c6d6d;
+}
+.login-shell .lp-tab--active {
+  background: #ffffff;
+  color: #111f1f;
+  box-shadow: 0 8px 20px rgba(27,52,65,0.08);
+}
+.login-shell .form-field input {
+  border-color: rgba(27,52,65,0.14);
+  background: #f9fbfb;
+  color: #142321;
+}
+.login-shell .form-field input::placeholder {
+  color: #8a9a9a;
+}
+.login-shell .primary-button {
+  background: #1f6f68;
+  color: #ffffff;
+}
+.login-shell .lp-switch-hint {
+  color: #6d7d7d;
+}
+.login-shell .lp-switch-link {
+  color: #1f6f68;
 }
 
 /* ─── ENTERPRISE MODE ─────────────────────────────────────────── */
@@ -4064,7 +4231,7 @@ button { cursor: pointer; border: none; background: none; }
 }
 .apts-empty p { margin: 0; }
 
-/* ─── LOGIN – YENİ MÜŞTERİ + TAB ────────────────────────────── */
+/* ─── LOGIN – YENI KLINIK + TAB ────────────────────────────── */
 .lp-section-label {
   font-family: var(--font-mono);
   font-size: 0.62rem;

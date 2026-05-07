@@ -14,30 +14,30 @@ export function MetricsBar({ metrics, appointments, role }: MetricsBarProps) {
   return (
     <div className="metrics-topbar">
       <div className="metric-cell">
-        <div className="metric-label">{isCustomer ? "Oturumlarım" : "Active Sessions"}</div>
+        <div className="metric-label">{isCustomer ? "Gorusmelerim" : "Hasta temaslari"}</div>
         <div className="metric-value accent">{metrics?.active_sessions ?? 0}</div>
       </div>
       <div className="metric-cell">
-        <div className="metric-label">{isCustomer ? "Randevularım" : "Appointments"}</div>
+        <div className="metric-label">{isCustomer ? "Randevularim" : "Randevular"}</div>
         <div className="metric-value">{metrics?.confirmed_appointments ?? 0}</div>
       </div>
       {!isCustomer && (
         <div className="metric-cell">
-          <div className="metric-label">Audit Events</div>
+          <div className="metric-label">Guvenlik kaydi</div>
           <div className="metric-value">{metrics?.audit_events_today ?? 0}</div>
         </div>
       )}
       <div className="metric-cell">
-        <div className="metric-label">{isCustomer ? "Başarı Oranı" : "Success Rate"}</div>
+        <div className="metric-label">{isCustomer ? "Basari Orani" : "Klinik basari"}</div>
         <div className="metric-value green">{metrics?.completion_rate ?? 100}%</div>
       </div>
       <div className="metric-cell upcoming-cell">
         <div className="upcoming-cell-label">
-          {isCustomer ? "Yaklaşan Randevularım" : "Upcoming Appointments"}
+          {isCustomer ? "Yaklasan randevularim" : "Yaklasan randevular"}
         </div>
         {appointments.filter(a => a.status === "confirmed").length === 0 ? (
           <div style={{ fontSize: "0.8rem", color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
-            {isCustomer ? "Randevu yok" : "No appointments scheduled"}
+            {isCustomer ? "Randevu yok" : "Planlanmis randevu yok"}
           </div>
         ) : (
           appointments

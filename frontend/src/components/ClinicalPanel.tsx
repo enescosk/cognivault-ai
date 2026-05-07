@@ -44,6 +44,14 @@ type TriageInfo = {
   safety_disclaimer?: string;
   source?: string;
 };
+type AppointmentDraft = {
+  id?: number;
+  department?: string;
+  starts_at?: string | null;
+  status?: string;
+  missing_fields?: string[];
+  source?: string;
+};
 
 const personaCards: Array<{
   id: PersonaId;
@@ -161,6 +169,11 @@ function getConditions(value: Array<Record<string, unknown>> | undefined, fallba
   return fallback?.possible_conditions ?? [];
 }
 
+function getAppointmentDraft(value: Record<string, unknown> | null | undefined): AppointmentDraft | null {
+  if (!value || typeof value !== "object") return null;
+  return value as AppointmentDraft;
+}
+
 function formatUrgency(value?: string | null) {
   const labels: Record<string, string> = {
     emergency: "Acil",
@@ -204,6 +217,13 @@ function appointmentLabel(value?: string | null) {
   return trDateTime.format(date);
 }
 
+function datetimeLocalFromIso(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return toDatetimeLocal(date);
+}
+
 export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [overview, setOverview] = useState<ClinicalOverview | null>(null);
   const [upcomingAppointments, setUpcomingAppointments] = useState<ClinicalAppointment[]>([]);
@@ -225,6 +245,12 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   useEffect(() => {
     void loadClinical();
   }, [token]);
+
+  useEffect(() => {
+    const draft = getAppointmentDraft(selectedConversation?.appointment_draft);
+    if (draft?.department) setDepartment(draft.department);
+    if (draft?.starts_at) setAppointmentAt(datetimeLocalFromIso(draft.starts_at));
+  }, [selectedConversation?.id]);
 
   async function loadClinical(nextConversationId?: number) {
     setError(null);
@@ -337,6 +363,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   );
   const selectedTriage = getConversationTriage(selectedConversation);
   const selectedConditions = getConditions(selectedConversation?.possible_conditions, selectedTriage);
+  const selectedDraft = getAppointmentDraft(selectedConversation?.appointment_draft);
   const selectedUrgency = selectedTriage?.urgency ?? selectedConversation?.last_urgency;
   const emergencyCount = metrics?.emergency_reviews ?? reviews.filter((review) => getTriage(review.metadata_json)?.urgency === "emergency").length;
   const sameDayCount = metrics?.same_day_reviews ?? reviews.filter((review) => getTriage(review.metadata_json)?.urgency === "same_day").length;
@@ -378,8 +405,8 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         <ClinicalMetric label="Hasta temasi" value={metrics?.conversations_today ?? 0} hint="Bugun gelen telefon + WhatsApp" />
         <ClinicalMetric label="Telefon" value={metrics?.phone_calls_today ?? 0} hint={`WhatsApp: ${metrics?.whatsapp_threads_today ?? 0}`} />
         <ClinicalMetric label="Doctor Inbox" value={metrics?.doctor_inbox_count ?? 0} tone="warning" hint="Insan onayi bekleyen hasta" />
+        <ClinicalMetric label="Randevu adayi" value={metrics?.appointments_pending ?? 0} tone="success" hint="Konusmadan cikan taslak" />
         <ClinicalMetric label="Medikal triyaj" value={metrics?.triage_reviews ?? 0} tone="danger" hint="Acil / ayni gun klinik kontrol" />
-        <ClinicalMetric label="Auto Reply" value={autoReplyPercent} tone="success" hint="Guvenli otomasyon orani" />
       </section>
 
       <section className="clinic-control-grid">
@@ -462,6 +489,10 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
               <span>Confidence</span>
               <strong>{percent(selectedConversation?.confidence_score)}</strong>
             </article>
+            <article>
+              <span>Randevu</span>
+              <strong>{selectedDraft ? appointmentLabel(selectedDraft.starts_at) : "aday yok"}</strong>
+            </article>
           </div>
 
           <div className="doctor-summary-panel">
@@ -520,11 +551,22 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           </div>
 
           <div className="appointment-composer">
-            <span>Randevuya cevir</span>
+            <span>{selectedDraft ? "Konusmadan cikan randevu adayi" : "Randevuya cevir"}</span>
+            {selectedDraft ? (
+              <div className="appointment-draft-card">
+                <b>{selectedDraft.department ?? "Muayene"}</b>
+                <strong>{appointmentLabel(selectedDraft.starts_at)}</strong>
+                <small>
+                  {(selectedDraft.missing_fields ?? []).length
+                    ? `Eksik: ${(selectedDraft.missing_fields ?? []).join(", ")}`
+                    : "AI konuşmadan randevu adayını çıkardı."}
+                </small>
+              </div>
+            ) : null}
             <input value={department} onChange={(event) => setDepartment(event.target.value)} placeholder="Bolum / islem" />
             <input type="datetime-local" value={appointmentAt} onChange={(event) => setAppointmentAt(event.target.value)} />
             <button type="button" onClick={createAppointmentFromSelection} disabled={busy || !selectedConversation}>
-              Randevu olustur
+              {selectedDraft ? "Randevuyu onayla" : "Randevu olustur"}
             </button>
           </div>
 
@@ -738,26 +780,47 @@ function ConversationList({
   return (
     <div className="clinical-conversation-list">
       {conversations.map((conversation) => (
-        <button
+        <ConversationRow
           key={conversation.id}
-          type="button"
-          className={`clinical-conversation-row ${conversation.doctor_inbox ? "doctor" : ""} ${selectedId === conversation.id ? "selected" : ""}`}
-          onClick={() => void onSelect(conversation)}
-        >
-          <strong>{conversation.patient.full_name ?? conversation.patient.phone}</strong>
-          <span>
-            {conversation.channel} · {conversation.persona_name ?? "AI"} · {conversation.intent?.replace(/_/g, " ") ?? "intent pending"}
-          </span>
-          {conversation.last_urgency ? (
-            <em>
-              {formatUrgency(conversation.last_urgency)} ·{" "}
-              {(conversation.possible_conditions ?? []).slice(0, 2).map((item) => String(item.label ?? "")).filter(Boolean).join(" · ") || "doktor ozeti hazir"}
-            </em>
-          ) : null}
-          <p>{conversation.doctor_summary ?? conversation.last_message_preview ?? "No messages yet"}</p>
-        </button>
+          conversation={conversation}
+          selected={selectedId === conversation.id}
+          onSelect={onSelect}
+        />
       ))}
     </div>
+  );
+}
+
+function ConversationRow({
+  conversation,
+  selected,
+  onSelect,
+}: {
+  conversation: ClinicalConversationSummary;
+  selected: boolean;
+  onSelect: (conversation: ClinicalConversationSummary) => void;
+}) {
+  const draft = getAppointmentDraft(conversation.appointment_draft);
+  return (
+    <button
+      type="button"
+      className={`clinical-conversation-row ${conversation.doctor_inbox ? "doctor" : ""} ${selected ? "selected" : ""}`}
+      onClick={() => void onSelect(conversation)}
+    >
+      <strong>{conversation.patient.full_name ?? conversation.patient.phone}</strong>
+      <span>
+        {conversation.channel} · {conversation.persona_name ?? "AI"} · {conversation.intent?.replace(/_/g, " ") ?? "intent pending"}
+      </span>
+      {draft ? (
+        <em>Randevu adayi · {draft.department ?? "Muayene"} · {appointmentLabel(draft.starts_at)}</em>
+      ) : conversation.last_urgency ? (
+        <em>
+          {formatUrgency(conversation.last_urgency)} ·{" "}
+          {(conversation.possible_conditions ?? []).slice(0, 2).map((item) => String(item.label ?? "")).filter(Boolean).join(" · ") || "doktor ozeti hazir"}
+        </em>
+      ) : null}
+      <p>{conversation.doctor_summary ?? conversation.last_message_preview ?? "No messages yet"}</p>
+    </button>
   );
 }
 

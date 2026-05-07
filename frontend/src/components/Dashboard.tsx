@@ -93,7 +93,7 @@ export function Dashboard() {
         setSelectedSession(created);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Dashboard failed to load");
+      setError(err instanceof Error ? err.message : "Klinik paneli yuklenemedi");
     } finally {
       setLoading(false);
     }
@@ -188,7 +188,7 @@ export function Dashboard() {
   }
 
   if (!user) return null;
-  if (loading && !selectedSession) return <div className="loading-shell">Loading workspace...</div>;
+  if (loading && !selectedSession) return <div className="loading-shell">Medikal komuta merkezi yukleniyor...</div>;
 
   const isClinicalView = view === "clinical" && (isOperator || isAdmin);
 

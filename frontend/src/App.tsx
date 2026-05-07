@@ -6,7 +6,7 @@ function AppBody() {
   const { user, loading, login, register } = useAuth();
 
   if (loading) {
-    return <div className="loading-shell">Preparing secure workspace...</div>;
+    return <div className="loading-shell">Medikal komuta merkezi hazirlaniyor...</div>;
   }
 
   if (!user) {

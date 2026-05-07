@@ -44,6 +44,7 @@ class ClinicalConversationSummary(BaseModel):
     last_urgency: str | None = None
     doctor_summary: str | None = None
     possible_conditions: list[dict] = Field(default_factory=list)
+    appointment_draft: dict | None = None
     doctor_inbox: bool = False
     last_message_preview: str | None = None
     created_at: datetime
@@ -116,6 +117,7 @@ class WebhookIngestionResponse(BaseModel):
     action: str
     reply: str | None = None
     shadow_review_id: int | None = None
+    appointment_id: int | None = None
 
 
 class ClinicalPersonaResponse(BaseModel):
