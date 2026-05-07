@@ -41,6 +41,9 @@ class ClinicalConversationSummary(BaseModel):
     intent: str | None = None
     confidence_score: float | None = None
     persona_name: str | None = None
+    last_urgency: str | None = None
+    doctor_summary: str | None = None
+    possible_conditions: list[dict] = Field(default_factory=list)
     doctor_inbox: bool = False
     last_message_preview: str | None = None
     created_at: datetime

@@ -37,6 +37,35 @@ def test_medical_emergency_routes_to_shadow_mode(client, operator_token):
     assert overview.json()["metrics"]["pending_shadow_reviews"] >= 1
 
 
+def test_symptom_triage_enriches_doctor_inbox_metadata(client, operator_token):
+    res = client.post(
+        "/api/clinical/simulate-voice-call",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={
+            "from_phone": "+90 555 707 80 90",
+            "patient_name": "Dis Agrisi Hasta",
+            "speech": "Dis agrim ve sislik var, implant bolgesi de agriyor.",
+            "persona_id": "can",
+        },
+    )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["action"] == "shadow_review"
+
+    overview = client.get("/api/clinical/overview", headers={"Authorization": f"Bearer {operator_token}"})
+    assert overview.status_code == 200
+    payload = overview.json()
+    review = next(item for item in payload["shadow_reviews"] if item["conversation_id"] == data["conversation_id"])
+    triage = review["metadata_json"]["triage"]
+    assert review["intent"] == "symptom_triage"
+    assert triage["urgency"] in {"same_day", "soon"}
+    assert triage["requires_doctor_review"] is True
+    assert triage["possible_conditions"]
+    assert triage["doctor_summary"]
+    assert review["metadata_json"]["doctor_summary"]
+
+
 def test_customer_cannot_access_clinical_dashboard(client, customer_token):
     res = client.get("/api/clinical/overview", headers={"Authorization": f"Bearer {customer_token}"})
     assert res.status_code == 403

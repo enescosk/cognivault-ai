@@ -56,6 +56,7 @@ PERSONA_BY_INTENT: dict[ClinicIntent, str] = {
     ClinicIntent.ASK_WORKING_HOURS: "selin",
     ClinicIntent.ASK_PRICE: "arzu",
     ClinicIntent.ASK_INSURANCE: "arzu",
+    ClinicIntent.SYMPTOM_TRIAGE: "can",
     ClinicIntent.MEDICAL_EMERGENCY: "can",
     ClinicIntent.UNKNOWN: "can",
 }

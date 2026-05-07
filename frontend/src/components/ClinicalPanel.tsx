@@ -17,6 +17,22 @@ type ClinicalPanelProps = {
 
 type PersonaId = "selin" | "arzu" | "can";
 type ChannelMode = "phone" | "whatsapp";
+type PossibleCondition = {
+  label?: string;
+  rationale?: string;
+  urgency?: string;
+  confidence?: number;
+};
+type TriageInfo = {
+  urgency?: string;
+  red_flags?: string[];
+  possible_conditions?: PossibleCondition[];
+  recommended_action?: string;
+  doctor_summary?: string;
+  follow_up_questions?: string[];
+  safety_disclaimer?: string;
+  source?: string;
+};
 
 const personaCards: Array<{
   id: PersonaId;
@@ -70,6 +86,22 @@ const roleCards = [
     text: "Kaçan arama, dönüşen randevu ve memnuniyetsiz hasta riskini takip eder.",
   },
 ];
+
+function getTriage(value: Record<string, unknown> | null | undefined): TriageInfo | null {
+  const triage = value?.triage;
+  if (!triage || typeof triage !== "object") return null;
+  return triage as TriageInfo;
+}
+
+function getConditions(value: Array<Record<string, unknown>> | undefined, fallback?: TriageInfo | null): PossibleCondition[] {
+  if (value?.length) return value as PossibleCondition[];
+  return fallback?.possible_conditions ?? [];
+}
+
+function formatUrgency(value?: string | null) {
+  if (!value) return "rutin";
+  return value.replace(/_/g, " ");
+}
 
 export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [overview, setOverview] = useState<ClinicalOverview | null>(null);
@@ -271,21 +303,31 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           </div>
           <div className="clinical-message-list">
             {selectedConversation?.messages.length ? (
-              selectedConversation.messages.map((message) => (
-                <article key={message.id} className={`clinical-message ${message.sender}`}>
-                  <div>
-                    <span>{message.sender}</span>
-                    <span>{trDateTime.format(new Date(message.created_at))}</span>
-                  </div>
-                  <p>{message.content}</p>
-                  {message.intent ? (
-                    <small>
-                      {message.intent} · {Math.round((message.confidence_score ?? 0) * 100)}% ·{" "}
-                      {String(message.metadata_json?.persona_name ?? message.metadata_json?.channel ?? "")}
-                    </small>
-                  ) : null}
-                </article>
-              ))
+              selectedConversation.messages.map((message) => {
+                const triage = getTriage(message.metadata_json);
+                const conditions = getConditions(undefined, triage);
+                return (
+                  <article key={message.id} className={`clinical-message ${message.sender}`}>
+                    <div>
+                      <span>{message.sender}</span>
+                      <span>{trDateTime.format(new Date(message.created_at))}</span>
+                    </div>
+                    <p>{message.content}</p>
+                    {message.intent ? (
+                      <small>
+                        {message.intent} · {Math.round((message.confidence_score ?? 0) * 100)}% ·{" "}
+                        {String(message.metadata_json?.persona_name ?? message.metadata_json?.channel ?? "")}
+                      </small>
+                    ) : null}
+                    {triage ? (
+                      <div className="triage-strip">
+                        <b>{formatUrgency(triage.urgency)}</b>
+                        <span>{conditions.slice(0, 2).map((item) => item.label).filter(Boolean).join(" · ") || "Doktor değerlendirmesi"}</span>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })
             ) : (
               <div className="clinical-empty">Hasta secildiginde arama ve mesaj gecmisi burada gorunur.</div>
             )}
@@ -378,27 +420,38 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
             </div>
           </div>
           <div className="clinical-review-list">
-            {reviews.length ? reviews.map((review) => (
-              <article key={review.id} className="clinical-review">
-                <div className="clinical-review-top">
-                  <strong>{review.intent.replace(/_/g, " ")}</strong>
-                  <span>{review.channel ?? "medical"} · {review.persona_name ?? "AI"} · {Math.round(review.confidence_score * 100)}%</span>
-                </div>
-                <p>{review.draft_reply}</p>
-                <small>{review.risk_reason}</small>
-                {editingReviewId === review.id ? (
-                  <textarea value={editedReply} onChange={(event) => setEditedReply(event.target.value)} />
-                ) : null}
-                <div className="clinical-review-actions">
-                  <button type="button" onClick={() => void decideReview(review, "approved")} disabled={busy}>Onayla</button>
-                  <button type="button" onClick={() => { setEditingReviewId(review.id); setEditedReply(review.draft_reply); }} disabled={busy}>Duzenle</button>
-                  {editingReviewId === review.id ? (
-                    <button type="button" onClick={() => void decideReview(review, "edited")} disabled={busy || !editedReply.trim()}>Duzenlemeyi gonder</button>
+            {reviews.length ? reviews.map((review) => {
+              const triage = getTriage(review.metadata_json);
+              const conditions = getConditions(review.metadata_json?.possible_conditions as Array<Record<string, unknown>> | undefined, triage);
+              return (
+                <article key={review.id} className="clinical-review">
+                  <div className="clinical-review-top">
+                    <strong>{review.intent.replace(/_/g, " ")}</strong>
+                    <span>{review.channel ?? "medical"} · {review.persona_name ?? "AI"} · {Math.round(review.confidence_score * 100)}%</span>
+                  </div>
+                  {triage ? (
+                    <div className="doctor-brief">
+                      <b>Aciliyet: {formatUrgency(triage.urgency)}</b>
+                      <p>{triage.doctor_summary ?? String(review.metadata_json?.doctor_summary ?? "")}</p>
+                      <span>{conditions.slice(0, 3).map((item) => item.label).filter(Boolean).join(" · ") || "Olası kategori yok"}</span>
+                    </div>
                   ) : null}
-                  <button type="button" className="danger" onClick={() => void decideReview(review, "rejected")} disabled={busy}>Reddet</button>
-                </div>
-              </article>
-            )) : <div className="clinical-empty">Doktor onayi bekleyen kayit yok.</div>}
+                  <p>{review.draft_reply}</p>
+                  <small>{review.risk_reason}</small>
+                  {editingReviewId === review.id ? (
+                    <textarea value={editedReply} onChange={(event) => setEditedReply(event.target.value)} />
+                  ) : null}
+                  <div className="clinical-review-actions">
+                    <button type="button" onClick={() => void decideReview(review, "approved")} disabled={busy}>Onayla</button>
+                    <button type="button" onClick={() => { setEditingReviewId(review.id); setEditedReply(review.draft_reply); }} disabled={busy}>Duzenle</button>
+                    {editingReviewId === review.id ? (
+                      <button type="button" onClick={() => void decideReview(review, "edited")} disabled={busy || !editedReply.trim()}>Duzenlemeyi gonder</button>
+                    ) : null}
+                    <button type="button" className="danger" onClick={() => void decideReview(review, "rejected")} disabled={busy}>Reddet</button>
+                  </div>
+                </article>
+              );
+            }) : <div className="clinical-empty">Doktor onayi bekleyen kayit yok.</div>}
           </div>
         </div>
       </section>
@@ -434,6 +487,12 @@ function ConversationList({
           <span>
             {conversation.channel} · {conversation.persona_name ?? "AI"} · {conversation.intent?.replace(/_/g, " ") ?? "intent pending"}
           </span>
+          {conversation.last_urgency ? (
+            <em>
+              {formatUrgency(conversation.last_urgency)} ·{" "}
+              {(conversation.possible_conditions ?? []).slice(0, 2).map((item) => String(item.label ?? "")).filter(Boolean).join(" · ") || "doktor ozeti hazir"}
+            </em>
+          ) : null}
           <p>{conversation.last_message_preview ?? "No messages yet"}</p>
         </button>
       ))}

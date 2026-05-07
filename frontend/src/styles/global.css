@@ -2343,6 +2343,7 @@ button { cursor: pointer; border: none; background: none; }
 }
 .clinical-conversation-row strong,
 .clinical-conversation-row span,
+.clinical-conversation-row em,
 .clinical-conversation-row p {
   display: block;
 }
@@ -2357,6 +2358,12 @@ button { cursor: pointer; border: none; background: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.clinical-conversation-row em {
+  color: var(--amber);
+  font-size: 0.76rem;
+  font-style: normal;
+  margin-bottom: 4px;
 }
 .clinical-status {
   border: 1px solid rgba(104,211,145,0.22);
@@ -2412,6 +2419,41 @@ button { cursor: pointer; border: none; background: none; }
   color: var(--text-3);
   font-family: var(--font-mono);
   font-size: 0.72rem;
+}
+.triage-strip,
+.doctor-brief {
+  border: 1px solid rgba(246,173,85,0.2);
+  background: rgba(246,173,85,0.08);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  margin-top: 10px;
+}
+.clinical-message .triage-strip {
+  display: grid;
+  align-items: unset;
+  justify-content: unset;
+  gap: 4px;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 0.82rem;
+  text-transform: none;
+}
+.triage-strip b,
+.doctor-brief b {
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.triage-strip span,
+.doctor-brief span {
+  color: var(--text-2);
+  font-size: 0.82rem;
+}
+.doctor-brief p {
+  margin-top: 5px;
+  font-size: 0.86rem;
 }
 .clinical-review {
   border: 1px solid rgba(246,173,85,0.2);
@@ -2647,6 +2689,9 @@ button { cursor: pointer; border: none; background: none; }
 .boutique-clinic-panel .clinical-conversation-row span {
   color: #1f6f68;
 }
+.boutique-clinic-panel .clinical-conversation-row em {
+  color: #b16a1f;
+}
 .boutique-clinic-panel .clinical-conversation-row p {
   color: #627672;
 }
@@ -2684,6 +2729,20 @@ button { cursor: pointer; border: none; background: none; }
 .boutique-clinic-panel .clinical-message small,
 .boutique-clinic-panel .clinical-review small {
   color: #748983;
+}
+.boutique-clinic-panel .triage-strip,
+.boutique-clinic-panel .doctor-brief {
+  background: #fff8eb;
+  border-color: rgba(194,119,34,0.2);
+}
+.boutique-clinic-panel .triage-strip b,
+.boutique-clinic-panel .doctor-brief b {
+  color: #b16a1f;
+}
+.boutique-clinic-panel .triage-strip span,
+.boutique-clinic-panel .doctor-brief span,
+.boutique-clinic-panel .doctor-brief p {
+  color: #5f5342;
 }
 .role-compare-grid,
 .persona-detail-list,

@@ -243,6 +243,9 @@ export type ClinicalConversationSummary = {
   intent?: string | null;
   confidence_score?: number | null;
   persona_name?: string | null;
+  last_urgency?: string | null;
+  doctor_summary?: string | null;
+  possible_conditions?: Array<Record<string, unknown>>;
   doctor_inbox: boolean;
   last_message_preview?: string | null;
   created_at: string;

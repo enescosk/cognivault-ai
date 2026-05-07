@@ -252,6 +252,20 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
     db.refresh(message)
 
     ai_result = generate_clinical_reply(clinic, incoming.body, language, incoming.requested_persona_id)
+    triage = ai_result.triage_assessment or {}
+    doctor_summary = (ai_result.data or {}).get("doctor_summary")
+    possible_conditions = (ai_result.data or {}).get("possible_conditions", [])
+    message.intent = ai_result.intent
+    message.confidence_score = ai_result.confidence
+    message.metadata_json = {
+        **(message.metadata_json or {}),
+        "persona_id": ai_result.persona_id,
+        "persona_name": ai_result.persona_name,
+        "voice": ai_result.voice,
+        "triage": triage or None,
+        "doctor_summary": doctor_summary,
+        "possible_conditions": possible_conditions,
+    }
     conversation.intent = ai_result.intent
     conversation.confidence_score = ai_result.confidence
     conversation.metadata_json = {
@@ -260,6 +274,9 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         "last_persona_name": ai_result.persona_name,
         "last_voice": ai_result.voice,
         "last_channel": incoming.channel.value,
+        "last_urgency": triage.get("urgency"),
+        "doctor_summary": doctor_summary,
+        "possible_conditions": possible_conditions,
     }
 
     if detect_frustration(incoming.body):
@@ -293,8 +310,12 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
                 "voice": ai_result.voice,
                 "channel": incoming.channel.value,
                 "doctor_inbox": True,
+                "triage": triage or None,
+                "doctor_summary": doctor_summary,
+                "possible_conditions": possible_conditions,
             },
         )
+        db.add(message)
         db.add(conversation)
         db.add(review)
         db.commit()
@@ -324,8 +345,12 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
             "persona_name": ai_result.persona_name,
             "voice": ai_result.voice,
             "channel": incoming.channel.value,
+            "triage": triage or None,
+            "doctor_summary": doctor_summary,
+            "possible_conditions": possible_conditions,
         },
     )
+    db.add(message)
     db.add(assistant_message)
     db.add(conversation)
     db.commit()

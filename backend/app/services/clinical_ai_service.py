@@ -9,6 +9,7 @@ from anthropic import Anthropic
 from app.core.config import get_settings
 from app.models import Clinic, ClinicIntent
 from app.services.clinical_persona_service import ClinicalPersona, choose_persona
+from app.services.medical_triage_service import MedicalUrgency, assess_medical_triage, looks_medical
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class ClinicalAIResult:
     requires_human_review: bool
     risk_reason: str | None = None
     data: dict | None = None
+    triage_assessment: dict | None = None
 
 
 TURKISH_MARKERS = {
@@ -43,6 +45,7 @@ TURKISH_MARKERS = {
 
 INTENT_KEYWORDS: list[tuple[ClinicIntent, set[str]]] = [
     (ClinicIntent.MEDICAL_EMERGENCY, {"acil", "kanama", "bayildi", "bayıldı", "nefes", "gogus", "göğüs", "kalp", "112"}),
+    (ClinicIntent.SYMPTOM_TRIAGE, {"ağrı", "agri", "sızı", "sizi", "şişlik", "sislik", "apse", "ateş", "ates", "implant", "diş", "dis", "kanal", "dolgu", "diş eti", "dis eti", "döküntü", "dokuntu"}),
     (ClinicIntent.RESCHEDULE_APPOINTMENT, {"ertelemek", "degistirmek", "değiştirmek", "reschedule", "baska saat", "başka saat"}),
     (ClinicIntent.CANCEL_APPOINTMENT, {"iptal", "cancel"}),
     (ClinicIntent.BOOK_APPOINTMENT, {"randevu", "appointment", "musait", "müsait", "yarin", "yarın", "bugun", "bugün"}),
@@ -204,6 +207,7 @@ def _try_anthropic_reply(
         requires_human_review=bool(payload.get("requires_human_review", False)),
         risk_reason=payload.get("risk_reason"),
         data=payload.get("data") if isinstance(payload.get("data"), dict) else {},
+        triage_assessment=None,
     )
 
 
@@ -215,7 +219,41 @@ def generate_clinical_reply(
 ) -> ClinicalAIResult:
     resolved_language = language or detect_language(text, clinic.default_language)
     intent, intent_confidence = classify_intent(text)
+    if intent == ClinicIntent.GENERAL_QUESTION and looks_medical(text):
+        intent = ClinicIntent.SYMPTOM_TRIAGE
+        intent_confidence = 0.78
     persona = choose_persona(intent, requested_persona_id)
+
+    if intent in {ClinicIntent.SYMPTOM_TRIAGE, ClinicIntent.MEDICAL_EMERGENCY} or looks_medical(text):
+        triage = assess_medical_triage(clinic, text, resolved_language)
+        if triage.urgency == MedicalUrgency.EMERGENCY:
+            intent = ClinicIntent.MEDICAL_EMERGENCY
+            persona = choose_persona(intent, requested_persona_id)
+        risk_reason = (
+            "medical_emergency_guardrail"
+            if triage.urgency == MedicalUrgency.EMERGENCY
+            else f"medical_triage_{triage.urgency.value}"
+        )
+        return ClinicalAIResult(
+            reply=triage.patient_safe_reply,
+            confidence=0.93 if triage.urgency == MedicalUrgency.EMERGENCY else max(intent_confidence, 0.82),
+            intent=intent,
+            action="medical_triage",
+            persona_id=persona.id,
+            persona_name=persona.display_name,
+            voice=persona.voice,
+            requires_human_review=triage.requires_doctor_review,
+            risk_reason=risk_reason,
+            data={
+                "recommended_action": triage.recommended_action,
+                "doctor_summary": triage.doctor_summary,
+                "follow_up_questions": triage.follow_up_questions,
+                "red_flags": triage.red_flags,
+                "possible_conditions": triage.possible_conditions,
+            },
+            triage_assessment=triage.to_dict(),
+        )
+
     anthropic_reply = _try_anthropic_reply(clinic, text, resolved_language, intent, persona)
     if anthropic_reply is not None:
         return anthropic_reply
@@ -244,4 +282,5 @@ def generate_clinical_reply(
         requires_human_review=requires_review,
         risk_reason=risk_reason,
         data={},
+        triage_assessment=None,
     )
