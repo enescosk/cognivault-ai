@@ -19,7 +19,6 @@ import { AppointmentsPage } from "./AppointmentsPage";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
-import { EnterprisePanel } from "./EnterprisePanel";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
 
@@ -36,7 +35,7 @@ export function Dashboard() {
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "appointments" | "enterprise" | "clinical">("chat");
+  const [view, setView] = useState<"chat" | "appointments" | "clinical">("chat");
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
@@ -199,11 +198,10 @@ export function Dashboard() {
         appointments={appointments}
         selectedSessionId={selectedSession?.id}
         activeView={view}
-        onSelectSession={(id) => { setView(isCustomer ? "chat" : "enterprise"); if (isCustomer) handleSelectSession(id); }}
-        onNewSession={() => { if (isCustomer) { setView("chat"); handleNewSession(); } else { setView("enterprise"); } }}
+        onSelectSession={(id) => { setView(isCustomer ? "chat" : "clinical"); if (isCustomer) handleSelectSession(id); }}
+        onNewSession={() => { if (isCustomer) { setView("chat"); handleNewSession(); } else { setView("clinical"); } }}
         onDeleteSession={handleDeleteSession}
         onViewAppointments={() => setView("appointments")}
-        onViewEnterprise={() => setView("enterprise")}
         onViewClinical={() => setView("clinical")}
         onLogout={logout}
       />
@@ -212,8 +210,6 @@ export function Dashboard() {
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
         {view === "clinical" && (isOperator || isAdmin) ? (
           <ClinicalPanel token={token ?? ""} />
-        ) : view === "enterprise" && (isOperator || isAdmin) ? (
-          <EnterprisePanel token={token ?? ""} appointments={appointments} />
         ) : view === "appointments" && isCustomer ? (
           <AppointmentsPage appointments={appointments} />
         ) : (

@@ -2373,6 +2373,321 @@ button { cursor: pointer; border: none; background: none; }
   .clinical-header-badge { white-space: normal; }
 }
 
+/* ─── BOUTIQUE MEDICAL PRODUCT SURFACE ───────────────────────── */
+.boutique-clinic-panel {
+  background:
+    linear-gradient(180deg, rgba(232,246,242,0.98), rgba(246,248,244,0.96)),
+    radial-gradient(circle at top right, rgba(91,141,239,0.12), transparent 42%);
+  color: #15231f;
+}
+.boutique-clinic-panel .clinical-kicker,
+.boutique-clinic-panel .clinical-card-top span {
+  color: #2b7a78;
+}
+.clinic-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.7fr);
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+.clinic-hero-copy,
+.clinic-hero-panel,
+.clinic-card,
+.boutique-clinic-panel .clinical-metric {
+  border: 1px solid rgba(32,72,67,0.12);
+  background: rgba(255,255,255,0.78);
+  box-shadow: 0 18px 45px rgba(32,72,67,0.08);
+}
+.clinic-hero-copy {
+  border-radius: 18px;
+  padding: 28px;
+}
+.clinic-hero-copy h2 {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  line-height: 0.98;
+  letter-spacing: 0;
+  max-width: 880px;
+  margin: 8px 0 14px;
+  color: #0d1f1b;
+}
+.clinic-hero-copy p {
+  color: #4f645f;
+  font-size: 1.02rem;
+  max-width: 760px;
+}
+.clinic-hero-panel {
+  border-radius: 18px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+.clinic-hero-panel span {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: #5d7f79;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.clinic-hero-panel strong {
+  color: #0d1f1b;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+.clinic-hero-panel p {
+  color: #60736f;
+  font-size: 0.9rem;
+}
+.clinic-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.boutique-clinic-panel .clinical-metric {
+  border-radius: 14px;
+}
+.boutique-clinic-panel .clinical-metric span {
+  color: #6a817d;
+}
+.boutique-clinic-panel .clinical-metric strong {
+  color: #122722;
+}
+.boutique-clinic-panel .clinical-metric.success strong { color: #23835d; }
+.boutique-clinic-panel .clinical-metric.warning strong { color: #c27722; }
+.boutique-clinic-panel .clinical-metric.danger strong { color: #bf4444; }
+.clinic-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(290px, 0.8fr) minmax(300px, 0.9fr) minmax(380px, 1.25fr);
+  gap: 14px;
+  align-items: start;
+}
+.clinic-product-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+.clinic-bottom-grid {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+.clinic-card {
+  border-radius: 16px;
+  padding: 16px;
+  min-height: 260px;
+}
+.boutique-clinic-panel .clinical-card-top h3 {
+  color: #122722;
+}
+.boutique-clinic-panel .clinical-form input,
+.boutique-clinic-panel .clinical-form textarea,
+.boutique-clinic-panel .clinical-form select,
+.boutique-clinic-panel .clinical-review textarea {
+  color: #172b26;
+  background: rgba(255,255,255,0.92);
+  border-color: rgba(32,72,67,0.14);
+}
+.boutique-clinic-panel .clinical-form input::placeholder,
+.boutique-clinic-panel .clinical-form textarea::placeholder {
+  color: #8a9a96;
+}
+.boutique-clinic-panel .clinical-form button,
+.boutique-clinic-panel .clinical-review-actions button {
+  background: #1f6f68;
+  border-color: #1f6f68;
+  color: #ffffff;
+}
+.boutique-clinic-panel .clinical-review-actions .danger {
+  background: rgba(191,68,68,0.09);
+  color: #a73535;
+  border-color: rgba(191,68,68,0.24);
+}
+.boutique-clinic-panel .clinical-segmented {
+  background: #edf5f2;
+  border-color: rgba(32,72,67,0.12);
+  margin-bottom: 10px;
+}
+.boutique-clinic-panel .clinical-segmented button {
+  color: #516963;
+}
+.boutique-clinic-panel .clinical-segmented button.active {
+  background: #ffffff;
+  color: #1f6f68;
+  box-shadow: 0 6px 18px rgba(31,111,104,0.12);
+}
+.persona-selector {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.persona-selector button {
+  text-align: left;
+  border: 1px solid rgba(32,72,67,0.12);
+  background: rgba(255,255,255,0.72);
+  border-radius: 12px;
+  padding: 10px;
+  min-height: 76px;
+}
+.persona-selector button.active {
+  border-color: rgba(31,111,104,0.38);
+  background: #e6f3ef;
+}
+.persona-selector strong,
+.persona-selector span {
+  display: block;
+}
+.persona-selector strong {
+  color: #122722;
+  font-family: var(--font-display);
+}
+.persona-selector span {
+  color: #657d78;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin-top: 4px;
+}
+.boutique-clinic-panel .clinical-conversation-row {
+  background: rgba(255,255,255,0.72);
+  border-color: rgba(32,72,67,0.12);
+}
+.boutique-clinic-panel .clinical-conversation-row.selected {
+  background: #e9f5f1;
+  border-color: rgba(31,111,104,0.34);
+}
+.boutique-clinic-panel .clinical-conversation-row.doctor {
+  background: #fff6e8;
+  border-color: rgba(194,119,34,0.2);
+}
+.boutique-clinic-panel .clinical-conversation-row strong {
+  color: #172b26;
+}
+.boutique-clinic-panel .clinical-conversation-row span {
+  color: #1f6f68;
+}
+.boutique-clinic-panel .clinical-conversation-row p {
+  color: #627672;
+}
+.boutique-clinic-panel .clinical-status {
+  background: #e8f5ef;
+  border-color: rgba(35,131,93,0.22);
+  color: #23835d;
+}
+.boutique-clinic-panel .clinical-status.danger {
+  background: #fff0ee;
+  border-color: rgba(191,68,68,0.2);
+  color: #bf4444;
+}
+.boutique-clinic-panel .clinical-message {
+  background: rgba(255,255,255,0.82);
+  border-color: rgba(32,72,67,0.12);
+}
+.boutique-clinic-panel .clinical-message.patient {
+  background: #eaf4ff;
+  border-color: rgba(62,110,170,0.16);
+}
+.boutique-clinic-panel .clinical-message.assistant,
+.boutique-clinic-panel .clinical-message.operator {
+  background: #eef8f2;
+  border-color: rgba(35,131,93,0.16);
+}
+.boutique-clinic-panel .clinical-message div,
+.boutique-clinic-panel .clinical-review-top {
+  color: #728782;
+}
+.boutique-clinic-panel .clinical-message p,
+.boutique-clinic-panel .clinical-review p {
+  color: #172b26;
+}
+.boutique-clinic-panel .clinical-message small,
+.boutique-clinic-panel .clinical-review small {
+  color: #748983;
+}
+.role-compare-grid,
+.persona-detail-list,
+.channel-decision-list {
+  display: grid;
+  gap: 10px;
+}
+.role-compare-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.role-card,
+.persona-detail-list article,
+.channel-decision-list article {
+  border: 1px solid rgba(32,72,67,0.12);
+  background: rgba(255,255,255,0.7);
+  border-radius: 12px;
+  padding: 12px;
+}
+.role-card span,
+.persona-detail-list span {
+  display: block;
+  color: #2b7a78;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.role-card strong,
+.persona-detail-list strong,
+.channel-decision-list b {
+  color: #122722;
+  font-family: var(--font-display);
+}
+.role-card p,
+.persona-detail-list p,
+.channel-decision-list p {
+  color: #5e736e;
+  font-size: 0.86rem;
+  line-height: 1.48;
+  margin-top: 6px;
+}
+.persona-detail-list article.active {
+  background: #e6f3ef;
+  border-color: rgba(31,111,104,0.32);
+}
+.boutique-clinic-panel .clinical-review {
+  background: #fff6e8;
+  border-color: rgba(194,119,34,0.18);
+}
+.boutique-clinic-panel .clinical-empty {
+  color: #70837f;
+  border-color: rgba(32,72,67,0.14);
+}
+
+@media (max-width: 1320px) {
+  .clinic-workspace-grid,
+  .clinic-product-grid,
+  .clinic-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+  .clinic-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .clinic-hero {
+    grid-template-columns: 1fr;
+  }
+  .clinic-hero-copy h2 {
+    font-size: 2.1rem;
+  }
+  .persona-selector,
+  .role-compare-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ─── ENTERPRISE MODE ─────────────────────────────────────────── */
 .enterprise-panel {
   flex: 1;
