@@ -909,6 +909,81 @@ button { cursor: pointer; border: none; background: none; }
   grid-template-columns: var(--sidebar-w) 1fr;
 }
 
+.dashboard-shell.clinical-view {
+  grid-template-columns: var(--sidebar-w) 1fr;
+  background: #eaf3ef;
+}
+.dashboard-shell.clinical-view::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(31,111,104,0.12), transparent 34%),
+    radial-gradient(circle at 100% 18%, rgba(194,119,34,0.08), transparent 28%);
+  pointer-events: none;
+}
+.dashboard-shell.clinical-view .main-panel {
+  min-height: 100vh;
+  background: transparent;
+}
+.dashboard-shell.clinical-view .sidebar {
+  background: rgba(255,255,255,0.82);
+  border-right: 1px solid rgba(32,72,67,0.12);
+  color: #15231f;
+  backdrop-filter: blur(18px);
+}
+.dashboard-shell.clinical-view .sidebar-top,
+.dashboard-shell.clinical-view .sidebar-bottom {
+  border-color: rgba(32,72,67,0.1);
+}
+.dashboard-shell.clinical-view .sidebar-brand-name,
+.dashboard-shell.clinical-view .sidebar-name {
+  color: #122722;
+}
+.dashboard-shell.clinical-view .sidebar-avatar {
+  background: #e3f1ed;
+  border-color: rgba(31,111,104,0.22);
+  color: #1f6f68;
+}
+.dashboard-shell.clinical-view .sidebar-email,
+.dashboard-shell.clinical-view .sidebar-dept,
+.dashboard-shell.clinical-view .nav-section-label {
+  color: #728782;
+}
+.dashboard-shell.clinical-view .role-badge.operator {
+  color: #9b631f;
+  border-color: rgba(194,119,34,0.24);
+  background: rgba(194,119,34,0.09);
+}
+.dashboard-shell.clinical-view .sidebar-nav-item {
+  color: #4f645f;
+}
+.dashboard-shell.clinical-view .sidebar-nav-item:hover,
+.dashboard-shell.clinical-view .sidebar-nav-item--active {
+  background: #e6f3ef;
+  color: #1f6f68;
+}
+.dashboard-shell.clinical-view .enterprise-nav-card {
+  background: #f7fbf8;
+  border-color: rgba(31,111,104,0.16);
+}
+.dashboard-shell.clinical-view .enterprise-nav-card strong {
+  color: #536a65;
+}
+.dashboard-shell.clinical-view .enterprise-nav-card button {
+  background: #1f6f68;
+  border-color: #1f6f68;
+  color: #ffffff;
+}
+.dashboard-shell.clinical-view .settings-btn {
+  color: #536a65;
+}
+.dashboard-shell.clinical-view .hamburger-menu-btn {
+  background: rgba(31,111,104,0.07);
+  border-color: rgba(31,111,104,0.16);
+  color: #1f6f68;
+}
+
 .typing-indicator {
   display: flex;
   align-items: center;

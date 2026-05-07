@@ -190,8 +190,10 @@ export function Dashboard() {
   if (!user) return null;
   if (loading && !selectedSession) return <div className="loading-shell">Loading workspace...</div>;
 
+  const isClinicalView = view === "clinical" && (isOperator || isAdmin);
+
   return (
-    <div className={`dashboard-shell ${isOperator ? "operator-view" : ""}`}>
+    <div className={`dashboard-shell ${isOperator ? "operator-view" : ""} ${isClinicalView ? "clinical-view" : ""}`}>
       <Sidebar
         user={user}
         sessions={sessions}
@@ -206,9 +208,9 @@ export function Dashboard() {
         onLogout={logout}
       />
       <main className="main-panel">
-        <MetricsBar metrics={metrics} appointments={appointments} role={role} />
+        {!isClinicalView ? <MetricsBar metrics={metrics} appointments={appointments} role={role} /> : null}
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        {view === "clinical" && (isOperator || isAdmin) ? (
+        {isClinicalView ? (
           <ClinicalPanel token={token ?? ""} />
         ) : view === "appointments" && isCustomer ? (
           <AppointmentsPage appointments={appointments} />
@@ -217,7 +219,7 @@ export function Dashboard() {
         )}
       </main>
       {isCustomer && <AppointmentPanel appointments={appointments} />}
-      {isAdmin    && <AdminPanel users={users} appointments={appointments} logs={logs} />}
+      {isAdmin && !isClinicalView && <AdminPanel users={users} appointments={appointments} logs={logs} />}
     </div>
   );
 }
