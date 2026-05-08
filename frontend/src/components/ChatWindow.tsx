@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatSessionDetail, IntelligenceActivity, User } from "../types/api";
+import type { ChatSessionDetail, User } from "../types/api";
 import { transcribeAudio, synthesizeSpeech } from "../api/client";
 
 type ChatWindowProps = {
@@ -7,77 +7,13 @@ type ChatWindowProps = {
   user: User;
   sending: boolean;
   pendingMessage: string | null;
-  streamingContent: string | null;  // null=yok, ""=başladı ama token gelmedi, "abc"=akan içerik
   token: string;
   onSend: (content: string) => void;
 };
 
 const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
 
-function getIntelligenceActivity(metadata?: Record<string, unknown> | null): IntelligenceActivity | null {
-  const activity = metadata?.intelligence_activity;
-  if (!activity || typeof activity !== "object") return null;
-  const candidate = activity as Partial<IntelligenceActivity>;
-  if (candidate.type !== "external_outreach" || !candidate.company || !Array.isArray(candidate.events)) {
-    return null;
-  }
-  return candidate as IntelligenceActivity;
-}
-
-async function requestMicrophoneStream(): Promise<MediaStream> {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new DOMException("Microphone access is not supported in this browser.", "NotSupportedError");
-  }
-
-  if (typeof MediaRecorder === "undefined") {
-    throw new DOMException("Audio recording is not supported in this browser.", "NotSupportedError");
-  }
-
-  try {
-    const permission = await navigator.permissions?.query({ name: "microphone" as PermissionName });
-    if (permission?.state === "denied") {
-      throw new DOMException("Microphone permission is blocked for this site.", "NotAllowedError");
-    }
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "NotAllowedError") {
-      throw error;
-    }
-    // Safari and some embedded browsers do not support microphone permission queries.
-    // In that case, getUserMedia below is still the correct way to trigger the prompt.
-  }
-
-  return navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
-    }
-  });
-}
-
-function getMicrophoneErrorMessage(error: unknown): string {
-  const name = error instanceof DOMException ? error.name : "";
-
-  if (name === "NotAllowedError" || name === "SecurityError") {
-    return "Mikrofon izni tarayıcıda engellenmiş. Adres çubuğundaki site izinlerinden mikrofonu açıp sayfayı yenileyin.";
-  }
-
-  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return "Mikrofon bulunamadı. Lütfen bağlı bir mikrofon olduğundan emin olun.";
-  }
-
-  if (name === "NotReadableError" || name === "TrackStartError") {
-    return "Mikrofona erişilemedi. Başka bir uygulama kullanıyor olabilir.";
-  }
-
-  if (name === "NotSupportedError") {
-    return "Bu tarayıcı sesli yazmayı desteklemiyor. Chrome veya Safari ile tekrar deneyin.";
-  }
-
-  return "Mikrofon izni alınamadı. Tarayıcı izinlerini kontrol edip tekrar deneyin.";
-}
-
-export function ChatWindow({ session, user, sending, pendingMessage, streamingContent, token, onSend }: ChatWindowProps) {
+export function ChatWindow({ session, user, sending, pendingMessage, token, onSend }: ChatWindowProps) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -124,14 +60,12 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
       return;
     }
 
-    // Mikrofon izni iste. İlk kullanımda tarayıcının izin penceresini tetikler.
+    // Mikrofon izni iste
     let stream: MediaStream;
     try {
-      setVoiceError("Mikrofon izni isteniyor...");
-      stream = await requestMicrophoneStream();
-      setVoiceError(null);
-    } catch (error) {
-      setVoiceError(getMicrophoneErrorMessage(error));
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setVoiceError("Mikrofon izni reddedildi.");
       return;
     }
 
@@ -265,7 +199,6 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
         ) : (
           messages.map((msg) => {
             const isUser = msg.sender === "user";
-            const intelligenceActivity = getIntelligenceActivity(msg.metadata_json);
             if (msg.sender === "system" || msg.sender === "tool") return null;
             return (
               <div key={msg.id} className={`message-row ${isUser ? "outbound" : ""}`}>
@@ -279,8 +212,9 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
                 )}
                 <div className="message-bubble">
                   <div className="message-meta">
+                    {isUser && <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>}
                     <span className="message-sender">{isUser ? user.full_name : "Cognivault AI"}</span>
-                    <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>
+                    {!isUser && <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>}
                     {/* Sesli okuma butonu — sadece AI mesajlarında */}
                     {!isUser && (
                       <button
@@ -312,70 +246,6 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
                     )}
                   </div>
                   <div className="message-content">{msg.content}</div>
-                  {intelligenceActivity && (
-                    <div className="intelligence-card">
-                      <div className="intelligence-card-header">
-                        <span className="intelligence-label">External Intelligence</span>
-                        <span className="status-badge pending">Arama Hazırlığı</span>
-                      </div>
-                      <div className="intelligence-company">{intelligenceActivity.company}</div>
-                      {intelligenceActivity.extracted_terms && (
-                        <div className="intelligence-terms">
-                          <span>{intelligenceActivity.extracted_terms.entity_type === "company" ? "Firma" : "İhtiyaç"}: {intelligenceActivity.extracted_terms.company}</span>
-                          <span>Lokasyon: {intelligenceActivity.extracted_terms.location ?? "genel"}</span>
-                          <span>Amaç: {intelligenceActivity.extracted_terms.purpose}</span>
-                        </div>
-                      )}
-                      <div className="intelligence-facts">
-                        {intelligenceActivity.address && (
-                          <div>
-                            <span className="cf-label">Adres</span>
-                            <span className="cf-value">{intelligenceActivity.address}</span>
-                          </div>
-                        )}
-                        {intelligenceActivity.phone && (
-                          <div>
-                            <span className="cf-label">Telefon</span>
-                            <span className="cf-value">{intelligenceActivity.phone}</span>
-                          </div>
-                        )}
-                        {intelligenceActivity.email && (
-                          <div>
-                            <span className="cf-label">E-posta</span>
-                            <span className="cf-value">{intelligenceActivity.email}</span>
-                          </div>
-                        )}
-                        {intelligenceActivity.source_url && (
-                          <div>
-                            <span className="cf-label">Kaynak</span>
-                            <a className="cf-value intelligence-link" href={intelligenceActivity.source_url} target="_blank" rel="noreferrer">
-                              {intelligenceActivity.source_label ?? "Public source"}
-                            </a>
-                          </div>
-                        )}
-                        {!intelligenceActivity.source_url && intelligenceActivity.source_label && (
-                          <div>
-                            <span className="cf-label">Kaynak</span>
-                            <span className="cf-value">{intelligenceActivity.source_label}</span>
-                          </div>
-                        )}
-                        {intelligenceActivity.failure_reason && (
-                          <div>
-                            <span className="cf-label">Durum</span>
-                            <span className="cf-value">{intelligenceActivity.failure_reason}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="intelligence-events">
-                        {intelligenceActivity.events.map((event, index) => (
-                          <div className={`intelligence-event intelligence-event--${event.status}`} key={`${event.label}-${index}`}>
-                            <span className="intelligence-event-dot" />
-                            <span>{event.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                   {msg.appointment && (
                     <div className="confirmation-card">
                       <div className="confirmation-header">
@@ -415,15 +285,15 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
           <div className="message-row outbound">
             <div className="message-bubble">
               <div className="message-meta">
-                <span className="message-sender">{user.full_name}</span>
                 <span className="message-time">şimdi</span>
+                <span className="message-sender">{user.full_name}</span>
               </div>
               <div className="message-content">{pendingMessage}</div>
             </div>
           </div>
         )}
 
-        {/* AI yanıtı — token akışı veya typing indicator */}
+        {/* AI düşünüyor */}
         {sending && (
           <div className="message-row">
             <div className="msg-avatar">
@@ -435,19 +305,11 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
               <div className="message-meta">
                 <span className="message-sender">Cognivault AI</span>
               </div>
-              {streamingContent !== null && streamingContent !== "" ? (
-                /* Token'lar akıyor — metin büyüyor + yanıp sönen imleç */
-                <div className="message-content streaming-content">
-                  {streamingContent}<span className="stream-cursor" />
-                </div>
-              ) : (
-                /* Henüz token gelmedi — tool loop çalışıyor */
-                <div className="typing-indicator">
-                  <span className="typing-dot" />
-                  <span className="typing-dot" />
-                  <span className="typing-dot" />
-                </div>
-              )}
+              <div className="typing-indicator">
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </div>
             </div>
           </div>
         )}
