@@ -113,6 +113,7 @@ class ClinicIntent(str, Enum):
     ASK_INSURANCE = "ask_insurance"
     ASK_LOCATION = "ask_location"
     ASK_WORKING_HOURS = "ask_working_hours"
+    SYMPTOM_TRIAGE = "symptom_triage"
     MEDICAL_EMERGENCY = "medical_emergency"
     GENERAL_QUESTION = "general_question"
     UNKNOWN = "unknown"

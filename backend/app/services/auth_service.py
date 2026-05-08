@@ -2,7 +2,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import create_access_token, hash_password, password_needs_rehash, verify_password
 from app.models import AuditResultStatus, Role, RoleName, User
 from app.schemas.auth import AuthResponse, UserResponse
 from app.services.audit_service import log_action
@@ -22,6 +22,12 @@ def authenticate_user(db: Session, email: str, password: str) -> AuthResponse:
             details={"email": email},
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if password_needs_rehash(user.hashed_password):
+        user.hashed_password = hash_password(password)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
     token = create_access_token(str(user.id))
     log_action(

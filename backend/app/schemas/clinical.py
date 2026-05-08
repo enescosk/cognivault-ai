@@ -41,6 +41,10 @@ class ClinicalConversationSummary(BaseModel):
     intent: str | None = None
     confidence_score: float | None = None
     persona_name: str | None = None
+    last_urgency: str | None = None
+    doctor_summary: str | None = None
+    possible_conditions: list[dict] = Field(default_factory=list)
+    appointment_draft: dict | None = None
     doctor_inbox: bool = False
     last_message_preview: str | None = None
     created_at: datetime
@@ -79,8 +83,12 @@ class ClinicalMetricsResponse(BaseModel):
     conversations_today: int
     total_conversations: int
     pending_shadow_reviews: int
+    triage_reviews: int
+    emergency_reviews: int
+    same_day_reviews: int
     doctor_inbox_count: int
     phone_calls_today: int
+    whatsapp_threads_today: int
     auto_reply_rate: float
     appointments_pending: int
     reminders_due: int
@@ -109,6 +117,7 @@ class WebhookIngestionResponse(BaseModel):
     action: str
     reply: str | None = None
     shadow_review_id: int | None = None
+    appointment_id: int | None = None
 
 
 class ClinicalPersonaResponse(BaseModel):
