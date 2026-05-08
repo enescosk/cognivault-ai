@@ -77,6 +77,15 @@ def client():
 
 
 @pytest.fixture
+def db_session():
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@pytest.fixture
 def customer_token(client):
     res = client.post("/api/auth/login", json={"email": "customer@test.com", "password": "password123"})
     return res.json()["access_token"]

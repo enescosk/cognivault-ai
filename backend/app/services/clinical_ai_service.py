@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import re
 
-from anthropic import Anthropic
-
+from app.ai.runtime import complete_json
 from app.core.config import get_settings
 from app.models import Clinic, ClinicIntent
 from app.services.clinical_persona_service import ClinicalPersona, choose_persona
@@ -167,7 +165,7 @@ Patient message:
 """.strip()
 
 
-def _try_anthropic_reply(
+def _try_runtime_reply(
     clinic: Clinic,
     text: str,
     language: str,
@@ -175,20 +173,19 @@ def _try_anthropic_reply(
     persona: ClinicalPersona,
 ) -> ClinicalAIResult | None:
     settings = get_settings()
-    if not settings.clinical_ai_enabled or not settings.anthropic_api_key:
+    if not settings.clinical_ai_enabled:
         return None
 
-    client = Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=settings.anthropic_model,
+    payload = complete_json(
+        system_prompt=(
+            "You are CogniVault's clinical reception safety layer. "
+            "Return strictly valid JSON and never diagnose, prescribe, or give treatment instructions."
+        ),
+        user_prompt=_structured_prompt(clinic, text, language, intent, persona),
         max_tokens=600,
         temperature=0.2,
-        messages=[{"role": "user", "content": _structured_prompt(clinic, text, language, intent, persona)}],
     )
-    raw = "".join(block.text for block in response.content if getattr(block, "type", "") == "text")
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
+    if not payload:
         return None
 
     try:
@@ -254,9 +251,9 @@ def generate_clinical_reply(
             triage_assessment=triage.to_dict(),
         )
 
-    anthropic_reply = _try_anthropic_reply(clinic, text, resolved_language, intent, persona)
-    if anthropic_reply is not None:
-        return anthropic_reply
+    runtime_reply = _try_runtime_reply(clinic, text, resolved_language, intent, persona)
+    if runtime_reply is not None:
+        return runtime_reply
 
     risk_reason = None
     requires_review = False

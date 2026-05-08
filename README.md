@@ -97,7 +97,32 @@ The MVP uses mock role-based authentication with seeded users:
 The agent supports Turkish and English in the same chat interface.
 
 - With `OPENAI_API_KEY` set, the backend uses OpenAI tool/function calling.
+- With `LOCAL_LLM_BASE_URL` set, the backend can use a local OpenAI-compatible LLM server.
 - Without an API key, the app falls back to a local guided workflow engine so the MVP remains demoable offline.
+
+## Local-first AI runtime
+
+Cognivault now exposes provider capability checks at:
+
+- `GET /api/ai/capabilities`
+- `GET /api/voice/capabilities`
+
+Local model configuration:
+
+```env
+PREFERRED_LLM_PROVIDER=local
+LOCAL_LLM_BASE_URL=http://localhost:8080/v1
+LOCAL_LLM_API_KEY=local
+LOCAL_LLM_MODEL=your-local-model
+SPEECH_STT_PROVIDER=local
+WHISPER_CPP_BINARY=/absolute/path/to/whisper-cli
+WHISPER_CPP_MODEL=/absolute/path/to/ggml-model.bin
+SPEECH_TTS_PROVIDER=local
+PIPER_BINARY=/absolute/path/to/piper
+PIPER_VOICE_MODEL=/absolute/path/to/voice.onnx
+```
+
+See [docs/COGNIVAULT_AI_ARCHITECTURE.md](docs/COGNIVAULT_AI_ARCHITECTURE.md) for the full local model and voice architecture, [docs/REAL_WORLD_SCENARIO_MATRIX.md](docs/REAL_WORLD_SCENARIO_MATRIX.md) for the real-world regression scenarios, and [docs/BACKEND_PLATFORM_STANDARD.md](docs/BACKEND_PLATFORM_STANDARD.md) for the backend production standard.
 
 ## API overview
 
@@ -146,8 +171,8 @@ Then start the app in two terminals:
 ./scripts/run_frontend.sh
 ```
 
-Frontend: [http://localhost:5173](http://localhost:5173)  
-Backend: [http://localhost:8000](http://localhost:8000)
+Frontend: [http://127.0.0.1:5200](http://127.0.0.1:5200)  
+Backend: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
 If demo users or seeded enterprise cases drift during local testing, reset the SQLite demo database:
 
@@ -171,7 +196,7 @@ For local backend development, the default `.env.example` already points to a SQ
 
 ```env
 DATABASE_URL=sqlite:////Users/ec/Desktop/cognivaultAi/backend/data/cognivault.db
-VITE_API_URL=http://localhost:8000/api
+VITE_API_URL=http://127.0.0.1:8000/api
 ```
 
 ### 2. Run the backend
@@ -194,8 +219,8 @@ npm install
 npm run dev
 ```
 
-Frontend: [http://localhost:5173](http://localhost:5173)  
-Backend: [http://localhost:8000](http://localhost:8000)
+Frontend: [http://127.0.0.1:5200](http://127.0.0.1:5200)  
+Backend: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
 ## Running with Docker
 
@@ -243,13 +268,16 @@ Admin demo:
 2. Inspect conversations, metrics, and audit activity
 3. Export the audit log JSON from the right-side panel
 
-## OpenAI integration
+## Local-first AI integration
 
-Set these values in `.env` to enable tool/function calling:
+CogniVault uses an OpenAI-compatible runtime gateway. Point `LOCAL_LLM_BASE_URL`
+at a local model server for API-free operation, or set `OPENAI_API_KEY` as an
+optional cloud fallback during development.
 
 ```env
-OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-4.1-mini
+PREFERRED_LLM_PROVIDER=local
+LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1
+LOCAL_LLM_MODEL=cognivault-local
 ```
 
 The orchestration code lives in:
@@ -262,8 +290,8 @@ The orchestration code lives in:
 - Add the application submission flow with shared policy controls
 - Replace mock auth with SSO or OAuth2
 - Add approval steps for higher-risk actions
-- Introduce Alembic migrations
-- Add streaming responses and richer agent traces
+- Expand Alembic migration coverage with reviewed production revisions
+- Add richer distributed traces across model, tool, voice, and notification calls
 - Add connectors for CRM/ERP systems
 - Add granular policy rules beyond basic role checks
-- Add test suites for API, services, and frontend behavior
+- Add load, chaos, and browser regression suites beyond the current API/service tests

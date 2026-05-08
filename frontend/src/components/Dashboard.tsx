@@ -3,16 +3,18 @@ import { useEffect, useState } from "react";
 import {
   createSession,
   deleteSession,
+  getAICapabilities,
   getAppointments,
   getAuditLogs,
   getMetrics,
+  getQualityReport,
   getSession,
   listSessions,
   listUsers,
   streamMessage,
 } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, User } from "../types/api";
+import type { AICapabilities, Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, QualityReport, User } from "../types/api";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { AppointmentPanel } from "./AppointmentPanel";
 import { AppointmentsPage } from "./AppointmentsPage";
@@ -21,6 +23,7 @@ import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
+import { SystemHealthPanel } from "./SystemHealthPanel";
 
 export function Dashboard() {
   const { token, user, logout } = useAuth();
@@ -29,6 +32,8 @@ export function Dashboard() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [capabilities, setCapabilities] = useState<AICapabilities | null>(null);
+  const [quality, setQuality] = useState<QualityReport | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -55,15 +60,19 @@ export function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [sessionList, auditEntries, appointmentList, metricSummary] = await Promise.all([
+      const [sessionList, auditEntries, appointmentList, metricSummary, aiCaps, qualityReport] = await Promise.all([
         listSessions(token),
         getAuditLogs(token),
         getAppointments(token),
-        getMetrics(token)
+        getMetrics(token),
+        getAICapabilities(token),
+        getQualityReport(token),
       ]);
       setLogs(auditEntries);
       setAppointments(appointmentList);
       setMetrics(metricSummary);
+      setCapabilities(aiCaps);
+      setQuality(qualityReport);
       if (role === "operator" || role === "admin") {
         listUsers(token).then(setUsers).catch(() => {});
       }
@@ -209,14 +218,17 @@ export function Dashboard() {
       />
       <main className="main-panel">
         {!isClinicalView ? <MetricsBar metrics={metrics} appointments={appointments} role={role} /> : null}
+        <SystemHealthPanel capabilities={capabilities} quality={quality} view={view} />
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        {isClinicalView ? (
-          <ClinicalPanel token={token ?? ""} />
-        ) : view === "appointments" && isCustomer ? (
-          <AppointmentsPage appointments={appointments} />
-        ) : (
-          <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
-        )}
+        <div className="view-stage" key={view}>
+          {isClinicalView ? (
+            <ClinicalPanel token={token ?? ""} />
+          ) : view === "appointments" && isCustomer ? (
+            <AppointmentsPage appointments={appointments} />
+          ) : (
+            <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
+          )}
+        </div>
       </main>
       {isCustomer && <AppointmentPanel appointments={appointments} />}
       {isAdmin && !isClinicalView && <AdminPanel users={users} appointments={appointments} logs={logs} />}

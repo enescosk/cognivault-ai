@@ -327,3 +327,75 @@ export type ClinicalAppointment = {
   created_at: string;
   updated_at: string;
 };
+
+export type AICapabilities = {
+  llm: {
+    active_provider: string;
+    active_model: string;
+    preferred_provider: string;
+    local_llm_configured: boolean;
+    openai_configured: boolean;
+    offline_capable: boolean;
+    tool_calling: boolean;
+    fallback_engine: string;
+  };
+  voice: {
+    stt: {
+      active_provider: string;
+      preferred_provider: string;
+      local_whisper_cpp_configured: boolean;
+      openai_configured: boolean;
+      offline_capable: boolean;
+    };
+    tts: {
+      active_provider: string;
+      preferred_provider: string;
+      local_piper_configured: boolean;
+      openai_configured: boolean;
+      offline_capable: boolean;
+    };
+  };
+  architecture: {
+    mode: string;
+    contract: string;
+    human_handoff: boolean;
+    audit_ready: boolean;
+  };
+};
+
+export type QualityScenario = {
+  id: string;
+  name: string;
+  area: string;
+  real_world_signal: string;
+  expected_guardrail: string;
+  automated: boolean;
+  status: string;
+};
+
+export type QualityRecommendation = {
+  priority: "low" | "medium" | "high" | "critical" | string;
+  area: string;
+  title: string;
+  action: string;
+};
+
+export type QualityReport = {
+  score: number;
+  grade: "excellent" | "strong" | "needs_work" | string;
+  generated_at: string;
+  role: string;
+  metrics: {
+    automated_scenarios: number;
+    recent_audit_events: number;
+    recent_failures: number;
+    offline_chat_ready: boolean;
+    local_llm_ready: boolean;
+    local_voice_ready: boolean;
+  };
+  llm: AICapabilities["llm"];
+  voice: AICapabilities["voice"];
+  scenarios: QualityScenario[];
+  recommendations: QualityRecommendation[];
+  can_manage_feedback: boolean;
+};

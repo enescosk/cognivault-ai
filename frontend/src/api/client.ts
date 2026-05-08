@@ -1,5 +1,6 @@
 import type {
   Appointment,
+  AICapabilities,
   AuditLog,
   AuthResponse,
   ChatSessionDetail,
@@ -13,6 +14,7 @@ import type {
   EnterpriseSessionDetail,
   EnterpriseTicket,
   Metrics,
+  QualityReport,
   SendMessageResponse,
   ShadowReview,
   User,
@@ -101,6 +103,14 @@ export function getAuditLogs(token: string): Promise<AuditLog[]> {
 
 export function getMetrics(token: string): Promise<Metrics> {
   return request<Metrics>("/audit-logs/metrics", { method: "GET" }, token);
+}
+
+export function getAICapabilities(token: string): Promise<AICapabilities> {
+  return request<AICapabilities>("/ai/capabilities", { method: "GET" }, token);
+}
+
+export function getQualityReport(token: string): Promise<QualityReport> {
+  return request<QualityReport>("/quality/report", { method: "GET" }, token);
 }
 
 export function getAppointments(token: string): Promise<Appointment[]> {
@@ -296,7 +306,7 @@ export async function* streamMessage(
 }
 
 /**
- * Ses kaydını OpenAI Whisper ile metne çevirir.
+ * Ses kaydını aktif backend STT sağlayıcısı ile metne çevirir.
  */
 export async function transcribeAudio(
   blob: Blob,
@@ -305,9 +315,9 @@ export async function transcribeAudio(
 ): Promise<string> {
   const form = new FormData();
   form.append("file", blob, "recording.webm");
-  form.append("language", lang);
 
-  const res = await fetch(`${API_URL}/voice/transcribe`, {
+  const params = new URLSearchParams({ language: lang });
+  const res = await fetch(`${API_URL}/voice/transcribe?${params.toString()}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -323,9 +333,8 @@ export async function transcribeAudio(
 }
 
 /**
- * Metni OpenAI TTS ile sese çevirir.
- * Backend mp3 stream döner → AudioContext ile çalınır.
- * Web Speech Synthesis'ten çok daha doğal ses kalitesi.
+ * Metni aktif backend TTS sağlayıcısı ile sese çevirir.
+ * Backend ses stream'i döner → AudioContext ile çalınır.
  */
 export async function synthesizeSpeech(
   text: string,

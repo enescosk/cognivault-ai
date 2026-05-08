@@ -32,6 +32,29 @@ def test_security_headers_present(client):
     assert res.headers.get("X-XSS-Protection") == "1; mode=block"
 
 
+def test_password_hashes_are_versioned_and_salted():
+    from app.core.security import hash_password, verify_password
+
+    first = hash_password("password123")
+    second = hash_password("password123")
+
+    assert first != second
+    assert first.startswith("$argon2") or first.startswith("scrypt$")
+    assert verify_password("password123", first)
+    assert not verify_password("wrong", first)
+
+
+def test_legacy_sha256_passwords_still_verify_for_migration():
+    import hashlib
+
+    from app.core.security import password_needs_rehash, verify_password
+
+    legacy = hashlib.sha256("password123".encode("utf-8")).hexdigest()
+
+    assert verify_password("password123", legacy)
+    assert password_needs_rehash(legacy)
+
+
 def test_message_too_long(client, customer_token):
     # First create a session
     session_res = client.post(
