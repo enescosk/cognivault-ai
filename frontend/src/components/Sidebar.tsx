@@ -124,7 +124,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
               <path d="M2 12l10 5 10-5"/>
             </svg>
           </div>
-          <span className="sidebar-brand-name">Cognivault</span>
+          <span className="sidebar-brand-name">CogniVault Medical</span>
           <button
             className="hamburger-menu-btn"
             type="button"
@@ -150,7 +150,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
 
       <div className="sidebar-body">
         <nav className="sidebar-nav">
-          <div className="nav-section-label">Workspace</div>
+          <div className="nav-section-label">Klinik</div>
 
           {/* Randevularım nav item — sadece customer için */}
           {user.role.name === "customer" && (
@@ -179,29 +179,29 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                   <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0016.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 002 8.5c0 2.3 1.5 4.05 3 5.5l7 7z"/>
                   <path d="M12 5v16"/>
                 </svg>
-                Clinical Panel
+              Klinik Komuta
               </button>
             </>
           )}
 
           {isClinicalStaff ? (
             <div className="enterprise-nav-card">
-              <span>Operator workspace</span>
+              <span>Resepsiyon masasi</span>
               <strong>Ozel klinik ve dis klinigi hasta aramalari, doktor onayi ve randevu uyarilari bu ekranda yonetilir.</strong>
               <button type="button" onClick={onViewClinical}>Klinik paneline git</button>
             </div>
           ) : (
             <>
               <button className="nav-new-btn" onClick={() => { onNewSession(); }} type="button">
-                <span>New Session</span>
+                <span>Yeni hasta sohbeti</span>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"/>
                   <line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
               </button>
-              <div className="nav-section-label">Sessions</div>
+              <div className="nav-section-label">Hasta sohbetleri</div>
               {sessions.length === 0 ? (
-                <div style={{ padding: "10px 12px", fontSize: "0.82rem", color: "var(--text-3)" }}>No sessions yet</div>
+                <div style={{ padding: "10px 12px", fontSize: "0.82rem", color: "var(--text-3)" }}>Henuz hasta sohbeti yok</div>
               ) : (
                 sessions.map((session) => (
                   <div
@@ -216,7 +216,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                       type="button"
                     >
                       <span className="session-title">{session.title}</span>
-                      <span className="session-preview">{session.last_message_preview ?? "No activity yet"}</span>
+                      <span className="session-preview">{session.last_message_preview ?? "Henuz aktivite yok"}</span>
                     </button>
                     <button
                       className="session-dots-btn"
@@ -322,16 +322,16 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
             <div className="support-body">
               <div className="support-section-label">Sık Sorulan Sorular</div>
               <div className="support-faq-item">
-                <div className="support-faq-q">Randevu nasıl alırım?</div>
-                <div className="support-faq-a">Sohbet penceresine "randevu almak istiyorum" yazarak yapay zeka asistanından yardım isteyebilirsiniz.</div>
+                <div className="support-faq-q">Telefon veya WhatsApp kaydi nasil duser?</div>
+                <div className="support-faq-a">Resepsiyon ekranindaki Telefon / WhatsApp secimiyle gelen hasta talebi ayni klinik akisa kaydedilir.</div>
               </div>
               <div className="support-faq-item">
-                <div className="support-faq-q">Oturumumu nasıl sonlandırırım?</div>
-                <div className="support-faq-a">Sol alt köşedeki Ayarlar menüsünden "Çıkış Yap" seçeneğine tıklayabilirsiniz.</div>
+                <div className="support-faq-q">Doktor onayi nereden yapilir?</div>
+                <div className="support-faq-a">Doctor Inbox ve Shadow Mode alanlarinda riskli cevaplari onaylayabilir, duzenleyebilir veya reddedebilirsiniz.</div>
               </div>
               <div className="support-faq-item">
-                <div className="support-faq-q">Geçmiş sohbetlere nasıl erişirim?</div>
-                <div className="support-faq-a">Sol paneldeki SESSIONS listesinden daha önceki sohbetlerinize tıklayarak erişebilirsiniz.</div>
+                <div className="support-faq-q">Randevu uyarisi nasil takip edilir?</div>
+                <div className="support-faq-a">Yaklasan randevular komuta merkezinde ve ana menude aktif olarak gorunur.</div>
               </div>
               <div className="support-section-label" style={{ marginTop: 20 }}>İletişim</div>
               <div className="support-contact-item">
@@ -346,7 +346,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                 </svg>
                 <span>+90 (212) 555 00 00</span>
               </div>
-              <div className="support-version">v1.0.0-mvp · Cognivault AI</div>
+              <div className="support-version">v1.0.0-medical · CogniVault Medical</div>
             </div>
           </div>
         </div>,
@@ -381,7 +381,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
             </div>
 
             <div className="main-menu-section">
-              <div className="main-menu-label">Workspace</div>
+              <div className="main-menu-label">Klinik alani</div>
               <button
                 className="main-menu-item"
                 type="button"
@@ -440,7 +440,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                       return (
                         <div className={`main-menu-op-item ${active ? "main-menu-op-item--active" : ""}`} key={appointment.id}>
                           <div className="main-menu-op-row">
-                            <strong>{appointment.user_name ?? "Müşteri"}</strong>
+                            <strong>{appointment.user_name ?? "Hasta"}</strong>
                             <span>{statusLabel(appointment.status)}</span>
                           </div>
                           <div className="main-menu-op-dept">{appointment.department}</div>
@@ -490,7 +490,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                 <small>SSS ve iletişim bilgileri</small>
               </button>
               <div className="main-menu-note">
-                Oturum, rol bazlı yetkiler ve aksiyon kayıtları audit trail üzerinden takip edilir.
+                Hasta temaslari, doktor onaylari ve randevu aksiyonlari guvenli audit trail uzerinden takip edilir.
               </div>
             </div>
 

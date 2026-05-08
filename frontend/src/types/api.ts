@@ -243,6 +243,10 @@ export type ClinicalConversationSummary = {
   intent?: string | null;
   confidence_score?: number | null;
   persona_name?: string | null;
+  last_urgency?: string | null;
+  doctor_summary?: string | null;
+  possible_conditions?: Array<Record<string, unknown>>;
+  appointment_draft?: Record<string, unknown> | null;
   doctor_inbox: boolean;
   last_message_preview?: string | null;
   created_at: string;
@@ -273,8 +277,12 @@ export type ClinicalMetrics = {
   conversations_today: number;
   total_conversations: number;
   pending_shadow_reviews: number;
+  triage_reviews: number;
+  emergency_reviews: number;
+  same_day_reviews: number;
   doctor_inbox_count: number;
   phone_calls_today: number;
+  whatsapp_threads_today: number;
   auto_reply_rate: number;
   appointments_pending: number;
   reminders_due: number;
@@ -295,6 +303,7 @@ export type WebhookIngestionResponse = {
   action: string;
   reply?: string | null;
   shadow_review_id?: number | null;
+  appointment_id?: number | null;
 };
 export type ClinicalPersona = {
   id: "selin" | "arzu" | "can";
@@ -317,4 +326,76 @@ export type ClinicalAppointment = {
   metadata_json?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+};
+
+export type AICapabilities = {
+  llm: {
+    active_provider: string;
+    active_model: string;
+    preferred_provider: string;
+    local_llm_configured: boolean;
+    openai_configured: boolean;
+    offline_capable: boolean;
+    tool_calling: boolean;
+    fallback_engine: string;
+  };
+  voice: {
+    stt: {
+      active_provider: string;
+      preferred_provider: string;
+      local_whisper_cpp_configured: boolean;
+      openai_configured: boolean;
+      offline_capable: boolean;
+    };
+    tts: {
+      active_provider: string;
+      preferred_provider: string;
+      local_piper_configured: boolean;
+      openai_configured: boolean;
+      offline_capable: boolean;
+    };
+  };
+  architecture: {
+    mode: string;
+    contract: string;
+    human_handoff: boolean;
+    audit_ready: boolean;
+  };
+};
+
+export type QualityScenario = {
+  id: string;
+  name: string;
+  area: string;
+  real_world_signal: string;
+  expected_guardrail: string;
+  automated: boolean;
+  status: string;
+};
+
+export type QualityRecommendation = {
+  priority: "low" | "medium" | "high" | "critical" | string;
+  area: string;
+  title: string;
+  action: string;
+};
+
+export type QualityReport = {
+  score: number;
+  grade: "excellent" | "strong" | "needs_work" | string;
+  generated_at: string;
+  role: string;
+  metrics: {
+    automated_scenarios: number;
+    recent_audit_events: number;
+    recent_failures: number;
+    offline_chat_ready: boolean;
+    local_llm_ready: boolean;
+    local_voice_ready: boolean;
+  };
+  llm: AICapabilities["llm"];
+  voice: AICapabilities["voice"];
+  scenarios: QualityScenario[];
+  recommendations: QualityRecommendation[];
+  can_manage_feedback: boolean;
 };

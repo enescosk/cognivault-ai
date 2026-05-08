@@ -1,12 +1,24 @@
 import type {
   Appointment,
+  AICapabilities,
   AuditLog,
   AuthResponse,
   ChatSessionDetail,
   ChatSessionSummary,
+  ClinicalConversationDetail,
+  ClinicalOverview,
+  ClinicalAppointment,
+  ClinicalPersona,
+  EnterpriseMessageResponse,
+  EnterpriseOverview,
+  EnterpriseSessionDetail,
+  EnterpriseTicket,
   Metrics,
+  QualityReport,
   SendMessageResponse,
-  User
+  ShadowReview,
+  User,
+  WebhookIngestionResponse
 } from "../types/api";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -93,6 +105,14 @@ export function getMetrics(token: string): Promise<Metrics> {
   return request<Metrics>("/audit-logs/metrics", { method: "GET" }, token);
 }
 
+export function getAICapabilities(token: string): Promise<AICapabilities> {
+  return request<AICapabilities>("/ai/capabilities", { method: "GET" }, token);
+}
+
+export function getQualityReport(token: string): Promise<QualityReport> {
+  return request<QualityReport>("/quality/report", { method: "GET" }, token);
+}
+
 export function getAppointments(token: string): Promise<Appointment[]> {
   return request<Appointment[]>("/appointments", { method: "GET" }, token);
 }
@@ -105,8 +125,188 @@ export function listUsers(token: string): Promise<User[]> {
   return request<User[]>("/users", { method: "GET" }, token);
 }
 
+export function getEnterpriseOverview(token: string): Promise<EnterpriseOverview> {
+  return request<EnterpriseOverview>("/enterprise/overview", { method: "GET" }, token);
+}
+
+export function createEnterpriseSession(
+  token: string,
+  payload: { customer_name: string; customer_email?: string; customer_phone?: string }
+): Promise<EnterpriseSessionDetail> {
+  return request<EnterpriseSessionDetail>(
+    "/enterprise/sessions",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function getEnterpriseSession(sessionId: number, token: string): Promise<EnterpriseSessionDetail> {
+  return request<EnterpriseSessionDetail>(`/enterprise/sessions/${sessionId}`, { method: "GET" }, token);
+}
+
+export function sendEnterpriseMessage(
+  sessionId: number,
+  content: string,
+  token: string
+): Promise<EnterpriseMessageResponse> {
+  return request<EnterpriseMessageResponse>(
+    `/enterprise/sessions/${sessionId}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({ content })
+    },
+    token
+  );
+}
+
+export function updateEnterpriseTicketStatus(
+  ticketId: number,
+  status: "open" | "in_progress" | "escalated" | "closed",
+  token: string,
+  resolutionNote?: string
+): Promise<EnterpriseTicket> {
+  return request<EnterpriseTicket>(
+    `/enterprise/tickets/${ticketId}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status, resolution_note: resolutionNote })
+    },
+    token
+  );
+}
+
+export function getClinicalOverview(token: string): Promise<ClinicalOverview> {
+  return request<ClinicalOverview>("/clinical/overview", { method: "GET" }, token);
+}
+
+export function getClinicalConversation(conversationId: number, token: string): Promise<ClinicalConversationDetail> {
+  return request<ClinicalConversationDetail>(`/clinical/conversations/${conversationId}`, { method: "GET" }, token);
+}
+
+export function simulateWhatsAppMessage(
+  token: string,
+  payload: { from_phone: string; body: string; patient_name?: string }
+): Promise<WebhookIngestionResponse> {
+  return request<WebhookIngestionResponse>(
+    "/clinical/simulate-whatsapp",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function updateShadowReview(
+  reviewId: number,
+  token: string,
+  payload: { status: "approved" | "edited" | "rejected"; final_reply?: string }
+): Promise<ShadowReview> {
+  return request<ShadowReview>(
+    `/clinical/shadow-reviews/${reviewId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function getClinicalPersonas(token: string): Promise<ClinicalPersona[]> {
+  return request<ClinicalPersona[]>("/clinical/personas", { method: "GET" }, token);
+}
+
+export function simulateVoiceCall(
+  token: string,
+  payload: { from_phone: string; speech: string; patient_name?: string; persona_id?: "selin" | "arzu" | "can" }
+): Promise<WebhookIngestionResponse> {
+  return request<WebhookIngestionResponse>(
+    "/clinical/simulate-voice-call",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function createClinicalAppointment(
+  token: string,
+  payload: { conversation_id: number; department: string; starts_at?: string | null; notes?: string }
+): Promise<ClinicalAppointment> {
+  return request<ClinicalAppointment>(
+    "/clinical/appointments",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function getUpcomingClinicalAppointments(token: string, withinMinutes = 120): Promise<ClinicalAppointment[]> {
+  return request<ClinicalAppointment[]>(`/clinical/appointments/upcoming?within_minutes=${withinMinutes}`, { method: "GET" }, token);
+}
+
 /**
- * Ses kaydını OpenAI Whisper ile metne çevirir.
+ * AI yanıtını SSE stream olarak okur.
+ * Her yield: { t: "tk", v: "<token>" }  veya  { t: "done", card: ... }
+ *
+ * Mimari:
+ *   Backend → Faz1 tool loop (sync) → Faz2 OpenAI stream → SSE satırları
+ *   Frontend → ReadableStream → TextDecoder → SSE parser → token buffer
+ */
+export async function* streamMessage(
+  sessionId: number,
+  content: string,
+  token: string
+): AsyncGenerator<{ t: "tk"; v: string } | { t: "done"; card: unknown } | { t: "err"; v: string }> {
+  const res = await fetch(`${API_URL}/chat/sessions/${sessionId}/messages/stream`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ content }),
+  });
+
+  if (!res.ok || !res.body) {
+    const err = await res.json().catch(() => ({ detail: "Stream failed" }));
+    throw new Error((err as { detail?: string }).detail ?? "Stream failed");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE: her mesaj "data: ...\n\n" formatında
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";          // son tamamlanmamış parçayı tut
+
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const payload = JSON.parse(line.slice(6)) as { t: string; v?: string; card?: unknown };
+        if (payload.t === "tk")   yield { t: "tk",   v: payload.v ?? "" };
+        if (payload.t === "done") yield { t: "done", card: payload.card ?? null };
+        if (payload.t === "err")  yield { t: "err",  v: payload.v ?? "Unknown error" };
+      } catch { /* malformed line — skip */ }
+    }
+  }
+}
+
+/**
+ * Ses kaydını aktif backend STT sağlayıcısı ile metne çevirir.
  */
 export async function transcribeAudio(
   blob: Blob,
@@ -115,9 +315,9 @@ export async function transcribeAudio(
 ): Promise<string> {
   const form = new FormData();
   form.append("file", blob, "recording.webm");
-  form.append("language", lang);
 
-  const res = await fetch(`${API_URL}/voice/transcribe`, {
+  const params = new URLSearchParams({ language: lang });
+  const res = await fetch(`${API_URL}/voice/transcribe?${params.toString()}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -133,9 +333,8 @@ export async function transcribeAudio(
 }
 
 /**
- * Metni OpenAI TTS ile sese çevirir.
- * Backend mp3 stream döner → AudioContext ile çalınır.
- * Web Speech Synthesis'ten çok daha doğal ses kalitesi.
+ * Metni aktif backend TTS sağlayıcısı ile sese çevirir.
+ * Backend ses stream'i döner → AudioContext ile çalınır.
  */
 export async function synthesizeSpeech(
   text: string,
