@@ -1,10 +1,12 @@
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import selectinload
+
+from app.core.rate_limit import limiter
 
 from app.agent.orchestrator import AgentContext, process_message, stream_openai_agent
 from app.api.dependencies import get_current_user, get_db
@@ -85,7 +87,9 @@ def get_chat_session(
 
 
 @router.post("/sessions/{session_id}/messages", response_model=SendMessageResponse)
+@limiter.limit("30/minute")
 def send_message(
+    request: Request,
     session_id: int,
     payload: SendMessageRequest,
     db: Session = Depends(get_db),
