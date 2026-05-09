@@ -69,6 +69,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
     .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
   const operatorMenuAppointments = [...operatorActiveAppointments, ...operatorUpcomingAppointments].slice(0, 4);
   const workspaceLabel = isClinicalStaff ? "Clinical Ops" : "Patient Workspace";
+  const useClinicalSurface = isClinicalStaff && activeView === "clinical";
   const resizing = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -275,7 +276,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
       {settingsPos && createPortal(
         <div
           ref={settingsRef}
-          className="session-menu settings-popup"
+          className={`session-menu settings-popup ${useClinicalSurface ? "settings-popup--clinical" : ""}`}
           style={{ top: settingsPos.top, left: settingsPos.left, transform: "translateY(-100%)" }}
         >
           <div className="settings-popup-top">
@@ -325,8 +326,8 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
       )}
 
       {showSupport && createPortal(
-        <div className="support-backdrop" onClick={() => setShowSupport(false)}>
-          <div className="support-panel" onClick={(e) => e.stopPropagation()}>
+        <div className={`support-backdrop ${useClinicalSurface ? "support-backdrop--clinical" : ""}`} onClick={() => setShowSupport(false)}>
+          <div className={`support-panel ${useClinicalSurface ? "support-panel--clinical" : ""}`} onClick={(e) => e.stopPropagation()}>
             <div className="support-header">
               <span className="support-title">Destek</span>
               <button className="settings-close" onClick={() => setShowSupport(false)} type="button">
@@ -370,8 +371,8 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
       )}
 
       {showMainMenu && createPortal(
-        <div className="main-menu-backdrop" onClick={() => setShowMainMenu(false)}>
-          <aside className="main-menu-panel" onClick={(e) => e.stopPropagation()}>
+        <div className={`main-menu-backdrop ${useClinicalSurface ? "main-menu-backdrop--clinical" : ""}`} onClick={() => setShowMainMenu(false)}>
+          <aside className={`main-menu-panel ${useClinicalSurface ? "main-menu-panel--clinical" : ""}`} onClick={(e) => e.stopPropagation()}>
             <div className="main-menu-header">
               <div>
                 <span className="main-menu-kicker">Kontrol merkezi</span>
