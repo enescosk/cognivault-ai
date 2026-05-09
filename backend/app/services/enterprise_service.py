@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.ai.text_understanding import fuzzy_contains, normalize_for_intent
 from app.models import (
     Appointment,
     AuditResultStatus,
@@ -95,7 +96,7 @@ def build_handoff_package(session: EnterpriseSession, decision: RoutingDecision,
 
 
 def route_enterprise_request(db: Session, organization: Organization, content: str) -> RoutingDecision:
-    text = content.lower()
+    text = normalize_for_intent(content)
     rules = list(
         db.scalars(
             select(RoutingRule)
@@ -109,8 +110,8 @@ def route_enterprise_request(db: Session, organization: Organization, content: s
     matched_keywords: list[str] = []
 
     for rule in rules:
-        keywords = [kw.lower() for kw in (rule.keywords or [])]
-        hits = [kw for kw in keywords if kw in text]
+        keywords = [normalize_for_intent(kw) for kw in (rule.keywords or [])]
+        hits = [kw for kw in keywords if kw in text or fuzzy_contains(text, [kw], threshold=0.82)]
         if not hits:
             continue
         score = min(98, rule.confidence_boost + (len(hits) * 6))

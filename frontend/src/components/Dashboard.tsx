@@ -3,24 +3,29 @@ import { useEffect, useState } from "react";
 import {
   createSession,
   deleteSession,
+  getAICapabilities,
   getAppointments,
   getAuditLogs,
   getMetrics,
+  getQualityReport,
   getSession,
   listSessions,
   listUsers,
   streamMessage,
 } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import type { Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, User } from "../types/api";
+import type { AICapabilities, Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, QualityReport, User } from "../types/api";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { AppointmentPanel } from "./AppointmentPanel";
 import { AppointmentsPage } from "./AppointmentsPage";
+import { AppointmentNotes } from "./AppointmentNotes";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
+import { CustomerDashboard } from "./CustomerDashboard";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
+import { SystemHealthPanel } from "./SystemHealthPanel";
 
 export function Dashboard() {
   const { token, user, logout } = useAuth();
@@ -29,13 +34,15 @@ export function Dashboard() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [capabilities, setCapabilities] = useState<AICapabilities | null>(null);
+  const [quality, setQuality] = useState<QualityReport | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "appointments" | "clinical">("chat");
+  const [view, setView] = useState<"dashboard" | "chat" | "appointments" | "notes" | "clinical">("dashboard");
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
@@ -55,15 +62,19 @@ export function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [sessionList, auditEntries, appointmentList, metricSummary] = await Promise.all([
+      const [sessionList, auditEntries, appointmentList, metricSummary, aiCaps, qualityReport] = await Promise.all([
         listSessions(token),
         getAuditLogs(token),
         getAppointments(token),
-        getMetrics(token)
+        getMetrics(token),
+        getAICapabilities(token),
+        getQualityReport(token),
       ]);
       setLogs(auditEntries);
       setAppointments(appointmentList);
       setMetrics(metricSummary);
+      setCapabilities(aiCaps);
+      setQuality(qualityReport);
       if (role === "operator" || role === "admin") {
         listUsers(token).then(setUsers).catch(() => {});
       }
@@ -93,7 +104,7 @@ export function Dashboard() {
         setSelectedSession(created);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Dashboard failed to load");
+      setError(err instanceof Error ? err.message : "Klinik paneli yuklenemedi");
     } finally {
       setLoading(false);
     }
@@ -188,7 +199,7 @@ export function Dashboard() {
   }
 
   if (!user) return null;
-  if (loading && !selectedSession) return <div className="loading-shell">Loading workspace...</div>;
+  if (loading && !selectedSession) return <div className="loading-shell">Medikal komuta merkezi yukleniyor...</div>;
 
   const isClinicalView = view === "clinical" && (isOperator || isAdmin);
 
@@ -203,20 +214,37 @@ export function Dashboard() {
         onSelectSession={(id) => { setView(isCustomer ? "chat" : "clinical"); if (isCustomer) handleSelectSession(id); }}
         onNewSession={() => { if (isCustomer) { setView("chat"); handleNewSession(); } else { setView("clinical"); } }}
         onDeleteSession={handleDeleteSession}
+        onViewDashboard={() => setView("dashboard")}
         onViewAppointments={() => setView("appointments")}
+        onViewNotes={() => setView("notes")}
         onViewClinical={() => setView("clinical")}
         onLogout={logout}
       />
       <main className="main-panel">
         {!isClinicalView ? <MetricsBar metrics={metrics} appointments={appointments} role={role} /> : null}
+        <SystemHealthPanel capabilities={capabilities} quality={quality} view={view} />
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        {isClinicalView ? (
-          <ClinicalPanel token={token ?? ""} />
-        ) : view === "appointments" && isCustomer ? (
-          <AppointmentsPage appointments={appointments} />
-        ) : (
-          <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
-        )}
+        <div className="view-stage" key={view}>
+          {isClinicalView ? (
+            <ClinicalPanel token={token ?? ""} />
+          ) : view === "dashboard" && isCustomer ? (
+            <CustomerDashboard
+              appointments={appointments}
+              sessions={sessions}
+              metrics={metrics}
+              onStartChat={() => { setView("chat"); handleNewSession(); }}
+              onViewAppointments={() => setView("appointments")}
+              onViewNotes={() => setView("notes")}
+              onViewConversations={() => setView("chat")}
+            />
+          ) : view === "notes" && isCustomer ? (
+            <AppointmentNotes />
+          ) : view === "appointments" && isCustomer ? (
+            <AppointmentsPage appointments={appointments} />
+          ) : (
+            <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
+          )}
+        </div>
       </main>
       {isCustomer && <AppointmentPanel appointments={appointments} />}
       {isAdmin && !isClinicalView && <AdminPanel users={users} appointments={appointments} logs={logs} />}

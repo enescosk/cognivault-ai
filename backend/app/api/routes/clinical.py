@@ -8,10 +8,12 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
-from app.models import ClinicChannel, ClinicConversation, ClinicalAppointment, ShadowReview, ShadowReviewStatus, User
+from app.models import ClinicChannel, ClinicConversation, ClinicDoctor, ClinicDoctorSlot, ClinicalAppointment, ShadowReview, ShadowReviewStatus, User
 from app.schemas.clinical import (
     ClinicalAppointmentCreateRequest,
     ClinicalAppointmentResponse,
+    ClinicDoctorResponse,
+    ClinicDoctorSlotResponse,
     ClinicalConversationDetail,
     ClinicalConversationSummary,
     ClinicalMessageResponse,
@@ -33,6 +35,8 @@ from app.services.clinical_service import (
     ensure_default_clinic,
     get_clinical_conversation,
     ingest_clinical_message,
+    list_clinic_doctors,
+    list_doctor_available_slots,
     list_doctor_inbox,
     list_clinical_conversations,
     list_shadow_reviews,
@@ -89,6 +93,10 @@ def conversation_summary_payload(conversation: ClinicConversation) -> ClinicalCo
         intent=conversation.intent.value if conversation.intent else None,
         confidence_score=conversation.confidence_score,
         persona_name=metadata.get("last_persona_name"),
+        last_urgency=metadata.get("last_urgency"),
+        doctor_summary=metadata.get("doctor_summary"),
+        possible_conditions=metadata.get("possible_conditions") or [],
+        appointment_draft=metadata.get("appointment_draft"),
         doctor_inbox=conversation.status.value in {"waiting_human", "appointment_pending"},
         last_message_preview=last_preview,
         created_at=conversation.created_at,
@@ -123,15 +131,19 @@ def shadow_review_payload(review: ShadowReview) -> ShadowReviewResponse:
 
 
 def appointment_payload(appointment: ClinicalAppointment) -> ClinicalAppointmentResponse:
+    doctor_name = appointment.doctor.full_name if appointment.doctor else None
     return ClinicalAppointmentResponse(
         id=appointment.id,
         clinic_id=appointment.clinic_id,
         patient_id=appointment.patient_id,
         conversation_id=appointment.conversation_id,
+        doctor_id=appointment.doctor_id,
+        slot_id=appointment.slot_id,
         department=appointment.department,
         starts_at=appointment.starts_at,
         status=appointment.status.value,
         notes=appointment.notes,
+        doctor_name=doctor_name,
         metadata_json=appointment.metadata_json,
         created_at=appointment.created_at,
         updated_at=appointment.updated_at,
@@ -148,6 +160,7 @@ def ingestion_payload(result) -> WebhookIngestionResponse:
         action=result.action,
         reply=result.reply,
         shadow_review_id=result.shadow_review.id if result.shadow_review else None,
+        appointment_id=result.appointment.id if result.appointment else None,
     )
 
 
@@ -171,6 +184,41 @@ def get_clinical_overview(
 @router.get("/clinical/personas", response_model=list[ClinicalPersonaResponse])
 def get_clinical_personas() -> list[ClinicalPersonaResponse]:
     return [ClinicalPersonaResponse(**persona.__dict__) for persona in list_personas()]
+
+
+@router.get("/clinical/doctors", response_model=list[ClinicDoctorResponse])
+def get_clinic_doctors(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ClinicDoctorResponse]:
+    clinic = ensure_clinic_access(db, current_user)
+    doctors = list_clinic_doctors(db, clinic)
+    return [ClinicDoctorResponse.model_validate(d) for d in doctors]
+
+
+@router.get("/clinical/doctors/{doctor_id}/slots", response_model=list[ClinicDoctorSlotResponse])
+def get_doctor_slots(
+    doctor_id: int,
+    date: str | None = Query(default=None, description="ISO date YYYY-MM-DD, defaults to today"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ClinicDoctorSlotResponse]:
+    clinic = ensure_clinic_access(db, current_user)
+    slots = list_doctor_available_slots(db, clinic, doctor_id, date)
+    return [
+        ClinicDoctorSlotResponse(
+            id=s.id,
+            doctor_id=s.doctor_id,
+            clinic_id=s.clinic_id,
+            start_time=s.start_time,
+            end_time=s.end_time,
+            is_booked=s.is_booked,
+            is_blocked=s.is_blocked,
+            doctor_name=s.doctor.full_name if s.doctor else None,
+            specialty=s.doctor.specialty if s.doctor else None,
+        )
+        for s in slots
+    ]
 
 
 @router.get("/clinical/doctor-inbox", response_model=list[ClinicalConversationSummary])
@@ -206,6 +254,8 @@ def post_clinical_appointment(
         department=payload.department,
         starts_at=payload.starts_at,
         notes=payload.notes,
+        doctor_id=payload.doctor_id,
+        slot_id=payload.slot_id,
     )
     return appointment_payload(appointment)
 

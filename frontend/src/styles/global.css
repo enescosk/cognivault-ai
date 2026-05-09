@@ -957,7 +957,15 @@ button { cursor: pointer; border: none; background: none; }
 }
 .dashboard-shell.clinical-view .main-panel {
   min-height: 100vh;
+  height: auto !important;
+  overflow: visible !important;
+  overflow-y: auto !important;
   background: transparent;
+}
+.dashboard-shell.clinical-view {
+  overflow-y: auto;
+  height: auto;
+  min-height: 100vh;
 }
 .dashboard-shell.clinical-view .sidebar {
   background: rgba(255,255,255,0.82);
@@ -4579,4 +4587,614 @@ body:has(.dashboard-shell) {
     border-left: none;
     box-shadow: none;
   }
+}
+
+/* ── Doctor & Slot cards ──────────────────────────────────────────────────── */
+.doctors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.doctor-card-btn {
+  background: #ffffff;
+  border: 1.5px solid rgba(32, 72, 67, 0.15);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  color: #15231f;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.doctor-card-btn:hover {
+  border-color: #2a7c6f;
+  box-shadow: 0 2px 8px rgba(42, 124, 111, 0.12);
+}
+.doctor-card-btn.active {
+  border-color: #2a7c6f;
+  background: rgba(42, 124, 111, 0.06);
+  box-shadow: 0 2px 10px rgba(42, 124, 111, 0.15);
+}
+.doctor-card-btn strong { display: block; font-size: 0.95rem; color: #122722; }
+.doctor-specialty {
+  display: inline-block;
+  font-size: 0.78rem;
+  color: #2a7c6f;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: rgba(42, 124, 111, 0.1);
+  font-weight: 500;
+}
+.doctor-bio {
+  font-size: 0.78rem;
+  color: #4a6b64;
+  margin-top: 8px;
+  line-height: 1.4;
+}
+.slots-section { margin-top: 14px; }
+.slots-date-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+}
+.slots-date-picker input[type="date"] {
+  background: #ffffff;
+  border: 1px solid rgba(32, 72, 67, 0.18);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #15231f;
+  font-size: 0.85rem;
+}
+.slots-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.slot-btn {
+  padding: 8px 16px;
+  font-size: 0.84rem;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid rgba(32, 72, 67, 0.15);
+  background: #ffffff;
+  color: #15231f;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.slot-btn:hover:not(:disabled) {
+  border-color: #2a7c6f;
+  background: rgba(42, 124, 111, 0.05);
+}
+.slot-btn.selected {
+  background: #2a7c6f;
+  color: #fff;
+  border-color: #2a7c6f;
+  box-shadow: 0 2px 6px rgba(42, 124, 111, 0.25);
+}
+.slot-btn.booked {
+  opacity: 0.35;
+  cursor: not-allowed;
+  text-decoration: line-through;
+  background: #f0f0f0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CUSTOMER DASHBOARD
+   ═══════════════════════════════════════════════════════════════════ */
+
+.cust-dash {
+  padding: 28px 32px;
+  max-width: 1100px;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+
+.cust-dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 28px;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.cust-dash-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-1);
+  margin: 0 0 4px;
+}
+
+.cust-dash-subtitle {
+  font-size: 0.88rem;
+  color: var(--text-3);
+  margin: 0;
+}
+
+.cust-dash-header-stats {
+  display: flex;
+  gap: 20px;
+}
+
+.cust-dash-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 60px;
+}
+
+.cust-dash-stat-num {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.cust-dash-stat-label {
+  font-size: 0.72rem;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Quick action buttons */
+.cust-dash-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.cust-dash-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-1);
+  font-size: 0.86rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cust-dash-action-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.cust-dash-action-btn svg {
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.cust-dash-action--primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.cust-dash-action--primary:hover {
+  opacity: 0.9;
+  background: var(--accent);
+  color: #fff;
+}
+
+.cust-dash-action--primary svg {
+  opacity: 1;
+}
+
+/* Dashboard grid */
+.cust-dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.cust-dash-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.cust-dash-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.cust-dash-card-header h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0;
+}
+
+.cust-dash-card-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.78rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.cust-dash-card-link:hover {
+  text-decoration: underline;
+}
+
+.cust-dash-card-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 0;
+  color: var(--text-3);
+  font-size: 0.84rem;
+}
+
+/* Appointment list in dashboard */
+.cust-dash-apt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cust-dash-apt-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 12px 14px;
+  background: var(--surface-1);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.cust-dash-apt-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cust-dash-apt-dept {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.cust-dash-apt-date {
+  font-size: 0.78rem;
+  color: var(--text-3);
+}
+
+.cust-dash-apt-loc {
+  font-size: 0.75rem;
+  color: var(--text-3);
+  opacity: 0.7;
+}
+
+.cust-dash-apt-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(99, 179, 237, 0.1);
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+/* Notes in dashboard */
+.cust-dash-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cust-dash-note-item {
+  padding: 12px 14px;
+  background: var(--surface-1);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.cust-dash-note-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.cust-dash-note-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.cust-dash-note-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.cust-dash-note-status--completed { color: #68d391; background: rgba(104,211,145,0.12); }
+.cust-dash-note-status--follow_up { color: #f6ad55; background: rgba(246,173,85,0.12); }
+
+.cust-dash-note-summary {
+  font-size: 0.78rem;
+  color: var(--text-3);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+.cust-dash-note-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-3);
+  opacity: 0.7;
+}
+
+/* Conversations in dashboard */
+.cust-dash-conv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cust-dash-conv-item {
+  padding: 12px 14px;
+  background: var(--surface-1);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cust-dash-conv-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.cust-dash-conv-preview {
+  font-size: 0.78rem;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cust-dash-conv-date {
+  font-size: 0.7rem;
+  color: var(--text-3);
+  opacity: 0.6;
+}
+
+/* Tasks */
+.cust-dash-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cust-dash-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-1);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.cust-dash-task--done { opacity: 0.5; }
+
+.cust-dash-task-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.cust-dash-task-check--done {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.cust-dash-task-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cust-dash-task-label {
+  font-size: 0.84rem;
+  color: var(--text-1);
+}
+
+.cust-dash-task--done .cust-dash-task-label {
+  text-decoration: line-through;
+}
+
+.cust-dash-task-due {
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   APPOINTMENT NOTES PAGE
+   ═══════════════════════════════════════════════════════════════════ */
+
+.apt-notes {
+  padding: 28px 32px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.apt-notes-header {
+  margin-bottom: 24px;
+}
+
+.apt-notes-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-1);
+  margin: 0 0 4px;
+}
+
+.apt-notes-subtitle {
+  font-size: 0.86rem;
+  color: var(--text-3);
+  margin: 0;
+}
+
+.apt-notes-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.apt-notes-filter-btn {
+  padding: 7px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.apt-notes-filter-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.apt-notes-filter-btn--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.apt-notes-empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-3);
+  font-size: 0.88rem;
+}
+
+.apt-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.apt-notes-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.apt-notes-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.apt-notes-card--expanded {
+  border-color: var(--accent);
+}
+
+.apt-notes-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.apt-notes-card-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.apt-notes-card-dept {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.apt-notes-card-title {
+  font-size: 0.94rem;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0;
+}
+
+.apt-notes-card-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.apt-notes-card-meta {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 10px;
+}
+
+.apt-notes-card-meta span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--text-3);
+}
+
+.apt-notes-card-summary {
+  font-size: 0.84rem;
+  color: var(--text-2);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.apt-notes-card-followup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(246, 173, 85, 0.08);
+  border-radius: 10px;
+  font-size: 0.82rem;
+  color: #f6ad55;
+  font-weight: 500;
 }

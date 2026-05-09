@@ -1,5 +1,6 @@
 import type {
   Appointment,
+  AICapabilities,
   AuditLog,
   AuthResponse,
   ChatSessionDetail,
@@ -7,12 +8,15 @@ import type {
   ClinicalConversationDetail,
   ClinicalOverview,
   ClinicalAppointment,
+  ClinicDoctor,
+  ClinicDoctorSlot,
   ClinicalPersona,
   EnterpriseMessageResponse,
   EnterpriseOverview,
   EnterpriseSessionDetail,
   EnterpriseTicket,
   Metrics,
+  QualityReport,
   SendMessageResponse,
   ShadowReview,
   User,
@@ -101,6 +105,14 @@ export function getAuditLogs(token: string): Promise<AuditLog[]> {
 
 export function getMetrics(token: string): Promise<Metrics> {
   return request<Metrics>("/audit-logs/metrics", { method: "GET" }, token);
+}
+
+export function getAICapabilities(token: string): Promise<AICapabilities> {
+  return request<AICapabilities>("/ai/capabilities", { method: "GET" }, token);
+}
+
+export function getQualityReport(token: string): Promise<QualityReport> {
+  return request<QualityReport>("/quality/report", { method: "GET" }, token);
 }
 
 export function getAppointments(token: string): Promise<Appointment[]> {
@@ -225,7 +237,7 @@ export function simulateVoiceCall(
 
 export function createClinicalAppointment(
   token: string,
-  payload: { conversation_id: number; department: string; starts_at?: string | null; notes?: string }
+  payload: { conversation_id: number; department: string; doctor_id?: number; slot_id?: number; starts_at?: string | null; notes?: string }
 ): Promise<ClinicalAppointment> {
   return request<ClinicalAppointment>(
     "/clinical/appointments",
@@ -239,6 +251,15 @@ export function createClinicalAppointment(
 
 export function getUpcomingClinicalAppointments(token: string, withinMinutes = 120): Promise<ClinicalAppointment[]> {
   return request<ClinicalAppointment[]>(`/clinical/appointments/upcoming?within_minutes=${withinMinutes}`, { method: "GET" }, token);
+}
+
+export function getClinicalDoctors(token: string): Promise<ClinicDoctor[]> {
+  return request<ClinicDoctor[]>("/clinical/doctors", { method: "GET" }, token);
+}
+
+export function getDoctorSlots(doctorId: number, token: string, date?: string): Promise<ClinicDoctorSlot[]> {
+  const params = date ? `?date=${date}` : "";
+  return request<ClinicDoctorSlot[]>(`/clinical/doctors/${doctorId}/slots${params}`, { method: "GET" }, token);
 }
 
 /**
@@ -296,7 +317,7 @@ export async function* streamMessage(
 }
 
 /**
- * Ses kaydını OpenAI Whisper ile metne çevirir.
+ * Ses kaydını aktif backend STT sağlayıcısı ile metne çevirir.
  */
 export async function transcribeAudio(
   blob: Blob,
@@ -305,9 +326,9 @@ export async function transcribeAudio(
 ): Promise<string> {
   const form = new FormData();
   form.append("file", blob, "recording.webm");
-  form.append("language", lang);
 
-  const res = await fetch(`${API_URL}/voice/transcribe`, {
+  const params = new URLSearchParams({ language: lang });
+  const res = await fetch(`${API_URL}/voice/transcribe?${params.toString()}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -323,9 +344,8 @@ export async function transcribeAudio(
 }
 
 /**
- * Metni OpenAI TTS ile sese çevirir.
- * Backend mp3 stream döner → AudioContext ile çalınır.
- * Web Speech Synthesis'ten çok daha doğal ses kalitesi.
+ * Metni aktif backend TTS sağlayıcısı ile sese çevirir.
+ * Backend ses stream'i döner → AudioContext ile çalınır.
  */
 export async function synthesizeSpeech(
   text: string,

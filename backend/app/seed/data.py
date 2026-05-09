@@ -14,6 +14,9 @@ from app.models import (
     ChatMessage,
     ChatSession,
     Clinic,
+    ClinicBranch,
+    ClinicDoctor,
+    ClinicDoctorSlot,
     ClinicMembership,
     ClinicMessage,
     ClinicUserRole,
@@ -392,6 +395,7 @@ def seed_database(db: Session) -> None:
 
     seed_enterprise_demo(db)
     seed_clinical_demo(db)
+    seed_clinical_doctors(db)
 
 
 def ensure_demo_users(db: Session) -> None:
@@ -733,3 +737,111 @@ def seed_clinical_demo(db: Session) -> None:
     ]
     for item in samples:
         ingest_clinical_message(db, item, clinic=clinic)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Doctor profiles for clinical module
+# ──────────────────────────────────────────────────────────────────────────────
+DOCTOR_PROFILES = [
+    {
+        "full_name": "Dr. Elif Kaya",
+        "email": "elif.kaya@cognivault-clinic.com",
+        "specialty": "Diş Hekimliği",
+        "title": "Dt.",
+        "bio": "15 yıllık deneyimli diş hekimi. İmplant, ortodonti ve estetik diş hekimliği uzmanı.",
+    },
+    {
+        "full_name": "Dr. Ahmet Çelik",
+        "email": "ahmet.celik@cognivault-clinic.com",
+        "specialty": "Dermatoloji",
+        "title": "Uzm. Dr.",
+        "bio": "Cilt hastalıkları, alerjik reaksiyonlar ve kozmetik dermatoloji konularında uzman.",
+    },
+    {
+        "full_name": "Dr. Zeynep Arslan",
+        "email": "zeynep.arslan@cognivault-clinic.com",
+        "specialty": "Genel Pratisyen",
+        "title": "Dr.",
+        "bio": "Aile hekimliği ve genel muayene. Koruyucu sağlık ve kronik hastalık takibi.",
+    },
+    {
+        "full_name": "Dr. Can Özdemir",
+        "email": "can.ozdemir@cognivault-clinic.com",
+        "specialty": "Psikoloji",
+        "title": "Uzm. Psk.",
+        "bio": "Klinik psikolog. Anksiyete, depresyon, stres yönetimi ve beslenme danışmanlığı.",
+    },
+]
+
+
+def seed_clinical_doctors(db: Session) -> None:
+    """Idempotent: create demo doctors and 7-day time slots for the demo clinic."""
+    from datetime import date, time as dt_time
+
+    clinic = ensure_default_clinic(db)
+
+    # Get or create branch
+    branch = db.scalars(
+        select(ClinicBranch).where(ClinicBranch.clinic_id == clinic.id)
+    ).first()
+
+    for profile in DOCTOR_PROFILES:
+        existing = db.scalars(
+            select(ClinicDoctor).where(
+                ClinicDoctor.clinic_id == clinic.id,
+                ClinicDoctor.email == profile["email"],
+            )
+        ).first()
+        if existing is not None:
+            continue
+
+        doctor = ClinicDoctor(
+            clinic_id=clinic.id,
+            branch_id=branch.id if branch else None,
+            full_name=profile["full_name"],
+            email=profile["email"],
+            specialty=profile["specialty"],
+            title=profile["title"],
+            bio=profile["bio"],
+        )
+        db.add(doctor)
+        db.flush()
+
+        # Generate 30-min slots for 7 days (09:00-17:00, skip 12:30-13:30 lunch)
+        today = date.today()
+        for day_offset in range(7):
+            current_date = today + timedelta(days=day_offset)
+            slot_hour = 9
+            slot_minute = 0
+            while True:
+                start = datetime.combine(
+                    current_date,
+                    dt_time(slot_hour, slot_minute),
+                    tzinfo=timezone.utc,
+                )
+                end = start + timedelta(minutes=30)
+
+                # Skip lunch break: 12:30 - 13:30
+                if (slot_hour == 12 and slot_minute == 30) or (slot_hour == 13 and slot_minute == 0):
+                    slot_minute += 30
+                    if slot_minute >= 60:
+                        slot_hour += 1
+                        slot_minute = 0
+                    continue
+
+                if slot_hour >= 17:
+                    break
+
+                db.add(ClinicDoctorSlot(
+                    doctor_id=doctor.id,
+                    clinic_id=clinic.id,
+                    start_time=start,
+                    end_time=end,
+                ))
+
+                slot_minute += 30
+                if slot_minute >= 60:
+                    slot_hour += 1
+                    slot_minute = 0
+
+    db.commit()
