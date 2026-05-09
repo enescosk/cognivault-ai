@@ -130,15 +130,49 @@ class ClinicalPersonaResponse(BaseModel):
     safety_rule: str
 
 
+class ClinicDoctorResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    clinic_id: int
+    branch_id: int | None = None
+    full_name: str
+    email: str
+    specialty: str
+    title: str
+    bio: str | None = None
+    avatar_url: str | None = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ClinicDoctorSlotResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    doctor_id: int
+    clinic_id: int
+    start_time: datetime
+    end_time: datetime
+    is_booked: bool
+    is_blocked: bool
+    doctor_name: str | None = None
+    specialty: str | None = None
+
+
 class ClinicalAppointmentResponse(BaseModel):
     id: int
     clinic_id: int
     patient_id: int
     conversation_id: int | None = None
+    doctor_id: int | None = None
+    slot_id: int | None = None
     department: str
     starts_at: datetime | None = None
     status: str
     notes: str | None = None
+    doctor_name: str | None = None
     metadata_json: dict | None = None
     created_at: datetime
     updated_at: datetime
@@ -147,6 +181,8 @@ class ClinicalAppointmentResponse(BaseModel):
 class ClinicalAppointmentCreateRequest(BaseModel):
     conversation_id: int
     department: str = Field(default="Muayene", min_length=2, max_length=140)
+    doctor_id: int | None = None
+    slot_id: int | None = None
     starts_at: datetime | None = None
     notes: str | None = Field(default=None, max_length=2000)
 

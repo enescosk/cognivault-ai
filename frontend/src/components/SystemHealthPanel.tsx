@@ -3,12 +3,14 @@ import type { AICapabilities, QualityReport } from "../types/api";
 type Props = {
   capabilities: AICapabilities | null;
   quality: QualityReport | null;
-  view: "chat" | "appointments" | "clinical";
+  view: "dashboard" | "chat" | "appointments" | "notes" | "clinical";
 };
 
 const viewLabels: Record<Props["view"], string> = {
+  dashboard: "Genel bakis",
   chat: "Hasta sohbeti",
   appointments: "Randevu akışı",
+  notes: "Randevu notlari",
   clinical: "Klinik komuta",
 };
 

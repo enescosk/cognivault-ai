@@ -17,6 +17,8 @@ from app.models import (
     ClinicChannel,
     ClinicConversation,
     ClinicConversationStatus,
+    ClinicDoctor,
+    ClinicDoctorSlot,
     ClinicMembership,
     ClinicIntent,
     ClinicMessage,
@@ -628,6 +630,8 @@ def create_clinical_appointment_from_conversation(
     department: str,
     starts_at: datetime | None,
     notes: str | None = None,
+    doctor_id: int | None = None,
+    slot_id: int | None = None,
 ) -> ClinicalAppointment:
     conversation = get_clinical_conversation(db, clinic, conversation_id)
     appointment = _find_conversation_appointment(db, clinic, conversation)
@@ -638,16 +642,40 @@ def create_clinical_appointment_from_conversation(
             conversation_id=conversation.id,
             metadata_json={},
         )
+
+    # If slot_id is given, book the slot and derive starts_at / doctor_id
+    if slot_id is not None:
+        slot = db.get(ClinicDoctorSlot, slot_id)
+        if slot is None or slot.clinic_id != clinic.id:
+            raise HTTPException(status_code=404, detail="Slot not found")
+        if slot.is_booked or slot.is_blocked:
+            raise HTTPException(status_code=409, detail="Slot is not available")
+        slot.is_booked = True
+        db.add(slot)
+        appointment.slot_id = slot.id
+        appointment.doctor_id = slot.doctor_id
+        appointment.starts_at = slot.start_time
+        doctor_id = slot.doctor_id
+    else:
+        appointment.starts_at = starts_at
+
+    if doctor_id is not None:
+        doctor = db.get(ClinicDoctor, doctor_id)
+        if doctor is None or doctor.clinic_id != clinic.id:
+            raise HTTPException(status_code=404, detail="Doctor not found")
+        appointment.doctor_id = doctor_id
+        if not department or department == "Muayene":
+            department = doctor.specialty
+
     appointment.department = department.strip() or appointment.department or "Muayene"
-    appointment.starts_at = starts_at
-    appointment.status = ClinicalAppointmentStatus.PENDING if starts_at is None else ClinicalAppointmentStatus.CONFIRMED
+    appointment.status = ClinicalAppointmentStatus.PENDING if appointment.starts_at is None else ClinicalAppointmentStatus.CONFIRMED
     appointment.notes = notes
     appointment.metadata_json = {
         **(appointment.metadata_json or {}),
         "created_from": (appointment.metadata_json or {}).get("created_from", "doctor_inbox"),
-        "confirmed_from": "doctor_inbox" if starts_at is not None else None,
+        "confirmed_from": "doctor_inbox" if appointment.starts_at is not None else None,
     }
-    conversation.status = ClinicConversationStatus.APPOINTMENT_PENDING if starts_at is None else ClinicConversationStatus.ACTIVE
+    conversation.status = ClinicConversationStatus.APPOINTMENT_PENDING if appointment.starts_at is None else ClinicConversationStatus.ACTIVE
     db.add(appointment)
     db.flush()
     conversation.metadata_json = {
@@ -836,3 +864,55 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
         "reminders_due": reminders_due,
         "frustration_events": frustration_events,
     }
+
+
+# ── Doctor & Slot queries ───────────────────────────────────────────────────────
+
+
+def list_clinic_doctors(db: Session, clinic: Clinic) -> list[ClinicDoctor]:
+    return list(
+        db.scalars(
+            select(ClinicDoctor)
+            .where(ClinicDoctor.clinic_id == clinic.id, ClinicDoctor.is_active.is_(True))
+            .order_by(ClinicDoctor.specialty, ClinicDoctor.full_name)
+        )
+    )
+
+
+def list_doctor_available_slots(
+    db: Session,
+    clinic: Clinic,
+    doctor_id: int,
+    date_str: str | None = None,
+) -> list[ClinicDoctorSlot]:
+    from datetime import date as date_type
+
+    doctor = db.get(ClinicDoctor, doctor_id)
+    if doctor is None or doctor.clinic_id != clinic.id:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    if date_str:
+        try:
+            target_date = date_type.fromisoformat(date_str)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
+    else:
+        target_date = datetime.now(timezone.utc).date()
+
+    day_start = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
+    day_end = datetime.combine(target_date, time.max, tzinfo=timezone.utc)
+
+    return list(
+        db.scalars(
+            select(ClinicDoctorSlot)
+            .options(selectinload(ClinicDoctorSlot.doctor))
+            .where(
+                ClinicDoctorSlot.doctor_id == doctor_id,
+                ClinicDoctorSlot.clinic_id == clinic.id,
+                ClinicDoctorSlot.start_time >= day_start,
+                ClinicDoctorSlot.start_time <= day_end,
+                ClinicDoctorSlot.is_blocked.is_(False),
+            )
+            .order_by(ClinicDoctorSlot.start_time)
+        )
+    )

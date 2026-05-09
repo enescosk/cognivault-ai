@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   createClinicalAppointment,
   getClinicalConversation,
+  getClinicalDoctors,
   getClinicalOverview,
+  getDoctorSlots,
   getUpcomingClinicalAppointments,
   simulateVoiceCall,
   simulateWhatsAppMessage,
@@ -11,6 +13,8 @@ import {
 } from "../api/client";
 import type {
   ClinicalAppointment,
+  ClinicDoctor,
+  ClinicDoctorSlot,
   ClinicalConversationDetail,
   ClinicalConversationSummary,
   ClinicalMessage,
@@ -238,6 +242,11 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [appointmentAt, setAppointmentAt] = useState(toDatetimeLocal(new Date(Date.now() + 90 * 60000)));
   const [editingReviewId, setEditingReviewId] = useState<number | null>(null);
   const [editedReply, setEditedReply] = useState("");
+  const [doctors, setDoctors] = useState<ClinicDoctor[]>([]);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
+  const [doctorSlots, setDoctorSlots] = useState<ClinicDoctorSlot[]>([]);
+  const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null);
+  const [slotDate, setSlotDate] = useState(new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -255,12 +264,14 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   async function loadClinical(nextConversationId?: number) {
     setError(null);
     try {
-      const [data, appointments] = await Promise.all([
+      const [data, appointments, doctorList] = await Promise.all([
         getClinicalOverview(token),
         getUpcomingClinicalAppointments(token, 1440).catch(() => []),
+        getClinicalDoctors(token).catch(() => []),
       ]);
       setOverview(data);
       setUpcomingAppointments(appointments);
+      setDoctors(doctorList);
       const id = nextConversationId ?? selectedConversation?.id ?? data.doctor_inbox[0]?.id ?? data.conversations[0]?.id;
       if (id) {
         setSelectedConversation(await getClinicalConversation(id, token));
@@ -334,6 +345,28 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
     }
   }
 
+  async function loadDoctorSlots(doctorId: number, date?: string) {
+    try {
+      const slots = await getDoctorSlots(doctorId, token, date);
+      setDoctorSlots(slots);
+    } catch {
+      setDoctorSlots([]);
+    }
+  }
+
+  async function handleDoctorSelect(doctorId: number) {
+    setSelectedDoctorId(doctorId);
+    setSelectedSlotId(null);
+    const doc = doctors.find((d) => d.id === doctorId);
+    if (doc) setDepartment(doc.specialty);
+    await loadDoctorSlots(doctorId, slotDate);
+  }
+
+  async function handleSlotDateChange(date: string) {
+    setSlotDate(date);
+    if (selectedDoctorId) await loadDoctorSlots(selectedDoctorId, date);
+  }
+
   async function createAppointmentFromSelection() {
     if (!selectedConversation) return;
     setBusy(true);
@@ -342,10 +375,14 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
       await createClinicalAppointment(token, {
         conversation_id: selectedConversation.id,
         department,
-        starts_at: appointmentAt ? new Date(appointmentAt).toISOString() : null,
+        doctor_id: selectedDoctorId ?? undefined,
+        slot_id: selectedSlotId ?? undefined,
+        starts_at: selectedSlotId ? undefined : (appointmentAt ? new Date(appointmentAt).toISOString() : null),
         notes: selectedConversation.doctor_summary ?? getConversationTriage(selectedConversation)?.doctor_summary,
       });
+      setSelectedSlotId(null);
       await loadClinical(selectedConversation.id);
+      if (selectedDoctorId) await loadDoctorSlots(selectedDoctorId, slotDate);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Randevu olusturulamadi");
     } finally {
@@ -702,6 +739,62 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
               </article>
             ))}
           </div>
+        </div>
+
+        <div className="clinic-card doctors-card">
+          <div className="clinical-card-top">
+            <div>
+              <span>Klinik kadrosu</span>
+              <h3>Doktorlar ve musait slotlar</h3>
+            </div>
+          </div>
+          {doctors.length === 0 ? (
+            <div className="clinical-empty">Doktor bilgisi bulunamadi.</div>
+          ) : (
+            <div className="doctors-grid">
+              {doctors.map((doc) => (
+                <button
+                  key={doc.id}
+                  type="button"
+                  className={`doctor-card-btn ${selectedDoctorId === doc.id ? "active" : ""}`}
+                  onClick={() => handleDoctorSelect(doc.id)}
+                >
+                  <strong>{doc.title} {doc.full_name}</strong>
+                  <span className="doctor-specialty">{doc.specialty}</span>
+                  {doc.bio && <p className="doctor-bio">{doc.bio}</p>}
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedDoctorId && (
+            <div className="slots-section">
+              <div className="slots-date-picker">
+                <label>Tarih: </label>
+                <input type="date" value={slotDate} onChange={(e) => handleSlotDateChange(e.target.value)} />
+              </div>
+              {doctorSlots.length === 0 ? (
+                <div className="clinical-empty">Bu tarihte musait slot yok.</div>
+              ) : (
+                <div className="slots-grid">
+                  {doctorSlots.map((slot) => (
+                    <button
+                      key={slot.id}
+                      type="button"
+                      disabled={slot.is_booked}
+                      className={`slot-btn ${slot.is_booked ? "booked" : ""} ${selectedSlotId === slot.id ? "selected" : ""}`}
+                      onClick={() => {
+                        setSelectedSlotId(slot.id);
+                        setAppointmentAt(slot.start_time);
+                      }}
+                    >
+                      {trTime.format(new Date(slot.start_time))}
+                      {slot.is_booked && " ✕"}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="clinic-card architecture-card">

@@ -18,9 +18,11 @@ import type { AICapabilities, Appointment, AuditLog, ChatSessionDetail, ChatSess
 import { AuditLogPanel } from "./AuditLogPanel";
 import { AppointmentPanel } from "./AppointmentPanel";
 import { AppointmentsPage } from "./AppointmentsPage";
+import { AppointmentNotes } from "./AppointmentNotes";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
+import { CustomerDashboard } from "./CustomerDashboard";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
 import { SystemHealthPanel } from "./SystemHealthPanel";
@@ -40,7 +42,7 @@ export function Dashboard() {
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "appointments" | "clinical">("chat");
+  const [view, setView] = useState<"dashboard" | "chat" | "appointments" | "notes" | "clinical">("dashboard");
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
@@ -212,7 +214,9 @@ export function Dashboard() {
         onSelectSession={(id) => { setView(isCustomer ? "chat" : "clinical"); if (isCustomer) handleSelectSession(id); }}
         onNewSession={() => { if (isCustomer) { setView("chat"); handleNewSession(); } else { setView("clinical"); } }}
         onDeleteSession={handleDeleteSession}
+        onViewDashboard={() => setView("dashboard")}
         onViewAppointments={() => setView("appointments")}
+        onViewNotes={() => setView("notes")}
         onViewClinical={() => setView("clinical")}
         onLogout={logout}
       />
@@ -223,6 +227,18 @@ export function Dashboard() {
         <div className="view-stage" key={view}>
           {isClinicalView ? (
             <ClinicalPanel token={token ?? ""} />
+          ) : view === "dashboard" && isCustomer ? (
+            <CustomerDashboard
+              appointments={appointments}
+              sessions={sessions}
+              metrics={metrics}
+              onStartChat={() => { setView("chat"); handleNewSession(); }}
+              onViewAppointments={() => setView("appointments")}
+              onViewNotes={() => setView("notes")}
+              onViewConversations={() => setView("chat")}
+            />
+          ) : view === "notes" && isCustomer ? (
+            <AppointmentNotes />
           ) : view === "appointments" && isCustomer ? (
             <AppointmentsPage appointments={appointments} />
           ) : (

@@ -8,6 +8,8 @@ import type {
   ClinicalConversationDetail,
   ClinicalOverview,
   ClinicalAppointment,
+  ClinicDoctor,
+  ClinicDoctorSlot,
   ClinicalPersona,
   EnterpriseMessageResponse,
   EnterpriseOverview,
@@ -235,7 +237,7 @@ export function simulateVoiceCall(
 
 export function createClinicalAppointment(
   token: string,
-  payload: { conversation_id: number; department: string; starts_at?: string | null; notes?: string }
+  payload: { conversation_id: number; department: string; doctor_id?: number; slot_id?: number; starts_at?: string | null; notes?: string }
 ): Promise<ClinicalAppointment> {
   return request<ClinicalAppointment>(
     "/clinical/appointments",
@@ -249,6 +251,15 @@ export function createClinicalAppointment(
 
 export function getUpcomingClinicalAppointments(token: string, withinMinutes = 120): Promise<ClinicalAppointment[]> {
   return request<ClinicalAppointment[]>(`/clinical/appointments/upcoming?within_minutes=${withinMinutes}`, { method: "GET" }, token);
+}
+
+export function getClinicalDoctors(token: string): Promise<ClinicDoctor[]> {
+  return request<ClinicDoctor[]>("/clinical/doctors", { method: "GET" }, token);
+}
+
+export function getDoctorSlots(doctorId: number, token: string, date?: string): Promise<ClinicDoctorSlot[]> {
+  const params = date ? `?date=${date}` : "";
+  return request<ClinicDoctorSlot[]>(`/clinical/doctors/${doctorId}/slots${params}`, { method: "GET" }, token);
 }
 
 /**

@@ -314,15 +314,43 @@ export type ClinicalPersona = {
   specialty: string;
   safety_rule: string;
 };
+export type ClinicDoctor = {
+  id: number;
+  clinic_id: number;
+  branch_id?: number | null;
+  full_name: string;
+  email: string;
+  specialty: string;
+  title: string;
+  bio?: string | null;
+  avatar_url?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+export type ClinicDoctorSlot = {
+  id: number;
+  doctor_id: number;
+  clinic_id: number;
+  start_time: string;
+  end_time: string;
+  is_booked: boolean;
+  is_blocked: boolean;
+  doctor_name?: string | null;
+  specialty?: string | null;
+};
 export type ClinicalAppointment = {
   id: number;
   clinic_id: number;
   patient_id: number;
   conversation_id?: number | null;
+  doctor_id?: number | null;
+  slot_id?: number | null;
   department: string;
   starts_at?: string | null;
   status: string;
   notes?: string | null;
+  doctor_name?: string | null;
   metadata_json?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
