@@ -7,17 +7,23 @@ type Props = {
 
 const staffUsers = [
   {
-    label: "Operator",
+    label: "Resepsiyon",
     email: "operator@cognivault.com",
     password: "demo123",
-    description: "Müşteri iş akışlarını ve operasyonel kayıtları yönetir.",
+    description: "Telefon, WhatsApp, Doctor Inbox ve randevu adaylarini yonetir.",
   },
   {
-    label: "Admin",
+    label: "Klinik Sahibi",
     email: "admin@cognivault.com",
     password: "demo123",
-    description: "Logları, kullanıcıları ve platform aktivitesini görüntüler.",
+    description: "Klinik performansi, onay kuyrugu, audit ve operasyon guvenligini izler.",
   },
+];
+
+const productPillars = [
+  "Telefon + WhatsApp tek hasta akisi",
+  "Tani koymayan guvenli medikal triyaj",
+  "Konusmadan randevu adayina gecis",
 ];
 
 export function LoginScreen({ onLogin, onRegister }: Props) {
@@ -89,15 +95,23 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
               <path d="M2 12l10 5 10-5"/>
             </svg>
           </div>
-          <span>Cognivault AI</span>
+          <span>CogniVault Medical</span>
         </div>
 
         <div className="brand-hero">
-          <h1>Secure <em>Enterprise</em><br/>AI Agents</h1>
-          <p>Auditable, role-aware AI assistance for bilingual enterprise workflows. Guided appointment booking with RBAC, tool execution, and traceable logs.</p>
+          <div className="login-product-kicker">Butik klinikler ve dis hekimleri icin</div>
+          <h1>Medical <em>Command</em><br/>Center</h1>
+          <p>
+            Telefonu ve WhatsApp'i karsilayan, hastayi guvenli medikal triyajdan geciren,
+            doktor ekranina ozet dusen ve konusmadan randevu adayi olusturan AI resepsiyon sistemi.
+          </p>
 
-          {/* Müşteri kartı */}
-          <div className="lp-section-label">Müşteri Portalı</div>
+          <div className="login-pillar-row">
+            {productPillars.map((pillar) => <span key={pillar}>{pillar}</span>)}
+          </div>
+
+          {/* Klinik onboarding */}
+          <div className="lp-section-label">Klinik Onboarding</div>
           <div className="lp-customer-grid">
             <button
               className="lp-customer-card lp-customer-card--new"
@@ -113,8 +127,8 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
                 </svg>
               </div>
               <div className="lp-customer-info">
-                <div className="lp-customer-name">Yeni Hesap Oluştur</div>
-                <div className="lp-customer-email">Müşteri olarak kayıt ol</div>
+                <div className="lp-customer-name">Yeni Klinik Basvurusu</div>
+                <div className="lp-customer-email">Demo klinik hesabi olustur</div>
               </div>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, flexShrink: 0 }}>
                 <polyline points="9 18 15 12 9 6"/>
@@ -125,7 +139,7 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
               type="button"
               onClick={() => setTab("login")}
             >
-              <div className="lp-customer-avatar" style={{ background: "rgba(104,211,145,0.14)", color: "#68d391" }}>
+              <div className="lp-customer-avatar" style={{ background: "rgba(31,111,104,0.12)", color: "#1f6f68" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/>
                   <polyline points="10 17 15 12 10 7"/>
@@ -133,8 +147,8 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
                 </svg>
               </div>
               <div className="lp-customer-info">
-                <div className="lp-customer-name">Mevcut Hesapla Giriş</div>
-                <div className="lp-customer-email">E-posta ve şifrenle giriş yap</div>
+                <div className="lp-customer-name">Mevcut Klinik Girisi</div>
+                <div className="lp-customer-email">Operator veya admin hesabi sec</div>
               </div>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, flexShrink: 0 }}>
                 <polyline points="9 18 15 12 9 6"/>
@@ -142,8 +156,8 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
             </button>
           </div>
 
-          {/* Personel (Operator / Admin) */}
-          <div className="lp-section-label" style={{ marginTop: 24 }}>Personel Erişimi</div>
+          {/* Klinik personeli */}
+          <div className="lp-section-label" style={{ marginTop: 24 }}>Klinik Personeli</div>
           <div className="sample-grid">
             {staffUsers.map((u) => (
               <button
@@ -160,10 +174,10 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "24px", color: "var(--text-3)", fontSize: "0.78rem", fontFamily: "var(--font-mono)" }}>
-          <span>ISO 27001</span>
-          <span>RBAC Enforced</span>
-          <span>Full Audit Trail</span>
+        <div className="login-compliance-row">
+          <span>Shadow Mode</span>
+          <span>Doctor Approval</span>
+          <span>Audit Trail</span>
         </div>
       </div>
 
@@ -172,13 +186,13 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
         <div className="login-card-header">
           <div className="login-badge">
             <span className="login-badge-dot" />
-            {tab === "login" ? "Güvenli Giriş" : "Yeni Hesap"}
+            {tab === "login" ? "Klinik Girisi" : "Yeni Klinik"}
           </div>
-          <h2>{tab === "login" ? "Workspace'e giriş yap" : "Müşteri hesabı oluştur"}</h2>
+          <h2>{tab === "login" ? "Medikal komuta merkezine gir" : "Klinik hesabı oluştur"}</h2>
           <p>
             {tab === "login"
-              ? "E-posta ve şifrenizle giriş yapın ya da sol panelden personel hesabı seçin."
-              : "Ücretsiz müşteri hesabı oluşturun, randevu alın ve süreci takip edin."}
+              ? "Demo icin sol panelden resepsiyon veya klinik sahibi hesabini sec."
+              : "Butik klinik icin demo workspace hesabi olustur."}
           </p>
         </div>
 
@@ -208,7 +222,7 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
                 type="email"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder="email@cognivault.com"
+                placeholder="operator@cognivault.com"
                 required
               />
             </div>
@@ -227,7 +241,7 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
               {loginLoading ? "Giriş yapılıyor..." : "Dashboard'a Gir →"}
             </button>
             <div className="lp-switch-hint">
-              Hesabınız yok mu?{" "}
+              Klinik hesabiniz yok mu?{" "}
               <button type="button" className="lp-switch-link" onClick={() => setTab("signup")}>
                 Kayıt Ol
               </button>
@@ -236,22 +250,22 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
         ) : (
           <form className="login-form" onSubmit={handleSignup}>
             <div className="form-field">
-              <label>Ad Soyad</label>
+              <label>Klinik Yetkilisi</label>
               <input
                 type="text"
                 value={signupName}
                 onChange={(e) => setSignupName(e.target.value)}
-                placeholder="Adınız Soyadınız"
+                placeholder="Ad Soyad"
                 required
               />
             </div>
             <div className="form-field">
-              <label>E-posta</label>
+              <label>Klinik E-postası</label>
               <input
                 type="email"
                 value={signupEmail}
                 onChange={(e) => setSignupEmail(e.target.value)}
-                placeholder="email@ornek.com"
+                placeholder="klinik@ornek.com"
                 required
               />
             </div>
@@ -277,7 +291,7 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
             </div>
             {signupError && <div className="error-box">{signupError}</div>}
             <button className="primary-button" type="submit" disabled={signupLoading}>
-              {signupLoading ? "Hesap oluşturuluyor..." : "Hesap Oluştur →"}
+              {signupLoading ? "Workspace oluşturuluyor..." : "Klinik Workspace Oluştur →"}
             </button>
             <div className="lp-switch-hint">
               Zaten hesabınız var mı?{" "}
