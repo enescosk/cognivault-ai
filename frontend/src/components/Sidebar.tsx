@@ -68,6 +68,8 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
     .filter(isUpcomingAppointment)
     .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
   const operatorMenuAppointments = [...operatorActiveAppointments, ...operatorUpcomingAppointments].slice(0, 4);
+  const workspaceLabel = isClinicalStaff ? "Clinical Ops" : "Patient Workspace";
+  const useClinicalSurface = isClinicalStaff && activeView === "clinical";
   const resizing = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -130,7 +132,8 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
             type="button"
             onClick={() => setShowMainMenu(true)}
             aria-label="Menüyü aç"
-            title="Menü"
+            aria-expanded={showMainMenu}
+            title="Kontrol merkezi"
           >
             <span />
             <span />
@@ -139,12 +142,14 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
         </div>
         <div className="sidebar-profile">
           <div className="sidebar-avatar">{initials}</div>
-          <div className="sidebar-name">{user.full_name}</div>
-          <div className="sidebar-meta">
-            <span className={`role-badge ${roleName}`}>{roleName}</span>
-            <span className="sidebar-dept">{user.locale.toUpperCase()}</span>
+          <div className="sidebar-profile-info">
+            <div className="sidebar-name">{user.full_name}</div>
+            <div className="sidebar-meta">
+              <span className={`role-badge ${roleName}`}>{roleName}</span>
+              <span className="sidebar-dept">{user.locale.toUpperCase()}</span>
+            </div>
+            <div className="sidebar-email">{user.email}</div>
           </div>
-          <div className="sidebar-email">{user.email}</div>
         </div>
       </div>
 
@@ -242,7 +247,10 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
           </svg>
-          Ayarlar
+          <span>
+            <strong>Ayarlar</strong>
+            <small>Tercihler ve güvenlik</small>
+          </span>
         </button>
       </div>
 
@@ -268,9 +276,17 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
       {settingsPos && createPortal(
         <div
           ref={settingsRef}
-          className="session-menu settings-popup"
+          className={`session-menu settings-popup ${useClinicalSurface ? "settings-popup--clinical" : ""}`}
           style={{ top: settingsPos.top, left: settingsPos.left, transform: "translateY(-100%)" }}
         >
+          <div className="settings-popup-top">
+            <div>
+              <span>Kontrol Merkezi</span>
+              <strong>{workspaceLabel}</strong>
+            </div>
+            <span className="settings-live-pill">Canlı</span>
+          </div>
+          <div className="settings-popup-section-label">Tercihler</div>
           <div className="settings-popup-item">
             <span className="settings-popup-label">Dil</span>
             <select className="settings-select" value={language} onChange={(e) => setLanguage(e.target.value)}>
@@ -289,6 +305,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
               <span className="toggle-knob" />
             </button>
           </div>
+          <div className="settings-popup-section-label">Hesap</div>
           <div className="session-menu-divider" />
           <button className="session-menu-item" type="button" onClick={() => { setSettingsPos(null); setShowSupport(true); }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -309,8 +326,8 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
       )}
 
       {showSupport && createPortal(
-        <div className="support-backdrop" onClick={() => setShowSupport(false)}>
-          <div className="support-panel" onClick={(e) => e.stopPropagation()}>
+        <div className={`support-backdrop ${useClinicalSurface ? "support-backdrop--clinical" : ""}`} onClick={() => setShowSupport(false)}>
+          <div className={`support-panel ${useClinicalSurface ? "support-panel--clinical" : ""}`} onClick={(e) => e.stopPropagation()}>
             <div className="support-header">
               <span className="support-title">Destek</span>
               <button className="settings-close" onClick={() => setShowSupport(false)} type="button">
@@ -354,18 +371,26 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
       )}
 
       {showMainMenu && createPortal(
-        <div className="main-menu-backdrop" onClick={() => setShowMainMenu(false)}>
-          <aside className="main-menu-panel" onClick={(e) => e.stopPropagation()}>
+        <div className={`main-menu-backdrop ${useClinicalSurface ? "main-menu-backdrop--clinical" : ""}`} onClick={() => setShowMainMenu(false)}>
+          <aside className={`main-menu-panel ${useClinicalSurface ? "main-menu-panel--clinical" : ""}`} onClick={(e) => e.stopPropagation()}>
             <div className="main-menu-header">
               <div>
-                <span className="main-menu-kicker">Menu</span>
-                <h3>Hesabım</h3>
+                <span className="main-menu-kicker">Kontrol merkezi</span>
+                <h3>{workspaceLabel}</h3>
               </div>
               <button className="settings-close" onClick={() => setShowMainMenu(false)} type="button" aria-label="Menüyü kapat">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                 </svg>
               </button>
+            </div>
+
+            <div className="main-menu-command-strip">
+              <span className="command-status-dot" />
+              <div>
+                <strong>Operasyon açık</strong>
+                <small>Rol, oturum ve klinik aksiyonları audit trail ile izleniyor.</small>
+              </div>
             </div>
 
             <div className="main-menu-account">

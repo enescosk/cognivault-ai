@@ -8,6 +8,7 @@ Cognivault AI is a secure, auditable AI agent prototype for enterprise workflows
 - `backend/`: FastAPI service with layered architecture, SQLAlchemy models, PostgreSQL integration, RBAC, agent orchestration, and seed data
 - `docker-compose.yml`: PostgreSQL + backend + frontend stack
 - `.env.example`: local-first environment variables for easy setup on a laptop
+- `docs/CUSTOMER_INTAKE_ARCHITECTURE.md`: WhatsApp, phone, web chat, and form intake architecture for clinical operations
 - `references/DocsGPT/`: pulled reference repository used as a product/architecture benchmark
 - `scripts/`: local setup and run helpers
 
@@ -122,6 +123,13 @@ Main endpoints:
 - `GET /api/enterprise/sessions`
 - `POST /api/enterprise/sessions`
 - `POST /api/enterprise/sessions/{id}/messages`
+- `GET /api/clinical/overview`
+- `POST /api/clinical/simulate-whatsapp`
+- `POST /api/clinical/simulate-voice-call`
+- `GET /api/webhooks/whatsapp`
+- `POST /api/webhooks/whatsapp`
+- `POST /api/webhooks/voice/incoming`
+- `POST /api/webhooks/voice/gather`
 
 ## Local run on a laptop
 

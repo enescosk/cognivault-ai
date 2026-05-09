@@ -4,10 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.routes import ai, appointments, audit, auth, chat, clinical, enterprise, intelligence, quality, users, voice
@@ -16,6 +15,7 @@ from app.core.config import get_settings
 from app.core.errors import error_response
 from app.core.health import readiness_report
 from app.core.observability import RequestContextMiddleware
+from app.core.rate_limit import limiter
 from app.db.bootstrap import initialize_database
 from sqlalchemy.orm import Session
 
@@ -23,9 +23,6 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 settings.validate_runtime_safety()
-
-# Rate limiter — 20 messages per minute per IP to prevent LLM cost abuse
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 
 if settings.jwt_secret in ("change-me-in-production", "replace-me", "secret"):
     logger.warning(
@@ -53,7 +50,6 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)

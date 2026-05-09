@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.rate_limit import limiter
+
 from app.api.dependencies import get_current_user, get_db
-from app.models import IntelligenceJob, IntelligenceSource, Lead, OutreachDraft, User
+from app.models import IntelligenceJob, IntelligenceSource, Lead, OutreachDraft, OutreachDraftStatus, RoleName, User
 from app.schemas.intelligence import (
     IntelligenceJobCreateRequest,
     IntelligenceJobResponse,
@@ -11,14 +14,17 @@ from app.schemas.intelligence import (
     OutreachDraftCreateRequest,
     OutreachDraftResponse,
 )
+from app.services.audit_service import log_action
 from app.services.intelligence_service import (
     create_job,
     create_outreach_draft,
+    ensure_intelligence_access,
     get_job,
     list_jobs,
     list_leads,
     list_sources,
 )
+from app.models import AuditResultStatus
 
 
 router = APIRouter(prefix="/intelligence", tags=["intelligence"])
@@ -58,7 +64,9 @@ def get_jobs(
 
 
 @router.post("/jobs", response_model=IntelligenceJobResponse)
+@limiter.limit("10/minute")
 def post_job(
+    request: Request,
     payload: IntelligenceJobCreateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -99,6 +107,7 @@ def post_outreach_draft(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> OutreachDraftResponse:
+    # legal_consent_acknowledged is validated at schema level; only reaches here if True
     draft = create_outreach_draft(
         db,
         current_user=current_user,
@@ -106,5 +115,60 @@ def post_outreach_draft(
         channel=payload.channel,
         intent=payload.intent,
         notes=payload.notes,
+    )
+    return draft_payload(draft)
+
+
+@router.post("/outreach-drafts/{draft_id}/approve", response_model=OutreachDraftResponse)
+def approve_outreach_draft(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> OutreachDraftResponse:
+    """Admin-only: approve a draft for potential sending. Does NOT send the message."""
+    if current_user.role.name != RoleName.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can approve outreach drafts")
+    draft = db.scalars(select(OutreachDraft).where(OutreachDraft.id == draft_id)).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    if draft.status != OutreachDraftStatus.DRAFT:
+        raise HTTPException(status_code=400, detail=f"Draft is already {draft.status}; cannot approve")
+    draft.status = OutreachDraftStatus.APPROVED
+    db.commit()
+    db.refresh(draft)
+    log_action(
+        db,
+        user_id=current_user.id,
+        action_type="intelligence.outreach_draft_approved",
+        explanation="Admin approved outreach draft; message still requires manual send",
+        result_status=AuditResultStatus.SUCCESS,
+        details={"draft_id": draft.id, "lead_id": draft.lead_id},
+    )
+    return draft_payload(draft)
+
+
+@router.post("/outreach-drafts/{draft_id}/reject", response_model=OutreachDraftResponse)
+def reject_outreach_draft(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> OutreachDraftResponse:
+    """Operator or admin: reject a draft so it cannot be sent."""
+    ensure_intelligence_access(current_user)
+    draft = db.scalars(select(OutreachDraft).where(OutreachDraft.id == draft_id)).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    if draft.status not in (OutreachDraftStatus.DRAFT, OutreachDraftStatus.APPROVED):
+        raise HTTPException(status_code=400, detail=f"Draft in state {draft.status} cannot be rejected")
+    draft.status = OutreachDraftStatus.REJECTED
+    db.commit()
+    db.refresh(draft)
+    log_action(
+        db,
+        user_id=current_user.id,
+        action_type="intelligence.outreach_draft_rejected",
+        explanation="Outreach draft rejected; will not be sent",
+        result_status=AuditResultStatus.INFO,
+        details={"draft_id": draft.id, "lead_id": draft.lead_id},
     )
     return draft_payload(draft)

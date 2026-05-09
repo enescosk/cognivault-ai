@@ -78,11 +78,30 @@ class IntelligenceJobResponse(BaseModel):
     updated_at: datetime
 
 
+LEGAL_DISCLAIMER = (
+    "Bu taslak hiçbir alıcıya gönderilmemiştir. Göndermek için yetkili bir operatör veya "
+    "yönetici onayı zorunludur. İlgili kişisel verilerin KVKK kapsamında işlenmesi ve iletişim "
+    "yasaları (6563 sayılı Kanun / CAN-SPAM / GDPR) konusunda yasal ekibinizle iletişime geçin."
+)
+
+
 class OutreachDraftCreateRequest(BaseModel):
     lead_id: int
     channel: str = Field(default="phone", pattern="^(phone|email|social|crm)$")
     intent: str = Field(default="intro", max_length=120)
     notes: str | None = Field(default=None, max_length=1000)
+    legal_consent_acknowledged: bool = Field(
+        ...,
+        description=(
+            "Must be true. By setting this flag you confirm: (1) you have a lawful basis "
+            "to contact this organisation under applicable law (KVKK, GDPR, CAN-SPAM, etc.), "
+            "(2) no message will be sent without an additional human approval step."
+        ),
+    )
+
+    def model_post_init(self, __context: object) -> None:
+        if not self.legal_consent_acknowledged:
+            raise ValueError("legal_consent_acknowledged must be true to create an outreach draft")
 
 
 class OutreachDraftResponse(BaseModel):
@@ -97,3 +116,4 @@ class OutreachDraftResponse(BaseModel):
     metadata_json: dict
     created_at: datetime
     updated_at: datetime
+    legal_disclaimer: str = LEGAL_DISCLAIMER
