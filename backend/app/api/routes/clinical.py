@@ -3,11 +3,17 @@ from __future__ import annotations
 from html import escape
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
+from app.core.config import get_settings
+from app.core.webhook_security import (
+    signature_required,
+    verify_meta_signature,
+    verify_twilio_signature,
+)
 from app.models import ClinicChannel, ClinicConversation, ClinicalAppointment, ShadowReview, ShadowReviewStatus, User
 from app.schemas.clinical import (
     ClinicalAppointmentCreateRequest,
@@ -386,9 +392,28 @@ def _voice_twiml(message: str, action_url: str = "/api/webhooks/voice/gather") -
 </Response>"""
 
 
+def _verify_twilio_voice_request(request: Request, body: bytes) -> None:
+    if not signature_required():
+        return
+    settings = get_settings()
+    twilio_sig = request.headers.get("X-Twilio-Signature")
+    form_params = {key: values[0] if values else "" for key, values in parse_qs(body.decode("utf-8")).items()}
+    if not verify_twilio_signature(
+        auth_token=settings.twilio_auth_token,
+        request_url=_webhook_request_url(request),
+        form_params=form_params,
+        signature_header=twilio_sig,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Twilio signature",
+        )
+
+
 @router.post("/webhooks/voice/incoming")
 async def receive_voice_call(request: Request) -> PlainTextResponse:
     body = await request.body()
+    _verify_twilio_voice_request(request, body)
     parsed = dict((key, values[0] if values else "") for key, values in parse_qs(body.decode("utf-8")).items())
     caller = parsed.get("From", "hasta")
     prompt = (
@@ -403,6 +428,7 @@ async def receive_voice_call(request: Request) -> PlainTextResponse:
 @router.post("/webhooks/voice/gather")
 async def receive_voice_speech(request: Request, db: Session = Depends(get_db)) -> PlainTextResponse:
     body = await request.body()
+    _verify_twilio_voice_request(request, body)
     parsed = dict((key, values[0] if values else "") for key, values in parse_qs(body.decode("utf-8")).items())
     speech = (parsed.get("SpeechResult") or "").strip()
     from_phone = parsed.get("From") or parsed.get("Caller") or "unknown-caller"
@@ -451,16 +477,59 @@ def verify_meta_webhook(
     return PlainTextResponse("verification failed", status_code=403)
 
 
+def _webhook_request_url(request: Request) -> str:
+    base = get_settings().clinical_webhook_base_url.strip()
+    if base:
+        return base.rstrip("/") + request.url.path
+    return str(request.url)
+
+
 @router.post("/webhooks/whatsapp", response_model=list[WebhookIngestionResponse] | WebhookIngestionResponse)
 async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
     content_type = request.headers.get("content-type", "")
+    settings = get_settings()
     clinic = ensure_default_clinic(db)
 
+    raw_body = await request.body()
+
     if "application/x-www-form-urlencoded" in content_type:
-        incoming = parse_twilio_form(await request.body())
+        # Twilio inbound: validate the X-Twilio-Signature header against the canonical request.
+        if signature_required():
+            twilio_sig = request.headers.get("X-Twilio-Signature")
+            from urllib.parse import parse_qs
+
+            form_params = {
+                key: values[0] if values else ""
+                for key, values in parse_qs(raw_body.decode("utf-8")).items()
+            }
+            if not verify_twilio_signature(
+                auth_token=settings.twilio_auth_token,
+                request_url=_webhook_request_url(request),
+                form_params=form_params,
+                signature_header=twilio_sig,
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid Twilio signature",
+                )
+        incoming = parse_twilio_form(raw_body)
         return ingestion_payload(ingest_clinical_message(db, incoming, clinic=clinic))
 
-    payload = await request.json()
+    # Meta Cloud API inbound: validate the X-Hub-Signature-256 header against the raw body.
+    if signature_required():
+        meta_sig = request.headers.get("X-Hub-Signature-256")
+        if not verify_meta_signature(
+            app_secret=settings.meta_app_secret,
+            raw_body=raw_body,
+            signature_header=meta_sig,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Meta signature",
+            )
+    import json
+
+    payload = json.loads(raw_body or b"{}")
     messages = parse_meta_payload(payload)
     results = [ingestion_payload(ingest_clinical_message(db, item, clinic=clinic)) for item in messages]
     return results

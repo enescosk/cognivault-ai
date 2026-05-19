@@ -77,6 +77,17 @@ def client():
 
 
 @pytest.fixture
+def db_session():
+    """Direct session against the test database (same engine as the FastAPI override)."""
+
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture
 def customer_token(client):
     res = client.post("/api/auth/login", json={"email": "customer@test.com", "password": "password123"})
     return res.json()["access_token"]

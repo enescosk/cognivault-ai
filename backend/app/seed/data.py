@@ -187,11 +187,52 @@ SAMPLE_CONVERSATIONS = [
 ]
 
 
+def _ensure_default_organization(db: Session) -> Organization:
+    organization = db.scalars(select(Organization).order_by(Organization.id)).first()
+    if organization is None:
+        organization = Organization(name="Cognivault Enterprise Demo", domain="cognivault.local")
+        db.add(organization)
+        db.commit()
+        db.refresh(organization)
+    return organization
+
+
+def _backfill_tenant_scopes(db: Session) -> None:
+    """Wires existing clinic + staff users to the default organization.
+
+    Idempotent: only touches rows that have a NULL organization_id, so it is safe
+    to call on every startup (it is also safe to call on a fresh DB before any
+    other seed step runs).
+    """
+
+    organization = _ensure_default_organization(db)
+
+    dirty = False
+    for clinic in db.scalars(select(Clinic).where(Clinic.organization_id.is_(None))).all():
+        clinic.organization_id = organization.id
+        db.add(clinic)
+        dirty = True
+
+    staff_roles = (RoleName.OPERATOR, RoleName.ADMIN)
+    role_ids = [r.id for r in db.scalars(select(Role).where(Role.name.in_(staff_roles))).all()]
+    if role_ids:
+        for user in db.scalars(
+            select(User).where(User.role_id.in_(role_ids), User.organization_id.is_(None))
+        ).all():
+            user.organization_id = organization.id
+            db.add(user)
+            dirty = True
+
+    if dirty:
+        db.commit()
+
+
 def seed_database(db: Session) -> None:
     if db.scalars(select(Role)).first():
         ensure_demo_users(db)
         seed_enterprise_demo(db)
         seed_clinical_demo(db)
+        _backfill_tenant_scopes(db)
         return
 
     # ── Roles ────────────────────────────────────────────────────────────────
@@ -392,6 +433,7 @@ def seed_database(db: Session) -> None:
 
     seed_enterprise_demo(db)
     seed_clinical_demo(db)
+    _backfill_tenant_scopes(db)
 
 
 def ensure_demo_users(db: Session) -> None:

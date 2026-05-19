@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     smtp_from: str = "noreply@cognivault.local"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     seed_demo_data: bool = True
+    # When true, inbound provider webhooks (Twilio, Meta) must carry a valid
+    # signature header — required for production.
+    clinical_webhook_signature_required: bool = False
+    # Public URL used as the canonical base when verifying Twilio request signatures.
+    # If empty, the request URL as received by FastAPI is used.
+    clinical_webhook_base_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=(str(PROJECT_ROOT / ".env"), str(BACKEND_ROOT / ".env"), ".env"),

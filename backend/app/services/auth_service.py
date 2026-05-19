@@ -23,10 +23,11 @@ def authenticate_user(db: Session, email: str, password: str) -> AuthResponse:
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), organization_id=user.organization_id)
     log_action(
         db,
         user_id=user.id,
+        organization_id=user.organization_id,
         action_type="auth.login",
         explanation="User logged in",
         result_status=AuditResultStatus.SUCCESS,
@@ -56,10 +57,11 @@ def register_customer(db: Session, full_name: str, email: str, password: str, lo
     db.commit()
     db.refresh(user)
 
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), organization_id=user.organization_id)
     log_action(
         db,
         user_id=user.id,
+        organization_id=user.organization_id,
         action_type="auth.register",
         explanation="New customer registered",
         result_status=AuditResultStatus.SUCCESS,

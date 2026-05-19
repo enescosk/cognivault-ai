@@ -14,30 +14,36 @@ Dusuk risk, yuksek deger, mevcut akislari etkilemez.
 6. **Frontend ProtectedRoute** — `requireRole` wrapper'i Dashboard icindeki rol-bazli render'i tek bir yere toplar (URL bazli route gecisi gerekmiyor; davranis ayni, kod tek noktada).
 7. **Docs** — `SYSTEM_AUDIT.md`, `IMPROVEMENT_PLAN.md`, README setup adimlari.
 
-## Faz 1 — Tenant izolasyonu (Sonraki Sprint)
+## Faz 1 — Tenant izolasyonu (TAMAMLANDI ✅)
 
-Veri modelinde nullable kolon ekler; mevcut tek-organizasyon kurulumu icin geriye uyumludur.
+Veri modelinde nullable kolon eklendi; mevcut tek-organizasyon kurulumu icin geriye uyumlu.
 
-1. `Organization` <-> `Clinic` iliskisi
-   - Yeni migration: `clinics.organization_id` (FK, nullable), `users.organization_id` (FK, nullable).
-   - Seed: mevcut default klinigi default organizasyonun altina baglar.
-2. JWT claim'inde `org_id`
-   - `app/core/security.py`: token icine `org_id` ekle.
-   - Dependency: `get_current_organization()` bagimliligi olustur.
-3. Servis katmaninda zorunlu scope
-   - `enterprise_service`, `clinical_service` icindeki `list_*` ve `get_*` fonksiyonlari `organization_id` parametresi ile filtreleme yapsin.
-4. Audit log'a `clinic_id` ve `organization_id` (nullable) eklenmesi.
+1. ✅ `Organization` <-> `Clinic` iliskisi
+   - Migration `a1b2c3d4e5f6`: `clinics.organization_id` (FK, nullable), `users.organization_id` (FK, nullable).
+   - Seed: `_backfill_tenant_scopes()` mevcut default klinigi ve staff kullanicilari default organizasyona bagliyor.
+2. ✅ JWT claim'inde `org_id`
+   - `app/core/security.py`: `create_access_token(subject, organization_id=...)`; staff girisinde token'a `org_id` claim'i ekleniyor.
+3. ⏳ Servis katmaninda zorunlu scope (Faz 1.5)
+   - `enterprise_service`, `clinical_service` `list_*`/`get_*` fonksiyonlarina `organization_id` filtreleme — sonraki adim.
+4. ✅ Audit log'a `clinic_id`, `organization_id`, `request_id` (nullable) eklenmesi + service kwargs.
 
-**Risk**: Migration sirasinda mevcut prod verisi tenant'siz kalir. Mitigation: default org/clinic ile backfill scripti + nullable kolonlar.
+## Faz 2 — Webhook & Idempotency Sertlestirme (TAMAMLANDI ✅)
 
-## Faz 2 — Webhook & Idempotency Sertlestirme
+1. ✅ **Twilio imza dogrulamasi**: `verify_twilio_signature()` `X-Twilio-Signature`'i HMAC-SHA1+base64 ile dogrulayip canonical URL+sorted-params ile karsilastirir.
+2. ✅ **Meta `X-Hub-Signature-256` dogrulamasi**: HMAC SHA256 + `hmac.compare_digest()` zaman-sabit karsilastirma.
+3. ✅ **`inbound_events` tablosu**: `(provider, external_id)` benzersiz; `ingest_clinical_message` tekrar gelen webhook'larda ayni `IngestionResult.message`'i `action="duplicate_ignored"` ile dondurur.
+4. ⏳ **Outbound `delivery_outbox` tablosu**: Faz 2.5 — retry, dead-letter, audit (sonraki adim).
 
-1. **Twilio imza dogrulamasi**: `X-Twilio-Signature` validator middleware; secret env'den.
-2. **Meta `X-Hub-Signature-256` dogrulamasi**: HMAC SHA256 imza karsilastirmasi.
-3. **`inbound_events` tablosu**: `external_message_id` + `clinic_id` benzersiz; idempotency.
-4. **Outbound `delivery_outbox` tablosu**: retry, dead-letter, audit.
+**Feature flag**: `clinical_webhook_signature_required` (default `False`) — dev/test gercek imza istemeden calisir; prod'da `True` yapilirsa imzasiz inbound 401 doner.
 
-**Risk**: Imza dogrulamasi yanlis konfigure edilirse gercek mesajlar reddedilir. Mitigation: feature flag (`clinical_webhook_signature_required`), staging'de test.
+## Faz 1.5 — Service-Layer Organization Filtering (Siradaki)
+
+Mevcut sorgularda `organization_id` filtresi henuz koklu degil. Eklenmesi gerekenler:
+
+- `enterprise_service.list_enterprise_sessions/get/...` -> `current_user.organization_id` ile filtrele.
+- `clinical_service.list_*` icin clinic'in `organization_id`'sini parametre olarak kabul et.
+- `require_roles` dependency'sine isteğe bağlı `require_organization` mode ekle.
+- `get_current_organization(user)` dependency'si sade bir yardimci olarak eklenebilir.
 
 ## Faz 3 — Ajan Mimari Genisletme
 

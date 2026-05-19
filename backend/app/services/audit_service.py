@@ -19,10 +19,16 @@ def log_action(
     result_status: AuditResultStatus = AuditResultStatus.INFO,
     success: bool = True,
     details: dict | None = None,
+    organization_id: int | None = None,
+    clinic_id: int | None = None,
+    request_id: str | None = None,
 ) -> AuditLog:
     entry = AuditLog(
         user_id=user_id,
         session_id=session_id,
+        organization_id=organization_id,
+        clinic_id=clinic_id,
+        request_id=request_id,
         action_type=action_type,
         tool_name=tool_name,
         result_status=result_status,

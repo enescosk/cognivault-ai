@@ -141,6 +141,7 @@ class Clinic(Base):
     __tablename__ = "clinics"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     slug: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
     default_language: Mapped[str] = mapped_column(String(8), default="tr", nullable=False)
@@ -340,6 +341,25 @@ class Reminder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class InboundEvent(Base):
+    """Idempotency record for inbound provider webhooks (Twilio, Meta, etc.).
+
+    The unique constraint on (provider, external_id) means a duplicated webhook
+    delivery is rejected at the DB layer instead of producing a duplicate
+    `ClinicMessage` row.
+    """
+
+    __tablename__ = "inbound_events"
+    __table_args__ = (UniqueConstraint("provider", "external_id", name="uq_inbound_events_provider_external"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int | None] = mapped_column(ForeignKey("clinics.id"), nullable=True, index=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    external_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    payload_json: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), default=dict)
+
+
 class FrustrationLog(Base):
     __tablename__ = "frustration_logs"
 
@@ -378,6 +398,7 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
+    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     role: Mapped["Role"] = relationship(back_populates="users")
@@ -458,6 +479,9 @@ class AuditLog(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     session_id: Mapped[int | None] = mapped_column(ForeignKey("chat_sessions.id", ondelete="SET NULL"))
+    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
+    clinic_id: Mapped[int | None] = mapped_column(ForeignKey("clinics.id"), nullable=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     action_type: Mapped[str] = mapped_column(String(120), nullable=False)
     tool_name: Mapped[str | None] = mapped_column(String(120))
     result_status: Mapped[AuditResultStatus] = mapped_column(

@@ -23,6 +23,7 @@ from app.models import (
     ClinicalAppointment,
     ClinicalAppointmentStatus,
     FrustrationLog,
+    InboundEvent,
     PreIntake,
     RoleName,
     ShadowReview,
@@ -225,8 +226,65 @@ def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPat
     return conversation
 
 
+def _provider_from_channel(channel: ClinicChannel) -> str:
+    if channel == ClinicChannel.WHATSAPP:
+        return "whatsapp"
+    if channel == ClinicChannel.PHONE:
+        return "voice"
+    return channel.value
+
+
+def _existing_inbound_message(
+    db: Session, clinic: Clinic, provider: str, external_id: str
+) -> ClinicMessage | None:
+    return db.scalars(
+        select(ClinicMessage)
+        .where(
+            ClinicMessage.clinic_id == clinic.id,
+            ClinicMessage.external_message_id == external_id,
+        )
+        .order_by(ClinicMessage.created_at.desc())
+    ).first()
+
+
 def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None) -> IngestionResult:
     clinic = clinic or ensure_default_clinic(db)
+
+    if incoming.external_message_id:
+        provider = _provider_from_channel(incoming.channel)
+        existing_event = db.scalars(
+            select(InboundEvent).where(
+                InboundEvent.provider == provider,
+                InboundEvent.external_id == incoming.external_message_id,
+            )
+        ).first()
+        if existing_event is not None:
+            existing_message = _existing_inbound_message(
+                db, clinic, provider, incoming.external_message_id
+            )
+            if existing_message is not None:
+                conversation = db.get(ClinicConversation, existing_message.conversation_id)
+                patient = db.get(ClinicPatient, conversation.patient_id) if conversation else None
+                if conversation is not None and patient is not None:
+                    return IngestionResult(
+                        clinic=clinic,
+                        patient=patient,
+                        conversation=conversation,
+                        message=existing_message,
+                        action="duplicate_ignored",
+                        reply=None,
+                        shadow_review=None,
+                    )
+        db.add(
+            InboundEvent(
+                clinic_id=clinic.id,
+                provider=provider,
+                external_id=incoming.external_message_id,
+                payload_json={"channel": incoming.channel.value, "from_phone": incoming.from_phone},
+            )
+        )
+        db.commit()
+
     patient = _find_or_create_patient(db, clinic, incoming)
     conversation = _find_or_create_conversation(db, clinic, patient, incoming)
     language = detect_language(incoming.body, patient.language or clinic.default_language)
