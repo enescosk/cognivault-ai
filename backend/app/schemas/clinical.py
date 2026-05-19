@@ -147,3 +147,32 @@ class VoiceCallSimulationRequest(BaseModel):
     speech: str = Field(min_length=1, max_length=2000)
     patient_name: str | None = Field(default=None, max_length=160)
     persona_id: str | None = Field(default=None, pattern="^(selin|arzu|can)$")
+
+
+class PreIntakeCreateRequest(BaseModel):
+    patient_id: int
+    conversation_id: int | None = None
+    answers: dict = Field(default_factory=dict)
+    is_complete: bool = False
+
+
+class PreIntakeUpdateRequest(BaseModel):
+    answers: dict | None = None
+    is_complete: bool | None = None
+    replace: bool = Field(
+        default=False,
+        description="When false (default), `answers` is merged into the existing answers; when true, it replaces them entirely.",
+    )
+
+
+class PreIntakeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    clinic_id: int
+    patient_id: int
+    conversation_id: int | None = None
+    answers_json: dict
+    is_complete: bool
+    created_at: datetime
+    updated_at: datetime

@@ -19,6 +19,9 @@ from app.schemas.clinical import (
     ClinicalOverviewResponse,
     ClinicalPatientResponse,
     ClinicalPersonaResponse,
+    PreIntakeCreateRequest,
+    PreIntakeResponse,
+    PreIntakeUpdateRequest,
     ShadowReviewDecisionRequest,
     ShadowReviewResponse,
     SimulateWhatsAppRequest,
@@ -29,16 +32,20 @@ from app.services.clinical_service import (
     IncomingClinicalMessage,
     clinical_metrics,
     create_clinical_appointment_from_conversation,
+    create_pre_intake,
     ensure_clinic_access,
     ensure_default_clinic,
     get_clinical_conversation,
+    get_pre_intake,
     ingest_clinical_message,
     list_doctor_inbox,
     list_clinical_conversations,
+    list_pre_intakes,
     list_shadow_reviews,
     parse_meta_payload,
     parse_twilio_form,
     upcoming_clinical_appointments,
+    update_pre_intake,
     update_shadow_review,
 )
 from app.services.clinical_persona_service import list_personas
@@ -284,6 +291,87 @@ def simulate_voice_call(
         clinic=clinic,
     )
     return ingestion_payload(result)
+
+
+def pre_intake_payload(pre_intake) -> PreIntakeResponse:
+    return PreIntakeResponse(
+        id=pre_intake.id,
+        clinic_id=pre_intake.clinic_id,
+        patient_id=pre_intake.patient_id,
+        conversation_id=pre_intake.conversation_id,
+        answers_json=pre_intake.answers_json or {},
+        is_complete=pre_intake.is_complete,
+        created_at=pre_intake.created_at,
+        updated_at=pre_intake.updated_at,
+    )
+
+
+@router.post("/clinical/pre-intakes", response_model=PreIntakeResponse)
+def post_pre_intake(
+    payload: PreIntakeCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PreIntakeResponse:
+    clinic = ensure_clinic_access(db, current_user)
+    pre_intake = create_pre_intake(
+        db,
+        clinic,
+        patient_id=payload.patient_id,
+        conversation_id=payload.conversation_id,
+        answers=payload.answers,
+        is_complete=payload.is_complete,
+    )
+    return pre_intake_payload(pre_intake)
+
+
+@router.get("/clinical/pre-intakes", response_model=list[PreIntakeResponse])
+def get_pre_intakes(
+    patient_id: int | None = Query(default=None),
+    conversation_id: int | None = Query(default=None),
+    is_complete: bool | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[PreIntakeResponse]:
+    clinic = ensure_clinic_access(db, current_user)
+    items = list_pre_intakes(
+        db,
+        clinic,
+        patient_id=patient_id,
+        conversation_id=conversation_id,
+        is_complete=is_complete,
+        limit=limit,
+    )
+    return [pre_intake_payload(item) for item in items]
+
+
+@router.get("/clinical/pre-intakes/{pre_intake_id}", response_model=PreIntakeResponse)
+def get_pre_intake_detail(
+    pre_intake_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PreIntakeResponse:
+    clinic = ensure_clinic_access(db, current_user)
+    return pre_intake_payload(get_pre_intake(db, clinic, pre_intake_id))
+
+
+@router.patch("/clinical/pre-intakes/{pre_intake_id}", response_model=PreIntakeResponse)
+def patch_pre_intake(
+    pre_intake_id: int,
+    payload: PreIntakeUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PreIntakeResponse:
+    clinic = ensure_clinic_access(db, current_user)
+    pre_intake = update_pre_intake(
+        db,
+        clinic,
+        pre_intake_id,
+        answers=payload.answers,
+        is_complete=payload.is_complete,
+        replace=payload.replace,
+    )
+    return pre_intake_payload(pre_intake)
 
 
 def _voice_twiml(message: str, action_url: str = "/api/webhooks/voice/gather") -> str:

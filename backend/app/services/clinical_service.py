@@ -23,6 +23,7 @@ from app.models import (
     ClinicalAppointment,
     ClinicalAppointmentStatus,
     FrustrationLog,
+    PreIntake,
     RoleName,
     ShadowReview,
     ShadowReviewStatus,
@@ -563,3 +564,91 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
         "reminders_due": reminders_due,
         "frustration_events": frustration_events,
     }
+
+
+def _get_clinic_patient(db: Session, clinic: Clinic, patient_id: int) -> ClinicPatient:
+    patient = db.scalars(
+        select(ClinicPatient).where(ClinicPatient.id == patient_id, ClinicPatient.clinic_id == clinic.id)
+    ).first()
+    if patient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+    return patient
+
+
+def create_pre_intake(
+    db: Session,
+    clinic: Clinic,
+    patient_id: int,
+    conversation_id: int | None = None,
+    answers: dict | None = None,
+    is_complete: bool = False,
+) -> PreIntake:
+    patient = _get_clinic_patient(db, clinic, patient_id)
+    if conversation_id is not None:
+        get_clinical_conversation(db, clinic, conversation_id)
+
+    pre_intake = PreIntake(
+        clinic_id=clinic.id,
+        patient_id=patient.id,
+        conversation_id=conversation_id,
+        answers_json=dict(answers or {}),
+        is_complete=is_complete,
+    )
+    db.add(pre_intake)
+    db.commit()
+    db.refresh(pre_intake)
+    return pre_intake
+
+
+def get_pre_intake(db: Session, clinic: Clinic, pre_intake_id: int) -> PreIntake:
+    pre_intake = db.scalars(
+        select(PreIntake).where(PreIntake.id == pre_intake_id, PreIntake.clinic_id == clinic.id)
+    ).first()
+    if pre_intake is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pre-intake not found")
+    return pre_intake
+
+
+def list_pre_intakes(
+    db: Session,
+    clinic: Clinic,
+    patient_id: int | None = None,
+    conversation_id: int | None = None,
+    is_complete: bool | None = None,
+    limit: int = 50,
+) -> list[PreIntake]:
+    stmt = select(PreIntake).where(PreIntake.clinic_id == clinic.id)
+    if patient_id is not None:
+        stmt = stmt.where(PreIntake.patient_id == patient_id)
+    if conversation_id is not None:
+        stmt = stmt.where(PreIntake.conversation_id == conversation_id)
+    if is_complete is not None:
+        stmt = stmt.where(PreIntake.is_complete == is_complete)
+    stmt = stmt.order_by(PreIntake.updated_at.desc()).limit(limit)
+    return list(db.scalars(stmt))
+
+
+def update_pre_intake(
+    db: Session,
+    clinic: Clinic,
+    pre_intake_id: int,
+    answers: dict | None = None,
+    is_complete: bool | None = None,
+    replace: bool = False,
+) -> PreIntake:
+    pre_intake = get_pre_intake(db, clinic, pre_intake_id)
+
+    if answers is not None:
+        if replace:
+            pre_intake.answers_json = dict(answers)
+        else:
+            merged = dict(pre_intake.answers_json or {})
+            merged.update(answers)
+            pre_intake.answers_json = merged
+    if is_complete is not None:
+        pre_intake.is_complete = is_complete
+
+    db.add(pre_intake)
+    db.commit()
+    db.refresh(pre_intake)
+    return pre_intake
