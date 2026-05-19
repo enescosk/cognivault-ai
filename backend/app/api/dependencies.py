@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.db.session import SessionLocal
-from app.models import RoleName, User
+from app.models import Organization, RoleName, User
 
 
 security = HTTPBearer(auto_error=False)
@@ -49,3 +49,35 @@ def require_roles(*roles: RoleName):
         return user
 
     return dependency
+
+
+def get_current_organization(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Organization:
+    """Returns the organization the current request is scoped to.
+
+    Prefers `user.organization_id` (the JWT claim, populated for staff users).
+    Falls back to the single default organization for legacy users that
+    pre-date the Phase 1 backfill. Raises 404 if `organization_id` is set
+    but the row no longer exists.
+    """
+
+    if user.organization_id is not None:
+        organization = db.scalars(
+            select(Organization).where(Organization.id == user.organization_id)
+        ).first()
+        if organization is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User's organization no longer exists",
+            )
+        return organization
+
+    organization = db.scalars(select(Organization).order_by(Organization.id)).first()
+    if organization is None:
+        organization = Organization(name="Cognivault Enterprise Demo", domain="cognivault.local")
+        db.add(organization)
+        db.commit()
+        db.refresh(organization)
+    return organization

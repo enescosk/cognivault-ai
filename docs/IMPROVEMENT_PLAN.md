@@ -36,14 +36,13 @@ Veri modelinde nullable kolon eklendi; mevcut tek-organizasyon kurulumu icin ger
 
 **Feature flag**: `clinical_webhook_signature_required` (default `False`) — dev/test gercek imza istemeden calisir; prod'da `True` yapilirsa imzasiz inbound 401 doner.
 
-## Faz 1.5 — Service-Layer Organization Filtering (Siradaki)
+## Faz 1.5 — Service-Layer Organization Filtering (TAMAMLANDI ✅)
 
-Mevcut sorgularda `organization_id` filtresi henuz koklu degil. Eklenmesi gerekenler:
-
-- `enterprise_service.list_enterprise_sessions/get/...` -> `current_user.organization_id` ile filtrele.
-- `clinical_service.list_*` icin clinic'in `organization_id`'sini parametre olarak kabul et.
-- `require_roles` dependency'sine isteğe bağlı `require_organization` mode ekle.
-- `get_current_organization(user)` dependency'si sade bir yardimci olarak eklenebilir.
+- ✅ `resolve_user_organization(db, user)` helper'i: user.organization_id varsa o organizasyonu, yoksa default'u doner (legacy uyumluluk).
+- ✅ `enterprise_service.list_enterprise_sessions/get_enterprise_session/list_enterprise_tickets/update_enterprise_ticket_status/list_departments/create_enterprise_session/process_enterprise_message/enterprise_metrics` artik kullaniciya bagli organizasyona scope ediliyor.
+- ✅ `clinical_service.ensure_clinic_access` user.organization_id varsa o klinige duser; yoksa default'a fallback.
+- ✅ `dependencies.get_current_organization` dependency'si route'lar icin yardimci.
+- ✅ Cross-tenant izolasyon testi: iki org / iki operator / iki enterprise session → listeler ayri, baska org'un kaynagina GET 404 doner.
 
 ## Faz 3 — Ajan Mimari Genisletme
 

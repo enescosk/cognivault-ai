@@ -146,7 +146,18 @@ def ensure_clinic_access(db: Session, current_user: User) -> Clinic:
     if current_user.role.name not in {RoleName.OPERATOR, RoleName.ADMIN}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clinical dashboard requires operator access")
 
-    clinic = ensure_default_clinic(db)
+    clinic: Clinic | None = None
+    if current_user.organization_id is not None:
+        # Tenant-aware path: scope the visible clinic to the user's organisation.
+        clinic = db.scalars(
+            select(Clinic)
+            .where(Clinic.organization_id == current_user.organization_id)
+            .order_by(Clinic.id)
+        ).first()
+    if clinic is None:
+        # Legacy single-tenant fallback for users that pre-date the org backfill.
+        clinic = ensure_default_clinic(db)
+
     membership = db.scalars(
         select(ClinicMembership).where(
             ClinicMembership.clinic_id == clinic.id,
