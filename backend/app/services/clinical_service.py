@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
+from app.core.observability import webhook_inbound_total
 from app.models import (
     Clinic,
     ClinicBranch,
@@ -278,6 +279,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
                 conversation = db.get(ClinicConversation, existing_message.conversation_id)
                 patient = db.get(ClinicPatient, conversation.patient_id) if conversation else None
                 if conversation is not None and patient is not None:
+                    webhook_inbound_total.labels(provider, "duplicate").inc()
                     return IngestionResult(
                         clinic=clinic,
                         patient=patient,
@@ -296,6 +298,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
             )
         )
         db.commit()
+        webhook_inbound_total.labels(provider, "accepted").inc()
 
     patient = _find_or_create_patient(db, clinic, incoming)
     conversation = _find_or_create_conversation(db, clinic, patient, incoming)

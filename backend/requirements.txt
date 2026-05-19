@@ -13,3 +13,4 @@ httpx==0.28.1
 slowapi==0.1.9
 limits==3.14.0
 alembic==1.14.1
+prometheus-client==0.21.1

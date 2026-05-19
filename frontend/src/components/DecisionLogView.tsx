@@ -1,65 +1,68 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 
-import { listAgentDecisions, type AgentDecisionLog } from "../api/client";
+import { listAgentDecisions } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useT } from "../i18n";
 import { SkeletonBlock } from "./ui/Skeleton";
 
-const RISK_LABEL: Record<string, string> = {
-  low: "Düşük",
-  medium: "Orta",
-  high: "Yüksek",
-};
+type FilterMode = "all" | "needs_human" | "auto";
 
 export function DecisionLogView() {
   const { token } = useAuth();
   const { t } = useT();
-  const [rows, setRows] = useState<AgentDecisionLog[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "needs_human" | "auto">("all");
+  const [filter, setFilter] = useState<FilterMode>("all");
 
-  useEffect(() => {
-    if (!token) return;
-    setError(null);
-    setRows(null);
-    const requires_human =
-      filter === "needs_human" ? true : filter === "auto" ? false : undefined;
-    listAgentDecisions(token, { limit: 50, requires_human })
-      .then(setRows)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed"));
-  }, [token, filter]);
+  const requires_human =
+    filter === "needs_human" ? true : filter === "auto" ? false : undefined;
+
+  const { data, error, isLoading, isFetching } = useQuery({
+    queryKey: ["agent-decisions", { filter, hasToken: Boolean(token) }],
+    queryFn: () => listAgentDecisions(token!, { limit: 50, requires_human }),
+    enabled: Boolean(token),
+    refetchInterval: 30_000,
+  });
+
+  const rows = data ?? null;
 
   return (
     <div className="decision-mini">
       <div className="decision-mini-header">
-        <div className="decision-mini-title">{t("nav.decisions")}</div>
+        <div className="decision-mini-title">
+          {t("nav.decisions")}
+          {isFetching && rows ? <span className="decision-meta"> · {t("common.loading")}</span> : null}
+        </div>
         <div className="locale-switcher" role="tablist">
           <button
             type="button"
             className={filter === "all" ? "active" : ""}
             onClick={() => setFilter("all")}
           >
-            Tümü
+            {t("decisions.filter.all")}
           </button>
           <button
             type="button"
             className={filter === "needs_human" ? "active" : ""}
             onClick={() => setFilter("needs_human")}
           >
-            İnsan onayı
+            {t("decisions.filter.needs_human")}
           </button>
           <button
             type="button"
             className={filter === "auto" ? "active" : ""}
             onClick={() => setFilter("auto")}
           >
-            Otomatik
+            {t("decisions.filter.auto")}
           </button>
         </div>
       </div>
 
-      {error ? <div className="error-box">{error}</div> : null}
-      {rows === null && !error ? <SkeletonBlock count={4} /> : null}
+      {error ? (
+        <div className="error-box">
+          {error instanceof Error ? error.message : t("common.error_generic")}
+        </div>
+      ) : null}
+      {isLoading ? <SkeletonBlock count={4} /> : null}
       {rows !== null && rows.length === 0 ? (
         <div className="decision-meta">{t("common.empty")}</div>
       ) : null}
@@ -72,7 +75,11 @@ export function DecisionLogView() {
                 <strong style={{ fontSize: "0.9rem" }}>{row.intent}</strong>
                 <span className="decision-meta"> · {row.agent_type}</span>
               </div>
-              <span className={pillCls}>{RISK_LABEL[row.risk] ?? row.risk}</span>
+              <span className={pillCls}>
+                {row.risk === "low" || row.risk === "medium" || row.risk === "high"
+                  ? t(`decisions.risk.${row.risk}` as const)
+                  : row.risk}
+              </span>
             </div>
             <div className="decision-meta">
               {row.action ?? "—"} · {Math.round((row.confidence ?? 0) * 100)}% · {" "}

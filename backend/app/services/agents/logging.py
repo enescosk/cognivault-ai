@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.observability import agent_decisions_total
 from app.models import AgentDecisionLog
 from app.services.agents.registry import AgentDecision, AgentType, DecisionRisk
 
@@ -53,6 +54,21 @@ def record_agent_decision(
     db.add(row)
     db.commit()
     db.refresh(row)
+    agent_decisions_total.labels(
+        row.agent_type, row.risk, str(row.requires_human).lower()
+    ).inc()
+    logger.info(
+        "agent.decision",
+        extra={
+            "agent_type": row.agent_type,
+            "intent": row.intent,
+            "risk": row.risk,
+            "requires_human": row.requires_human,
+            "organization_id": row.organization_id,
+            "clinic_id": row.clinic_id,
+            "request_id": row.request_id,
+        },
+    )
     return row
 
 

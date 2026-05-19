@@ -60,17 +60,17 @@ Veri modelinde nullable kolon eklendi; mevcut tek-organizasyon kurulumu icin ger
 1. ✅ **React Router** entegrasyonu: `/login`, `/customer/*`, `/operator/*`, `/admin/*` rotalari. `RequireRole` guard'i yanlis role gore kanonik home'a yonlendiriyor; `RoleRedirect` root URL'i role gore homepage'e yolluyor.
 2. ✅ **i18n iskelet**: hafif vanilla `I18nProvider` + `useT()` + `dict.ts` (TR/EN). Locale `localStorage`'a persist ediliyor; LoginScreen header'inda TR/EN switcher chip mevcut. (Tum stringlerin extraction'i siradaki adim — `react-i18next` migration'i ihtiyaca gore.)
 3. ✅ **Mobile responsiveness**: `@media (max-width: 980px)` ile dashboard grid tek kolona dusuyor, sidebar sticky banner oluyor; 640px altinda toast container full-width.
-4. ⏳ **React Query** — bu PR'da yok; mevcut manuel `loadDashboard` calisiyor, sonraki olgunlasma adimi.
+4. ✅ **React Query** (TanStack v5) entegre edildi: QueryClient `App.tsx`'te global, `staleTime=30s`, `gcTime=5min`, `refetchOnWindowFocus=false`. DecisionLogView ilk migration ornek — 30s polling, manuel useEffect kaldirildi. Dashboard'in eski `loadDashboard` akisi siradaki olgunlasma asamasinda devredilir.
 5. ✅ **Skeleton**: `SkeletonText`, `SkeletonBlock` vanilla CSS'e port (eski Tailwind sinifleri olu kod). DecisionLogView yukleme durumunda kullaniyor.
 6. ✅ **Decision log mini view**: `/api/agents/decisions` Phase 3 endpoint'ini tuketen DecisionLogView; operator/admin icin clinical panelin sagina yerlesti. Filtreler: tumu / insan-onayi / otomatik.
 
-## Faz 5 — Gozlemleme & SLO
+## Faz 5 — Gozlemleme & SLO (TAMAMLANDI ✅)
 
-1. **Structured logging** (`structlog`): tum servisler JSON log.
-2. **OpenTelemetry tracing** entegrasyonu.
-3. **Health & readiness** endpoint'leri (`/healthz`, `/readyz`).
-4. **Metrics (Prometheus)**: `/metrics` Prometheus scrape, per-tenant counters.
-5. **SLO alerting**: latency, error rate, queue depth.
+1. ✅ **Structured JSON logging** (`app/core/observability.JsonFormatter`) — stdlib tabanli, ek bagimlilik yok. `request_id`, `organization_id`, `clinic_id` gibi extras log payload'ina dusuyor.
+2. ✅ **Health probes**: `/healthz` (process up) + `/readyz` (DB ping, basarisizsa 503 + JSON detay).
+3. ✅ **Prometheus `/metrics`**: per-route HTTP latency histogram + counter, agent decision counter (agent_type x risk x requires_human), webhook inbound counter (provider x outcome). `MetricsMiddleware` route paterni kullaniyor, label cardinality kontrollu.
+4. ⏳ **OpenTelemetry tracing** — bu fazda yok; mevcut request_id zaten korelasyon icin yeterli. OTel ihtiyaca gore sonraki adim.
+5. ⏳ **SLO alerting** — Prometheus query/Grafana panel kurmak `/metrics` zaten hazirken triviyal; bu repo disinda yapilir.
 
 ## Faz 6 — Billing & Plan
 

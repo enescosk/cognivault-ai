@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { Dashboard } from "./components/Dashboard";
@@ -8,6 +9,17 @@ import { RoleRedirect } from "./components/RoleRedirect";
 import { ToastContainer } from "./components/ui/Toast";
 import { AuthProvider } from "./context/AuthContext";
 import { I18nProvider } from "./i18n";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function AppRoutes() {
   return (
@@ -49,13 +61,15 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <I18nProvider>
-        <AuthProvider>
-          <AppRoutes />
-          <ToastContainer />
-        </AuthProvider>
-      </I18nProvider>
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <I18nProvider>
+          <AuthProvider>
+            <AppRoutes />
+            <ToastContainer />
+          </AuthProvider>
+        </I18nProvider>
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }
