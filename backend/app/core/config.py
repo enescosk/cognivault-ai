@@ -10,9 +10,13 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SQLITE_DB = PROJECT_ROOT / "backend" / "data" / "cognivault.db"
 
 
+WEAK_JWT_SECRETS = frozenset({"change-me-in-production", "replace-me", "secret", "secret-key", "jwt-secret"})
+
+
 class Settings(BaseSettings):
     app_name: str = "Cognivault AI API"
     api_prefix: str = "/api"
+    environment: str = "development"
     database_url: str = f"sqlite:///{DEFAULT_SQLITE_DB.as_posix()}"
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
@@ -57,6 +61,20 @@ class Settings(BaseSettings):
     @classmethod
     def clean_origins(cls, value: str) -> str:
         return ",".join(origin.strip() for origin in value.split(",") if origin.strip())
+
+    @field_validator("environment")
+    @classmethod
+    def normalize_environment(cls, value: str) -> str:
+        return value.strip().lower() or "development"
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment in {"production", "prod", "staging"}
+
+    @property
+    def has_weak_jwt_secret(self) -> bool:
+        secret = self.jwt_secret.strip()
+        return secret in WEAK_JWT_SECRETS or len(secret) < 16
 
     @property
     def cors_origin_list(self) -> list[str]:

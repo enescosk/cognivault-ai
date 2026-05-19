@@ -1,5 +1,7 @@
 import { Dashboard } from "./components/Dashboard";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoginScreen } from "./components/LoginScreen";
+import { ToastContainer } from "./components/ui/Toast";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
 function AppBody() {
@@ -13,13 +15,18 @@ function AppBody() {
     return <LoginScreen onLogin={login} onRegister={register} />;
   }
 
-  return <Dashboard />;
+  return (
+    <ErrorBoundary scope="Workspace">
+      <Dashboard />
+    </ErrorBoundary>
+  );
 }
 
 export default function App() {
   return (
     <AuthProvider>
       <AppBody />
+      <ToastContainer />
     </AuthProvider>
   );
 }

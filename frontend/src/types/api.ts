@@ -1,6 +1,8 @@
+export type RoleName = "customer" | "operator" | "admin";
+
 export type Role = {
   id: number;
-  name: string;
+  name: RoleName | string;
   description: string;
 };
 export type User = {
