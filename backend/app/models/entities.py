@@ -360,6 +360,35 @@ class InboundEvent(Base):
     payload_json: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON), default=dict)
 
 
+class AgentDecisionLog(Base):
+    """Structured record of every AI / human-in-the-loop decision in the system.
+
+    Unifies what previously lived only in `ClinicMessage.metadata_json` and
+    `ShadowReview.metadata_json`. Every decision is tenant-scoped via
+    organization_id / clinic_id so operators can audit per-tenant agent
+    behaviour, and the request_id ties it back to the originating HTTP call.
+    """
+
+    __tablename__ = "agent_decision_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    agent_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    intent: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    risk: Mapped[str] = mapped_column(String(20), default="low", nullable=False, index=True)
+    requires_human: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    action: Mapped[str | None] = mapped_column(String(120))
+    reason: Mapped[str | None] = mapped_column(String(255))
+    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
+    clinic_id: Mapped[int | None] = mapped_column(ForeignKey("clinics.id"), nullable=True, index=True)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_conversations.id"), nullable=True, index=True)
+    chat_session_id: Mapped[int | None] = mapped_column(ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    payload_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class FrustrationLog(Base):
     __tablename__ = "frustration_logs"
 

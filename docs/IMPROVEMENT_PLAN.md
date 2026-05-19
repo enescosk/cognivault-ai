@@ -44,13 +44,16 @@ Veri modelinde nullable kolon eklendi; mevcut tek-organizasyon kurulumu icin ger
 - ✅ `dependencies.get_current_organization` dependency'si route'lar icin yardimci.
 - ✅ Cross-tenant izolasyon testi: iki org / iki operator / iki enterprise session → listeler ayri, baska org'un kaynagina GET 404 doner.
 
-## Faz 3 — Ajan Mimari Genisletme
+## Faz 3 — Ajan Mimari Genisletme (TAMAMLANDI ✅)
 
-1. Registry'e gercek implementasyon ekle (Faz 0'da skeleton).
-2. Her ajan tipi icin `decide()` -> `AgentDecision` (intent, confidence, action, requires_human, reason).
-3. `AgentDecisionLog` tablosu: tum ajan kararlari audit'lenebilir.
-4. Klinik akisi `clinical_ai_service` -> `AppointmentAgent` + `SupportAgent`'a refactor (mevcut testler korunur, sadece dispatch yolu uzar).
-5. Mock/Demo akislari: gercek LLM key olmadiginda predictable yanitlar.
+1. ✅ `AgentDecisionLog` tablosu (migration `b2c3d4e5f6a7`) — agent_type, intent, confidence, risk, requires_human, action, reason, organization_id, clinic_id, conversation_id, chat_session_id, user_id, request_id, payload_json, created_at.
+2. ✅ `services/agents/logging.py:record_agent_decision(db, decision, ...)` — tek soyutlama tum kararlari tabloya yazar.
+3. ✅ `services/agents/logging.py:build_decision(...)` — caller'lar dataclass'i bilmek zorunda kalmadan AgentDecision uretebilir.
+4. ✅ `clinical_service.ingest_clinical_message` her iki return path'inde de karari logluyor (SUPPORT auto_reply / ROUTING shadow_review).
+5. ✅ `clinical_service.update_shadow_review` operator kararini ROUTING agent decision olarak kaydediyor (approved/edited/rejected).
+6. ✅ `clinical_service.update_pre_intake` FORM agent decision yaziyor (persist_pre_intake / ask_next_question).
+7. ✅ REST endpoint'ler `GET /api/agents/decisions` (filtreli: agent_type, requires_human, risk, conversation_id) ve `GET /api/agents/decisions/{id}` — organization scope, operator/admin only, cross-tenant 404.
+8. ⏳ Mock agentlerin gercek LLM bag(la)nti'sina refactor'u (Faz 3.5).
 
 ## Faz 4 — Frontend Olgunlasma
 

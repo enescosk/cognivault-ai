@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from datetime import datetime
 
-from app.api.dependencies import require_roles
-from app.models import RoleName, User
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.dependencies import get_current_organization, get_db, require_roles
+from app.models import AgentDecisionLog, Organization, RoleName, User
 from app.services.agents import (
     AgentDecision,
     AgentType,
@@ -66,6 +70,69 @@ def get_agents(
         )
         for agent in list_agents()
     ]
+
+
+class AgentDecisionLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    agent_type: str
+    intent: str
+    confidence: float
+    risk: str
+    requires_human: bool
+    action: str | None = None
+    reason: str | None = None
+    organization_id: int | None = None
+    clinic_id: int | None = None
+    conversation_id: int | None = None
+    chat_session_id: int | None = None
+    user_id: int | None = None
+    request_id: str | None = None
+    payload_json: dict = Field(default_factory=dict)
+    created_at: datetime
+
+
+@router.get("/agents/decisions", response_model=list[AgentDecisionLogResponse])
+def get_agent_decisions(
+    agent_type: AgentType | None = Query(default=None),
+    requires_human: bool | None = Query(default=None),
+    risk: str | None = Query(default=None, pattern="^(low|medium|high)$"),
+    conversation_id: int | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    _: User = Depends(require_roles(RoleName.OPERATOR, RoleName.ADMIN)),
+    organization: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> list[AgentDecisionLogResponse]:
+    stmt = select(AgentDecisionLog).where(AgentDecisionLog.organization_id == organization.id)
+    if agent_type is not None:
+        stmt = stmt.where(AgentDecisionLog.agent_type == agent_type.value)
+    if requires_human is not None:
+        stmt = stmt.where(AgentDecisionLog.requires_human == requires_human)
+    if risk is not None:
+        stmt = stmt.where(AgentDecisionLog.risk == risk)
+    if conversation_id is not None:
+        stmt = stmt.where(AgentDecisionLog.conversation_id == conversation_id)
+    stmt = stmt.order_by(AgentDecisionLog.created_at.desc()).limit(limit)
+    return [AgentDecisionLogResponse.model_validate(row) for row in db.scalars(stmt)]
+
+
+@router.get("/agents/decisions/{decision_id}", response_model=AgentDecisionLogResponse)
+def get_agent_decision_detail(
+    decision_id: int,
+    _: User = Depends(require_roles(RoleName.OPERATOR, RoleName.ADMIN)),
+    organization: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> AgentDecisionLogResponse:
+    row = db.scalars(
+        select(AgentDecisionLog).where(
+            AgentDecisionLog.id == decision_id,
+            AgentDecisionLog.organization_id == organization.id,
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Decision not found")
+    return AgentDecisionLogResponse.model_validate(row)
 
 
 @router.post("/agents/dispatch", response_model=AgentDecisionResponse)

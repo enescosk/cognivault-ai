@@ -9,6 +9,7 @@ Existing services keep their public APIs; they are registered as adapters here s
 single observability/audit pipeline can grow around them in later phases.
 """
 
+from app.services.agents.logging import build_decision, record_agent_decision
 from app.services.agents.registry import (
     AgentDecision,
     AgentType,
@@ -27,8 +28,10 @@ __all__ = [
     "BaseAgent",
     "DecisionRisk",
     "bootstrap_agent_registry",
+    "build_decision",
     "dispatch",
     "get_agent",
     "list_agents",
+    "record_agent_decision",
     "register_agent",
 ]

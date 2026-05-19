@@ -30,6 +30,7 @@ from app.models import (
     ShadowReviewStatus,
     User,
 )
+from app.services.agents import AgentType, DecisionRisk, build_decision, record_agent_decision
 from app.services.clinical_ai_service import detect_frustration, detect_language, generate_clinical_reply
 
 
@@ -370,6 +371,26 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         db.commit()
         db.refresh(conversation)
         db.refresh(review)
+        record_agent_decision(
+            db,
+            build_decision(
+                agent_type=AgentType.ROUTING,
+                intent=ai_result.intent.value if hasattr(ai_result.intent, "value") else str(ai_result.intent),
+                confidence=ai_result.confidence,
+                risk=DecisionRisk.HIGH,
+                requires_human=True,
+                action="shadow_review",
+                reason=ai_result.risk_reason or "requires_human_review",
+                organization_id=clinic.organization_id,
+                payload={
+                    "channel": incoming.channel.value,
+                    "shadow_review_id": review.id,
+                    "persona_id": ai_result.persona_id,
+                },
+            ),
+            clinic_id=clinic.id,
+            conversation_id=conversation.id,
+        )
         return IngestionResult(
             clinic=clinic,
             patient=patient,
@@ -400,6 +421,26 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
+    record_agent_decision(
+        db,
+        build_decision(
+            agent_type=AgentType.SUPPORT,
+            intent=ai_result.intent.value if hasattr(ai_result.intent, "value") else str(ai_result.intent),
+            confidence=ai_result.confidence,
+            risk=DecisionRisk.LOW,
+            requires_human=False,
+            action=ai_result.action or "auto_reply",
+            reason="confidence_above_threshold",
+            organization_id=clinic.organization_id,
+            payload={
+                "channel": incoming.channel.value,
+                "assistant_message_id": assistant_message.id,
+                "persona_id": ai_result.persona_id,
+            },
+        ),
+        clinic_id=clinic.id,
+        conversation_id=conversation.id,
+    )
     return IngestionResult(
         clinic=clinic,
         patient=patient,
@@ -547,6 +588,30 @@ def update_shadow_review(
     db.add(conversation)
     db.commit()
     db.refresh(review)
+
+    # Log the human-in-the-loop decision so it shows up alongside AI decisions.
+    decision_intent = review.intent.value if hasattr(review.intent, "value") else str(review.intent)
+    record_agent_decision(
+        db,
+        build_decision(
+            agent_type=AgentType.ROUTING,
+            intent=decision_intent,
+            confidence=review.confidence_score,
+            risk=DecisionRisk.HIGH if next_status == ShadowReviewStatus.REJECTED else DecisionRisk.MEDIUM,
+            requires_human=True,
+            action=f"shadow_review.{next_status.value}",
+            reason="operator_review",
+            organization_id=clinic.organization_id,
+            payload={
+                "review_id": review.id,
+                "operator_user_id": current_user.id,
+                "final_reply_used": review.final_reply,
+            },
+        ),
+        clinic_id=clinic.id,
+        conversation_id=conversation.id,
+        user_id=current_user.id,
+    )
     return review
 
 
@@ -720,4 +785,27 @@ def update_pre_intake(
     db.add(pre_intake)
     db.commit()
     db.refresh(pre_intake)
+
+    answer_count = len(pre_intake.answers_json or {})
+    record_agent_decision(
+        db,
+        build_decision(
+            agent_type=AgentType.FORM,
+            intent="pre_intake_progress",
+            confidence=1.0 if pre_intake.is_complete else 0.5,
+            risk=DecisionRisk.LOW,
+            requires_human=False,
+            action="persist_pre_intake" if pre_intake.is_complete else "ask_next_question",
+            reason="form_complete" if pre_intake.is_complete else "form_in_progress",
+            organization_id=clinic.organization_id,
+            payload={
+                "pre_intake_id": pre_intake.id,
+                "answer_count": answer_count,
+                "is_complete": pre_intake.is_complete,
+                "replace_mode": replace,
+            },
+        ),
+        clinic_id=clinic.id,
+        conversation_id=pre_intake.conversation_id,
+    )
     return pre_intake
