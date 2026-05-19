@@ -1,0 +1,57 @@
+// Lightweight i18n dictionary. Keys are intentionally flat strings so search
+// & replace stays easy. Adding a new language = adding a new entry below.
+// For richer needs (interpolation, plurals) swap this for react-i18next later.
+
+export const DICT = {
+  tr: {
+    "common.loading": "Yükleniyor…",
+    "common.retry": "Tekrar dene",
+    "common.cancel": "Vazgeç",
+    "common.save": "Kaydet",
+    "common.empty": "Henüz veri yok.",
+    "common.error_generic": "Beklenmeyen bir hata oluştu.",
+    "auth.login_title": "Cognivault'a giriş yapın",
+    "auth.logout": "Çıkış",
+    "nav.dashboard": "Genel Bakış",
+    "nav.appointments": "Randevular",
+    "nav.notes": "Randevu Notları",
+    "nav.conversations": "Sohbetler",
+    "nav.assistant": "AI Asistan",
+    "nav.profile": "Profil",
+    "nav.settings": "Ayarlar",
+    "nav.clinical_ops": "Klinik Operasyon",
+    "nav.doctor_inbox": "Doktor Gelen Kutusu",
+    "nav.shadow_reviews": "Gölge İncelemeler",
+    "nav.decisions": "Ajan Kararları",
+    "nav.audit": "Denetim Kayıtları",
+    "metrics.title": "Operasyon Özeti",
+    "errors.session_expired": "Oturum süresi doldu, lütfen tekrar giriş yapın.",
+  },
+  en: {
+    "common.loading": "Loading…",
+    "common.retry": "Retry",
+    "common.cancel": "Cancel",
+    "common.save": "Save",
+    "common.empty": "No data yet.",
+    "common.error_generic": "Something went wrong.",
+    "auth.login_title": "Sign in to Cognivault",
+    "auth.logout": "Sign out",
+    "nav.dashboard": "Overview",
+    "nav.appointments": "Appointments",
+    "nav.notes": "Appointment Notes",
+    "nav.conversations": "Conversations",
+    "nav.assistant": "AI Assistant",
+    "nav.profile": "Profile",
+    "nav.settings": "Settings",
+    "nav.clinical_ops": "Clinical Ops",
+    "nav.doctor_inbox": "Doctor Inbox",
+    "nav.shadow_reviews": "Shadow Reviews",
+    "nav.decisions": "Agent Decisions",
+    "nav.audit": "Audit Log",
+    "metrics.title": "Operations Summary",
+    "errors.session_expired": "Session expired, please sign in again.",
+  },
+} as const;
+
+export type Locale = keyof typeof DICT;
+export type TKey = keyof (typeof DICT)["tr"];

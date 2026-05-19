@@ -1,32 +1,61 @@
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+
 import { Dashboard } from "./components/Dashboard";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { LoginScreen } from "./components/LoginScreen";
+import { LoginRoute } from "./components/LoginRoute";
+import { RequireRole } from "./components/RequireRole";
+import { RoleRedirect } from "./components/RoleRedirect";
 import { ToastContainer } from "./components/ui/Toast";
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AuthProvider } from "./context/AuthContext";
+import { I18nProvider } from "./i18n";
 
-function AppBody() {
-  const { user, loading, login, register } = useAuth();
-
-  if (loading) {
-    return <div className="loading-shell">Preparing secure workspace...</div>;
-  }
-
-  if (!user) {
-    return <LoginScreen onLogin={login} onRegister={register} />;
-  }
-
+function AppRoutes() {
   return (
-    <ErrorBoundary scope="Workspace">
-      <Dashboard />
-    </ErrorBoundary>
+    <Routes>
+      <Route path="/login" element={<LoginRoute />} />
+
+      {/* Bireysel müşteri paneli — /customer/* */}
+      <Route
+        path="/customer/*"
+        element={
+          <RequireRole roles={["customer"]}>
+            <ErrorBoundary scope="Customer workspace">
+              <Dashboard audience="customer" />
+            </ErrorBoundary>
+          </RequireRole>
+        }
+      />
+
+      {/* Operator / admin (kurumsal) paneli — /operator/* */}
+      <Route
+        path="/operator/*"
+        element={
+          <RequireRole roles={["operator", "admin"]}>
+            <ErrorBoundary scope="Operator workspace">
+              <Dashboard audience="operator" />
+            </ErrorBoundary>
+          </RequireRole>
+        }
+      />
+
+      {/* Admin alias — şu an operator paneliyle aynı, gelecekte ayrılabilir. */}
+      <Route path="/admin/*" element={<Navigate to="/operator" replace />} />
+
+      <Route path="/" element={<RoleRedirect />} />
+      <Route path="*" element={<RoleRedirect />} />
+    </Routes>
   );
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppBody />
-      <ToastContainer />
-    </AuthProvider>
+    <BrowserRouter>
+      <I18nProvider>
+        <AuthProvider>
+          <AppRoutes />
+          <ToastContainer />
+        </AuthProvider>
+      </I18nProvider>
+    </BrowserRouter>
   );
 }

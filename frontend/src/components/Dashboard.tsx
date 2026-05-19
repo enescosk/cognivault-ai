@@ -19,12 +19,22 @@ import { AppointmentsPage } from "./AppointmentsPage";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
+import { DecisionLogView } from "./DecisionLogView";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
 import { showToast } from "./ui/Toast";
 
-export function Dashboard() {
+interface DashboardProps {
+  /**
+   * Audience hint coming from the router (`/customer/*` vs `/operator/*`).
+   * Used only as metadata today — actual rendering still branches on the
+   * authenticated user's role so backend RBAC remains the source of truth.
+   */
+  audience?: "customer" | "operator";
+}
+
+export function Dashboard({ audience }: DashboardProps = {}) {
   const { token, user, logout } = useAuth();
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState<ChatSessionDetail | null>(null);
@@ -200,7 +210,10 @@ export function Dashboard() {
   const isClinicalView = view === "clinical" && (isOperator || isAdmin);
 
   return (
-    <div className={`dashboard-shell ${isOperator ? "operator-view" : ""} ${isClinicalView ? "clinical-view" : ""}`}>
+    <div
+      className={`dashboard-shell ${isOperator ? "operator-view" : ""} ${isClinicalView ? "clinical-view" : ""}`}
+      data-audience={audience ?? (isCustomer ? "customer" : "operator")}
+    >
       <Sidebar
         user={user}
         sessions={sessions}
@@ -241,6 +254,13 @@ export function Dashboard() {
       {isAdmin && !isClinicalView && (
         <ErrorBoundary scope="Yönetim paneli">
           <AdminPanel users={users} appointments={appointments} logs={logs} />
+        </ErrorBoundary>
+      )}
+      {(isOperator || isAdmin) && isClinicalView && (
+        <ErrorBoundary scope="Ajan kararları">
+          <aside className="audit-panel">
+            <DecisionLogView />
+          </aside>
         </ErrorBoundary>
       )}
     </div>

@@ -1,5 +1,29 @@
 import { useState } from "react";
 
+import { useT } from "../i18n";
+
+function LocaleSwitcherChip() {
+  const { locale, setLocale } = useT();
+  return (
+    <div className="locale-switcher" role="tablist" aria-label="Language">
+      <button
+        type="button"
+        className={locale === "tr" ? "active" : ""}
+        onClick={() => setLocale("tr")}
+      >
+        TR
+      </button>
+      <button
+        type="button"
+        className={locale === "en" ? "active" : ""}
+        onClick={() => setLocale("en")}
+      >
+        EN
+      </button>
+    </div>
+  );
+}
+
 type Props = {
   onLogin: (email: string, password: string) => Promise<void>;
   onRegister: (fullName: string, email: string, password: string) => Promise<void>;
@@ -96,6 +120,7 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
             </svg>
           </div>
           <span>CogniVault Medical</span>
+          <div style={{ marginLeft: "auto" }}><LocaleSwitcherChip /></div>
         </div>
 
         <div className="brand-hero">

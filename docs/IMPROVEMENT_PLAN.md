@@ -55,14 +55,14 @@ Veri modelinde nullable kolon eklendi; mevcut tek-organizasyon kurulumu icin ger
 7. ✅ REST endpoint'ler `GET /api/agents/decisions` (filtreli: agent_type, requires_human, risk, conversation_id) ve `GET /api/agents/decisions/{id}` — organization scope, operator/admin only, cross-tenant 404.
 8. ⏳ Mock agentlerin gercek LLM bag(la)nti'sina refactor'u (Faz 3.5).
 
-## Faz 4 — Frontend Olgunlasma
+## Faz 4 — Frontend Olgunlasma (KISMI TAMAMLANDI ✅)
 
-1. **React Router** entegrasyonu: `/customer/*`, `/operator/*`, `/admin/*` rotalari; her grup icin protected layout.
-2. **i18n**: `react-i18next` + `tr.json`/`en.json` sozluk dosyalari; hardcoded TR stringler asamali olarak cikarilir.
-3. **Mobile responsiveness**: `@media` breakpoint'leri + sidebar collapse.
-4. **React Query** (TanStack Query) ile API state cache'i; manuel `loadDashboard` kaldirilir.
-5. **Skeleton kullanimi**: tum panellerin loading durumu skeleton ile gosterilir.
-6. **Toast / ErrorBoundary** sertlestirme: Faz 0'da eklenen altyapi tum panellerde kullanilir.
+1. ✅ **React Router** entegrasyonu: `/login`, `/customer/*`, `/operator/*`, `/admin/*` rotalari. `RequireRole` guard'i yanlis role gore kanonik home'a yonlendiriyor; `RoleRedirect` root URL'i role gore homepage'e yolluyor.
+2. ✅ **i18n iskelet**: hafif vanilla `I18nProvider` + `useT()` + `dict.ts` (TR/EN). Locale `localStorage`'a persist ediliyor; LoginScreen header'inda TR/EN switcher chip mevcut. (Tum stringlerin extraction'i siradaki adim — `react-i18next` migration'i ihtiyaca gore.)
+3. ✅ **Mobile responsiveness**: `@media (max-width: 980px)` ile dashboard grid tek kolona dusuyor, sidebar sticky banner oluyor; 640px altinda toast container full-width.
+4. ⏳ **React Query** — bu PR'da yok; mevcut manuel `loadDashboard` calisiyor, sonraki olgunlasma adimi.
+5. ✅ **Skeleton**: `SkeletonText`, `SkeletonBlock` vanilla CSS'e port (eski Tailwind sinifleri olu kod). DecisionLogView yukleme durumunda kullaniyor.
+6. ✅ **Decision log mini view**: `/api/agents/decisions` Phase 3 endpoint'ini tuketen DecisionLogView; operator/admin icin clinical panelin sagina yerlesti. Filtreler: tumu / insan-onayi / otomatik.
 
 ## Faz 5 — Gozlemleme & SLO
 
