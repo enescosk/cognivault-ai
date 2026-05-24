@@ -417,6 +417,20 @@ class ChatMessage(Base):
 
     session: Mapped["ChatSession"] = relationship(back_populates="messages")
 
+    @property
+    def appointment(self) -> dict | None:
+        metadata = self.metadata_json or {}
+        if metadata.get("type") != "appointment_confirmation":
+            return None
+        return {
+            "confirmation_code": metadata.get("confirmation_code"),
+            "department": metadata.get("department"),
+            "scheduled_at": metadata.get("scheduled_at"),
+            "location": metadata.get("location"),
+            "contact_phone": metadata.get("contact_phone"),
+            "status": metadata.get("status"),
+        }
+
 
 class AppointmentSlot(Base):
     __tablename__ = "appointment_slots"

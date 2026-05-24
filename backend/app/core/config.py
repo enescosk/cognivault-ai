@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-4-5"
     anthropic_intent_model: str = "claude-3-5-haiku-latest"
     clinical_ai_enabled: bool = False
+    clinical_external_ai_allowed: bool = False
+    voice_external_enabled: bool = False
     clinical_default_clinic_slug: str = "demo-klinik"
     clinical_auto_reply_threshold: float = 0.90
     clinical_shadow_threshold: float = 0.75

@@ -94,6 +94,37 @@ class ClinicalOverviewResponse(BaseModel):
     shadow_reviews: list[ShadowReviewResponse]
 
 
+class ClinicalComplianceProfileResponse(BaseModel):
+    clinic_id: int
+    clinic_name: str
+    data_residency_default: str
+    external_transfer_allowed: bool
+    processor_inventory: list[dict]
+    production_modes: list[dict]
+    mandatory_controls: list[str]
+    blocked_by_default: list[str]
+    operator_review_triggers: list[str]
+
+
+class ClinicalPatentDossierResponse(BaseModel):
+    working_title: str
+    technical_field: str
+    problem: str
+    solution_summary: str
+    candidate_independent_claims: list[str]
+    candidate_dependent_claims: list[str]
+    figures_to_prepare: list[str]
+    evidence_to_preserve: list[str]
+    next_actions: list[str]
+
+
+class ClinicalSlotBoardResponse(BaseModel):
+    summary: dict
+    schedule: list[dict]
+    acceptance_rules: list[dict]
+    test_scenarios: list[dict]
+
+
 class SimulateWhatsAppRequest(BaseModel):
     from_phone: str = Field(min_length=6, max_length=40)
     body: str = Field(min_length=1, max_length=2000)

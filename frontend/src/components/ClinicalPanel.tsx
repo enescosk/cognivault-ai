@@ -2,12 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   getClinicalConversation,
+  getClinicalComplianceProfile,
   getClinicalOverview,
+  getClinicalPatentDossier,
+  getClinicalSlotBoard,
   simulateVoiceCall,
   simulateWhatsAppMessage,
   updateShadowReview,
 } from "../api/client";
-import type { ClinicalConversationDetail, ClinicalConversationSummary, ClinicalOverview, ShadowReview } from "../types/api";
+import type {
+  ClinicalComplianceProfile,
+  ClinicalConversationDetail,
+  ClinicalConversationSummary,
+  ClinicalOverview,
+  ClinicalPatentDossier,
+  ClinicalSlotBoard,
+  ClinicalSlotItem,
+  ShadowReview,
+} from "../types/api";
 
 const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
 
@@ -29,20 +41,20 @@ const personaCards: Array<{
     id: "selin",
     name: "Selin",
     title: "Randevu resepsiyonisti",
-    voice: "Sicak ve hizli",
+    voice: "Sıcak ve hızlı",
     description: "Diş taşı, implant kontrolü, dermatoloji ve genel muayene randevularını toplar.",
   },
   {
     id: "arzu",
     name: "Arzu",
     title: "Sigorta ve klinik operasyon",
-    voice: "Net ve guven veren",
+    voice: "Net ve güven veren",
     description: "Fiyat, SGK, özel sigorta, ödeme ve şube bilgilerini kontrollü cevaplar.",
   },
   {
     id: "can",
     name: "Can",
-    title: "Medikal guvenlik",
+    title: "Medikal güvenlik",
     voice: "Sakin ve ciddi",
     description: "Acil veya riskli ifadeleri yakalar, doktora öncelikli not düşer.",
   },
@@ -50,33 +62,49 @@ const personaCards: Array<{
 
 const roleCards = [
   {
-    title: "Hasta",
+    title: "1. Karşılama",
     metric: "Telefon / WhatsApp",
-    text: "Yeni uygulama indirmez. Kliniği arar veya WhatsApp yazar; AI karşılar.",
+    text: "Hasta uygulama indirmez. Kliniği arar veya WhatsApp yazar; AI kimlik, şikayet ve tercih bilgilerini toplar.",
   },
   {
-    title: "Resepsiyon",
-    metric: "Canli masa",
-    text: "AI'ın topladığı bilgiyi görür, randevu ve geri dönüş akışını tamamlar.",
+    title: "2. Klinik routing",
+    metric: "Niyet ve branş",
+    text: "Halk ağzındaki şikayet Endodonti, Periodontoloji, Pedodonti veya genel muayene gibi aksiyona çevrilir.",
   },
   {
-    title: "Doktor",
-    metric: "Doctor Inbox",
-    text: "Sadece tıbbi önem taşıyan özetleri ve yaklaşan randevu notlarını görür.",
+    title: "3. Randevu",
+    metric: "Takvim",
+    text: "Eksik gün, saat, şube ve hekim bilgisi tamamlanır; uygun slot oluşunca resepsiyon onayına düşer.",
   },
   {
-    title: "Klinik sahibi",
-    metric: "Doluluk & kacirilan arama",
-    text: "Kaçan arama, dönüşen randevu ve memnuniyetsiz hasta riskini takip eder.",
+    title: "4. Güvenlik",
+    metric: "Doktor onayı",
+    text: "Acil, belirsiz veya klinik risk taşıyan cevaplar otomatik gönderilmez; insan onayına alınır.",
   },
+];
+
+const routingCards = [
+  { label: "Arka dişim zonkluyor", value: "Endodonti", text: "Kanal tedavisi ihtimali, ağrı önceliği ve yakın slot önerisi." },
+  { label: "Diş etim kanıyor", value: "Periodontoloji", text: "Diş eti şikayeti, kanama şiddeti ve aciliyet kontrolü." },
+  { label: "Çocuğumun dolgusu düştü", value: "Pedodonti", text: "Çocuk hasta akışı, veli bilgisi ve uygun hekim yönlendirmesi." },
+  { label: "İmplant kontrolüm var", value: "İmplantoloji", text: "Kontrol randevusu, işlem geçmişi ve hekim tercihi toplama." },
+];
+
+const integrationCards = [
+  { title: "HBYS / Klinik yazılımı", text: "Hasta kartı, hekim takvimi, slot ve randevu durumları tek pipeline'a bağlanır." },
+  { title: "KVKK kayıt izi", text: "Açık rıza, mesaj geçmişi, insan onayı ve outbound bildirimler denetlenebilir tutulur." },
+  { title: "Ses kalitesi", text: "Arka plan gürültüsü, aksan, yarım cümle ve yaşlı hasta konuşmaları için tekrar-sorma stratejisi." },
 ];
 
 export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [overview, setOverview] = useState<ClinicalOverview | null>(null);
+  const [complianceProfile, setComplianceProfile] = useState<ClinicalComplianceProfile | null>(null);
+  const [patentDossier, setPatentDossier] = useState<ClinicalPatentDossier | null>(null);
+  const [slotBoard, setSlotBoard] = useState<ClinicalSlotBoard | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<ClinicalConversationDetail | null>(null);
   const [phone, setPhone] = useState("+90 555 111 22 33");
   const [patientName, setPatientName] = useState("Ayse Hasta");
-  const [body, setBody] = useState("Dis agrim var, yarin bir doktor gorebilir mi?");
+  const [body, setBody] = useState("Arka disim zonkluyor, yarin icin dis hekimi randevusu almak istiyorum.");
   const [channel, setChannel] = useState<ChannelMode>("phone");
   const [personaId, setPersonaId] = useState<PersonaId>("selin");
   const [editingReviewId, setEditingReviewId] = useState<number | null>(null);
@@ -92,8 +120,16 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   async function loadClinical(nextConversationId?: number) {
     setError(null);
     try {
-      const data = await getClinicalOverview(token);
+      const [data, compliance, patent, slots] = await Promise.all([
+        getClinicalOverview(token),
+        getClinicalComplianceProfile(token),
+        getClinicalPatentDossier(token),
+        getClinicalSlotBoard(token),
+      ]);
       setOverview(data);
+      setComplianceProfile(compliance);
+      setPatentDossier(patent);
+      setSlotBoard(slots);
       const id = nextConversationId ?? selectedConversation?.id ?? data.doctor_inbox[0]?.id ?? data.conversations[0]?.id;
       if (id) {
         setSelectedConversation(await getClinicalConversation(id, token));
@@ -170,43 +206,69 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   );
 
   if (loading && !overview) {
-    return <div className="clinical-panel clinical-panel--loading">Butik klinik paneli hazirlaniyor...</div>;
+    return <div className="clinical-panel clinical-panel--loading">Klinik operasyon kokpiti hazırlanıyor...</div>;
   }
 
   return (
     <div className="clinical-panel boutique-clinic-panel">
       <section className="clinic-hero">
         <div className="clinic-hero-copy">
-          <div className="clinical-kicker">CogniVault Medical</div>
-          <h2>Butik klinikler ve dis hekimleri icin AI resepsiyon</h2>
+          <div className="clinical-kicker">CogniVault Clinical OS</div>
+          <h2>Dental ve butik klinikler için AI çağrı merkezi kokpiti</h2>
           <p>
-            Telefonu ve WhatsApp'i kacirmayan; hastayi karsilayan, doktor ekranina ozet dusen
-            ve randevu yaklasinca klinigi uyaran medikal operasyon masasi.
+            Hasta konuşmasını anlayan, doğru branşa yönlendiren, randevu için eksik bilgileri tamamlayan
+            ve riskli yanıtları doktor onayına alan medikal operasyon yüzeyi.
           </p>
+          <div className="clinic-command-center">
+            <article>
+              <span>Canlı hedef</span>
+              <strong>Kaçan çağrıyı randevuya çevir</strong>
+            </article>
+            <article>
+              <span>Guardrail</span>
+              <strong>Tanı koyma, riskli ifadeyi aktar</strong>
+            </article>
+            <article>
+              <span>Persona</span>
+              <strong>{selectedPersona.name} · {selectedPersona.title}</strong>
+            </article>
+          </div>
         </div>
         <div className="clinic-hero-panel">
-          <span>Ilk hedef pazar</span>
-          <strong>Dis klinikleri · dermatoloji · estetik · kucuk ozel klinikler</strong>
-          <p>Baslangic stratejisi: once butik kliniklerde cok iyi calisan dar ama premium urun.</p>
+          <span>Ürün odağı</span>
+          <strong>Türkiye klinikleri için özgün, KVKK-first ve doktor onaylı premium intake motoru</strong>
+          <p>Diş klinikleri, dermatoloji, estetik ve küçük özel kliniklerde telefon + WhatsApp randevu otomasyonu.</p>
         </div>
       </section>
 
       {error ? <div className="error-box clinical-error">{error}</div> : null}
 
       <section className="clinic-metric-strip">
-        <ClinicalMetric label="Bugunku hasta temasi" value={metrics?.conversations_today ?? 0} />
-        <ClinicalMetric label="Telefon aramasi" value={metrics?.phone_calls_today ?? 0} />
-        <ClinicalMetric label="Doktor ekraninda" value={metrics?.doctor_inbox_count ?? 0} tone="warning" />
-        <ClinicalMetric label="Yaklasan uyari" value={metrics?.reminders_due ?? 0} tone="success" />
-        <ClinicalMetric label="Doktor onayi" value={metrics?.pending_shadow_reviews ?? 0} tone="danger" />
+        <ClinicalMetric label="Bugünkü hasta teması" value={metrics?.conversations_today ?? 0} />
+        <ClinicalMetric label="Telefon araması" value={metrics?.phone_calls_today ?? 0} />
+        <ClinicalMetric label="Doktor ekranında" value={metrics?.doctor_inbox_count ?? 0} tone="warning" />
+        <ClinicalMetric label="Yaklaşan uyarı" value={metrics?.reminders_due ?? 0} tone="success" />
+        <ClinicalMetric label="Doktor onayı" value={metrics?.pending_shadow_reviews ?? 0} tone="danger" />
+      </section>
+
+      <section className="clinic-lab-grid">
+        <SlotBoardCard slotBoard={slotBoard} />
+        <TestLab
+          slotBoard={slotBoard}
+          onPick={(message) => {
+            setBody(message);
+            setPatientName("Test Hasta");
+            setPhone("+90 555 777 88 99");
+          }}
+        />
       </section>
 
       <section className="clinic-workspace-grid">
         <div className="clinic-card clinic-call-card">
           <div className="clinical-card-top">
             <div>
-              <span>Hasta girisi</span>
-              <h3>Telefon veya WhatsApp simule et</h3>
+              <span>Hasta girişi</span>
+              <h3>Hasta konuşmasını simüle et</h3>
             </div>
             <b>{selectedPersona.name}</b>
           </div>
@@ -235,11 +297,11 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           </div>
 
           <div className="clinical-form">
-            <input value={patientName} onChange={(event) => setPatientName(event.target.value)} placeholder="Hasta adi" />
+            <input value={patientName} onChange={(event) => setPatientName(event.target.value)} placeholder="Hasta adı" />
             <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+90..." />
-            <textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Hastanin soyledigi medikal talep" />
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Hastanın söylediği medikal talep" />
             <button type="button" onClick={handleSimulate} disabled={busy || !body.trim()}>
-              Talebi klinik akisa dusur
+              Talebi klinik akışa düşür
             </button>
           </div>
         </div>
@@ -248,7 +310,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           <div className="clinical-card-top">
             <div>
               <span>Doctor Inbox</span>
-              <h3>Doktora dusen hasta ozetleri</h3>
+              <h3>İnsan onayı bekleyenler</h3>
             </div>
           </div>
           <ConversationList
@@ -262,8 +324,8 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         <div className="clinic-card live-chart-card">
           <div className="clinical-card-top">
             <div>
-              <span>Canli hasta kaydi</span>
-              <h3>{selectedConversation?.patient.full_name ?? "Hasta sec"}</h3>
+              <span>Canlı hasta kaydı</span>
+              <h3>{selectedConversation?.patient.full_name ?? "Hasta seç"}</h3>
             </div>
             <strong className={`clinical-status ${selectedConversation?.status === "waiting_human" ? "danger" : ""}`}>
               {selectedConversation?.status ?? "hazir"}
@@ -287,7 +349,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
                 </article>
               ))
             ) : (
-              <div className="clinical-empty">Hasta secildiginde arama ve mesaj gecmisi burada gorunur.</div>
+              <div className="clinical-empty">Hasta seçildiğinde arama ve mesaj geçmişi burada görünür.</div>
             )}
           </div>
         </div>
@@ -297,8 +359,8 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         <div className="clinic-card">
           <div className="clinical-card-top">
             <div>
-              <span>Kullanici ekranlari</span>
-              <h3>Kim ne gorur?</h3>
+              <span>Hasta yolculuğu</span>
+              <h3>Çağrıdan randevuya akış</h3>
             </div>
           </div>
           <div className="role-compare-grid">
@@ -315,22 +377,63 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         <div className="clinic-card">
           <div className="clinical-card-top">
             <div>
-              <span>Kanallar</span>
-              <h3>Telefon ve WhatsApp nasil baglanacak?</h3>
+              <span>Routing zekası</span>
+              <h3>Halk dilinden klinik aksiyona</h3>
             </div>
           </div>
-          <div className="channel-decision-list">
-            <article>
-              <b>Telefon: Twilio Voice</b>
-              <p>Klinik numarasi Twilio'ya yonlenir. Gelen cagri `/api/webhooks/voice/incoming` endpoint'ine gelir.</p>
+          <div className="channel-decision-list routing-intelligence-list">
+            {routingCards.map((card) => (
+              <article key={card.label}>
+                <span>{card.label}</span>
+                <b>{card.value}</b>
+                <p>{card.text}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="clinic-card">
+          <div className="clinical-card-top">
+            <div>
+              <span>Entegrasyon hazırlığı</span>
+              <h3>Üretime giden backend omurgası</h3>
+            </div>
+          </div>
+          <div className="persona-detail-list">
+            {integrationCards.map((item) => (
+              <article key={item.title}>
+                <strong>{item.title}</strong>
+                <span>READY PATH</span>
+                <p>{item.text}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="clinic-card">
+          <div className="clinical-card-top">
+            <div>
+              <span>KVKK governance</span>
+              <h3>Local-first güvenlik motoru</h3>
+            </div>
+          </div>
+          <div className="persona-detail-list">
+            <article className="active">
+              <strong>{complianceProfile?.data_residency_default ?? "tr_local_first"}</strong>
+              <span>DATA RESIDENCY</span>
+              <p>Sağlık verisi için varsayılan mod Türkiye/yerel işleme; yurt dışı AI işlemcileri kapalı başlar.</p>
             </article>
             <article>
-              <b>WhatsApp MVP: Twilio Sandbox</b>
-              <p>Ilk klinik demolarinda hizli test. Gelen mesaj `/api/webhooks/whatsapp` endpoint'ine duser.</p>
+              <strong>{complianceProfile?.blocked_by_default.length ?? 7} blok kuralı</strong>
+              <span>DEFAULT DENY</span>
+              <p>Tanı, tedavi talimatı, izinsiz provizyon, kimlik/kart ve rızasız cross-border işlem otomatikleşmez.</p>
             </article>
             <article>
-              <b>WhatsApp Production: Meta Cloud API</b>
-              <p>Onay ve isletme dogrulamasi tamamlaninca ayni clinical pipeline Meta webhook ile calisir.</p>
+              <strong>
+                {(complianceProfile?.processor_inventory ?? []).filter((item) => item.allowed_for_clinical === true).length} açık işlemci
+              </strong>
+              <span>PROCESSOR GATE</span>
+              <p>Harici LLM, STT/TTS ve mesajlaşma işlemcileri klinik veride kapalı başlar; açık rıza ve sözleşme olmadan açılmaz.</p>
             </article>
           </div>
         </div>
@@ -338,34 +441,53 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         <div className="clinic-card">
           <div className="clinical-card-top">
             <div>
-              <span>AI sesleri</span>
-              <h3>Medikal persona seti</h3>
+              <span>Patent hazırlığı</span>
+              <h3>Teknik buluş omurgası</h3>
             </div>
           </div>
-          <div className="persona-detail-list">
-            {personaCards.map((persona) => (
-              <article key={persona.id} className={persona.id === personaId ? "active" : ""}>
-                <strong>{persona.name}</strong>
-                <span>{persona.voice}</span>
-                <p>{persona.description}</p>
+          <div className="channel-decision-list">
+            {(patentDossier?.candidate_independent_claims.slice(0, 3) ?? [
+              "Türkçe dental konuşmayı güvenli randevu akışına çeviren yöntem.",
+              "Riskli sağlık, sigorta ve kimlik cevaplarını otomatik engelleyen sistem.",
+              "Doktor onayı için redakte edilmiş teknik paket üreten orkestrasyon.",
+            ]).map((claim, index) => (
+              <article key={claim}>
+                <span>Claim {index + 1}</span>
+                <b>{claim.split(" ").slice(0, 9).join(" ")}</b>
+                <p>{claim}</p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
+      <DoctorScreen
+        selectedConversation={selectedConversation}
+        reviews={reviews}
+        slotBoard={slotBoard}
+        busy={busy}
+        editingReviewId={editingReviewId}
+        editedReply={editedReply}
+        onEditReply={setEditedReply}
+        onStartEdit={(review) => {
+          setEditingReviewId(review.id);
+          setEditedReply(review.draft_reply);
+        }}
+        onDecide={(review, status) => void decideReview(review, status)}
+      />
+
       <section className="clinic-bottom-grid">
         <div className="clinic-card">
           <div className="clinical-card-top">
             <div>
-              <span>Tum akis</span>
-              <h3>Hasta temaslari</h3>
+              <span>Tüm akış</span>
+              <h3>Hasta temasları</h3>
             </div>
           </div>
           <ConversationList
             conversations={conversations}
             selectedId={selectedConversation?.id}
-            empty="Henuz hasta temasi yok."
+            empty="Henüz hasta teması yok."
             onSelect={handleSelect}
           />
         </div>
@@ -373,7 +495,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         <div className="clinic-card">
           <div className="clinical-card-top">
             <div>
-              <span>Doktor onayi</span>
+              <span>Doktor onayı</span>
               <h3>Riskli veya belirsiz cevaplar</h3>
             </div>
           </div>
@@ -391,18 +513,202 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
                 ) : null}
                 <div className="clinical-review-actions">
                   <button type="button" onClick={() => void decideReview(review, "approved")} disabled={busy}>Onayla</button>
-                  <button type="button" onClick={() => { setEditingReviewId(review.id); setEditedReply(review.draft_reply); }} disabled={busy}>Duzenle</button>
+                  <button type="button" onClick={() => { setEditingReviewId(review.id); setEditedReply(review.draft_reply); }} disabled={busy}>Düzenle</button>
                   {editingReviewId === review.id ? (
-                    <button type="button" onClick={() => void decideReview(review, "edited")} disabled={busy || !editedReply.trim()}>Duzenlemeyi gonder</button>
+                    <button type="button" onClick={() => void decideReview(review, "edited")} disabled={busy || !editedReply.trim()}>Düzenlemeyi gönder</button>
                   ) : null}
                   <button type="button" className="danger" onClick={() => void decideReview(review, "rejected")} disabled={busy}>Reddet</button>
                 </div>
               </article>
-            )) : <div className="clinical-empty">Doktor onayi bekleyen kayit yok.</div>}
+            )) : <div className="clinical-empty">Doktor onayı bekleyen kayıt yok.</div>}
           </div>
         </div>
       </section>
     </div>
+  );
+}
+
+function SlotBoardCard({ slotBoard }: { slotBoard: ClinicalSlotBoard | null }) {
+  const schedule = slotBoard?.schedule ?? [];
+  return (
+    <div className="clinic-card slot-board-card">
+      <div className="clinical-card-top">
+        <div>
+          <span>Canlı slot panosu</span>
+          <h3>Klinik doluluğu ve bekleme listesi</h3>
+        </div>
+        <b>{Math.round((slotBoard?.summary.occupancy_rate ?? 0) * 100)}%</b>
+      </div>
+      <div className="slot-summary-row">
+        <article>
+          <span>Sıradaki açık slot</span>
+          <strong>{slotBoard?.summary.next_open_slot ?? "yükleniyor"}</strong>
+        </article>
+        <article>
+          <span>Dolu bölüm</span>
+          <strong>{slotBoard?.summary.full_departments ?? 0}</strong>
+        </article>
+        <article>
+          <span>Bekleme listesi</span>
+          <strong>{slotBoard?.summary.waitlist_total ?? 0}</strong>
+        </article>
+      </div>
+      <div className="slot-board-list">
+        {schedule.map((slot) => <SlotRow key={slot.id} slot={slot} />)}
+      </div>
+    </div>
+  );
+}
+
+function SlotRow({ slot }: { slot: ClinicalSlotItem }) {
+  return (
+    <article className={`slot-row ${slot.status}`}>
+      <div>
+        <strong>{slot.department}</strong>
+        <span>{slot.doctor} · {slot.date_label} · {slot.time_range}</span>
+      </div>
+      <div>
+        <b>{slot.open}/{slot.capacity}</b>
+        <small>{slot.status === "full" ? "Dolu" : slot.status === "limited" ? "Son slot" : "Uygun"}</small>
+      </div>
+    </article>
+  );
+}
+
+function TestLab({
+  slotBoard,
+  onPick,
+}: {
+  slotBoard: ClinicalSlotBoard | null;
+  onPick: (message: string) => void;
+}) {
+  return (
+    <div className="clinic-card test-lab-card">
+      <div className="clinical-card-top">
+        <div>
+          <span>Test laboratuvarı</span>
+          <h3>Kabul aldığımız senaryolar</h3>
+        </div>
+      </div>
+      <div className="acceptance-rule-list">
+        {(slotBoard?.acceptance_rules ?? []).map((item) => (
+          <article key={item.rule}>
+            <strong>{item.rule}</strong>
+            <p>{item.result}</p>
+          </article>
+        ))}
+      </div>
+      <div className="scenario-pick-list">
+        {(slotBoard?.test_scenarios ?? []).map((scenario) => (
+          <button key={scenario.label} type="button" onClick={() => onPick(scenario.message)}>
+            <strong>{scenario.label}</strong>
+            <span>{scenario.expected_action}</span>
+            <p>{scenario.expected_result}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DoctorScreen({
+  selectedConversation,
+  reviews,
+  slotBoard,
+  busy,
+  editingReviewId,
+  editedReply,
+  onEditReply,
+  onStartEdit,
+  onDecide,
+}: {
+  selectedConversation: ClinicalConversationDetail | null;
+  reviews: ShadowReview[];
+  slotBoard: ClinicalSlotBoard | null;
+  busy: boolean;
+  editingReviewId: number | null;
+  editedReply: string;
+  onEditReply: (value: string) => void;
+  onStartEdit: (review: ShadowReview) => void;
+  onDecide: (review: ShadowReview, status: "approved" | "edited" | "rejected") => void;
+}) {
+  const activeReview = reviews.find((review) => review.conversation_id === selectedConversation?.id) ?? reviews[0];
+  const guardrail = activeReview?.metadata_json?.data && typeof activeReview.metadata_json.data === "object"
+    ? (activeReview.metadata_json.data as { privacy_guardrail?: Record<string, unknown>; intake?: Record<string, unknown>; slot_decision?: Record<string, unknown> })
+    : null;
+
+  return (
+    <section className="doctor-screen-grid">
+      <div className="clinic-card doctor-command-card">
+        <div className="clinical-card-top">
+          <div>
+            <span>Doktor ekranı</span>
+            <h3>Klinik karar paketi</h3>
+          </div>
+          <strong className="clinical-status danger">{activeReview ? "onay bekliyor" : "temiz"}</strong>
+        </div>
+        {activeReview ? (
+          <div className="doctor-approval-packet">
+            <article>
+              <span>Hasta</span>
+              <strong>{selectedConversation?.patient.full_name ?? "Seçili hasta yok"}</strong>
+            </article>
+            <article>
+              <span>Niyet</span>
+              <strong>{activeReview.intent.replace(/_/g, " ")}</strong>
+            </article>
+            <article>
+              <span>Branş</span>
+              <strong>{String(guardrail?.intake?.specialty ?? "genel değerlendirme")}</strong>
+            </article>
+            <article>
+              <span>Slot kararı</span>
+              <strong>{String(guardrail?.slot_decision?.status_label ?? "slot kontrolü")}</strong>
+            </article>
+            <article>
+              <span>KVKK sınıfı</span>
+              <strong>{Array.isArray(guardrail?.privacy_guardrail?.data_classes) ? guardrail?.privacy_guardrail?.data_classes.join(", ") : "standart"}</strong>
+            </article>
+            <article>
+              <span>Risk</span>
+              <strong>{activeReview.risk_reason}</strong>
+            </article>
+          </div>
+        ) : (
+          <div className="clinical-empty">Doktor onayı bekleyen aktif kayıt yok.</div>
+        )}
+      </div>
+
+      <div className="clinic-card doctor-command-card">
+        <div className="clinical-card-top">
+          <div>
+            <span>Önerilen aksiyon</span>
+            <h3>Hekim güvenli cevabı</h3>
+          </div>
+        </div>
+        {activeReview ? (
+          <article className="clinical-review doctor-review-focus">
+            <p>{activeReview.draft_reply}</p>
+            <small>{String((activeReview.metadata_json?.data as { slot_decision?: { patient_offer?: string } } | undefined)?.slot_decision?.patient_offer ?? slotBoard?.summary.next_open_slot ?? "")}</small>
+            {editingReviewId === activeReview.id ? (
+              <textarea value={editedReply} onChange={(event) => onEditReply(event.target.value)} />
+            ) : null}
+            <div className="clinical-review-actions">
+              <button type="button" onClick={() => onDecide(activeReview, "approved")} disabled={busy}>Onayla</button>
+              <button type="button" onClick={() => onStartEdit(activeReview)} disabled={busy}>Düzenle</button>
+              {editingReviewId === activeReview.id ? (
+                <button type="button" onClick={() => onDecide(activeReview, "edited")} disabled={busy || !editedReply.trim()}>
+                  Düzenlemeyi gönder
+                </button>
+              ) : null}
+              <button type="button" className="danger" onClick={() => onDecide(activeReview, "rejected")} disabled={busy}>Reddet</button>
+            </div>
+          </article>
+        ) : (
+          <div className="clinical-empty">Riskli cevap gelince doktorun onaylayacağı metin burada görünür.</div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -432,9 +738,9 @@ function ConversationList({
         >
           <strong>{conversation.patient.full_name ?? conversation.patient.phone}</strong>
           <span>
-            {conversation.channel} · {conversation.persona_name ?? "AI"} · {conversation.intent?.replace(/_/g, " ") ?? "intent pending"}
+            {conversation.channel} · {conversation.persona_name ?? "AI"} · {conversation.intent?.replace(/_/g, " ") ?? "niyet bekleniyor"}
           </span>
-          <p>{conversation.last_message_preview ?? "No messages yet"}</p>
+          <p>{conversation.last_message_preview ?? "Henüz mesaj yok"}</p>
         </button>
       ))}
     </div>

@@ -46,6 +46,11 @@ async def transcribe_audio(
     MediaRecorder webm blob'unu OpenAI Whisper-1 ile metne çevirir.
     language: "tr" (varsayılan) veya "en" — açıkça vermek doğruluğu artırır.
     """
+    if not settings.voice_external_enabled:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="KVKK local-first mode: external voice transcription is disabled.",
+        )
     if not settings.openai_api_key:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail="OpenAI API key gerekli.")
@@ -94,6 +99,11 @@ async def synthesize_speech(
     - Web Speech: her tarayıcı/OS'ta farklı, çoğunda robotik, Türkçe sesi yetersiz.
     - OpenAI TTS: gerçek sinir ağı sesi, Türkçe'yi iyi telaffuz eder, her platformda aynı.
     """
+    if not settings.voice_external_enabled:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="KVKK local-first mode: external text-to-speech is disabled.",
+        )
     if not settings.openai_api_key:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail="OpenAI API key gerekli.")

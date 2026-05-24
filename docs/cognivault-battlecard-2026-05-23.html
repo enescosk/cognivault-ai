@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Cognivault Medical AI — Competitive Battlecard</title>
+<style>
+  :root{
+    --bg-primary:#0a0d14; --bg-elevated:#0f131c; --bg-surface:#161b28; --bg-hover:#1e2536;
+    --text-primary:#ffffff; --text-secondary:rgba(255,255,255,.72); --text-muted:rgba(255,255,255,.5);
+    --accent:#14b8a6; --accent-hover:#0d9488;
+    --you-win:#10b981; --they-win:#ef4444; --tie:#f59e0b;
+    --border:rgba(255,255,255,.08);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg-primary);color:var(--text-primary);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.55;min-height:100vh}
+  header{padding:32px 48px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#0a0d14 0%,#161b28 100%)}
+  header h1{font-size:28px;font-weight:700;letter-spacing:-.5px}
+  header .accent{color:var(--accent)}
+  header p{color:var(--text-muted);margin-top:8px;font-size:14px}
+  nav.tabs{display:flex;gap:4px;padding:16px 48px 0;border-bottom:1px solid var(--border);overflow-x:auto;background:var(--bg-elevated)}
+  .tab{background:transparent;color:var(--text-secondary);border:none;padding:12px 18px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;font-weight:500;white-space:nowrap;transition:all .2s}
+  .tab:hover{color:var(--text-primary);background:var(--bg-hover)}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .tab-content{display:none;padding:32px 48px;max-width:1400px;margin:0 auto}
+  .tab-content.active{display:block}
+  h2{font-size:22px;margin-bottom:16px;font-weight:600;letter-spacing:-.3px}
+  h3{font-size:16px;margin:24px 0 12px;font-weight:600;color:var(--accent)}
+  h4{font-size:14px;margin:16px 0 8px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}
+  p,li{color:var(--text-secondary);font-size:14px}
+  ul{padding-left:20px;margin:8px 0}
+  li{margin-bottom:6px}
+  .grid{display:grid;gap:16px}
+  .grid-2{grid-template-columns:1fr 1fr}
+  .grid-3{grid-template-columns:repeat(3,1fr)}
+  .card{background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:20px;transition:all .2s}
+  .card:hover{border-color:rgba(20,184,166,.3)}
+  .stat{font-size:32px;font-weight:700;color:var(--accent);margin:4px 0}
+  .stat-label{font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px}
+  table.matrix{width:100%;border-collapse:collapse;margin-top:16px;background:var(--bg-surface);border-radius:12px;overflow:hidden}
+  table.matrix th, table.matrix td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:13px}
+  table.matrix th{background:var(--bg-hover);color:var(--text-secondary);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0}
+  table.matrix tr:last-child td{border-bottom:none}
+  table.matrix tr:hover{background:rgba(255,255,255,.02)}
+  .win{color:var(--you-win);font-weight:600}
+  .lose{color:var(--they-win);font-weight:600}
+  .tie-c{color:var(--tie);font-weight:600}
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;background:rgba(20,184,166,.15);color:var(--accent);margin-right:6px}
+  .badge.red{background:rgba(239,68,68,.15);color:var(--they-win)}
+  .badge.yellow{background:rgba(245,158,11,.15);color:var(--tie)}
+  .badge.green{background:rgba(16,185,129,.15);color:var(--you-win)}
+  .quote{border-left:3px solid var(--accent);padding:10px 16px;background:var(--bg-elevated);font-style:italic;color:var(--text-secondary);margin:10px 0;border-radius:0 8px 8px 0;font-size:13px}
+  .landmine{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px;padding:12px 14px;margin:8px 0;color:#fde68a;font-size:13px}
+  .landmine::before{content:"💣 ";margin-right:4px}
+  .obj{background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin:8px 0;font-size:13px}
+  .obj-title{font-weight:600;color:var(--text-primary);margin-bottom:6px}
+  .talk-track{background:var(--bg-elevated);border-left:3px solid var(--accent);padding:12px 14px;margin:8px 0;font-size:13px;border-radius:0 8px 8px 0}
+  .talk-track strong{color:var(--accent);display:block;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  .pill-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .pill{background:var(--bg-hover);padding:4px 10px;border-radius:6px;font-size:12px;color:var(--text-secondary)}
+  .section{margin-bottom:32px}
+  .alert{background:rgba(20,184,166,.08);border:1px solid rgba(20,184,166,.3);border-radius:10px;padding:14px 18px;margin:16px 0;font-size:14px}
+  @media (max-width:768px){.grid-2,.grid-3{grid-template-columns:1fr}header,nav.tabs,.tab-content{padding-left:20px;padding-right:20px}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="accent">Cognivault Medical AI</span> — Competitive Battlecard</h1>
+  <p>Generated: 23 May 2026 · Türkiye sağlık dikey · AI-powered patient intake · BiGG Masters 2026-1</p>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="matrix">Comparison Matrix</button>
+  <button class="tab" data-tab="cognivault">Cognivault (We)</button>
+  <button class="tab" data-tab="patientdesk">PatientDesk.ai</button>
+  <button class="tab" data-tab="hyro">Hyro</button>
+  <button class="tab" data-tab="notable">Notable Health</button>
+  <button class="tab" data-tab="klara">Klara</button>
+  <button class="tab" data-tab="suki">Suki AI</button>
+  <button class="tab" data-tab="hellocare">Hellocare.ai</button>
+  <button class="tab" data-tab="tr-local">TR Local Rivals</button>
+  <button class="tab" data-tab="strategy">Strategy & Talk Tracks</button>
+</nav>
+
+<!-- ============ MATRIX ============ -->
+<section id="matrix" class="tab-content active">
+  <div class="alert">
+    <strong>Key insight:</strong> Suki AI ve Hellocare.ai farklı kategorilerde (klinik dokümantasyon / sanal hemşirelik). Bizim <strong>direkt rakibimiz</strong> PatientDesk.ai (US dental), Hyro (US enterprise), Klara (US messaging) ve <strong>en kritiği — Türkiye yerel oyuncular</strong> (BOB AI, ClinicFlow, Palmate AI).
+  </div>
+
+  <div class="section">
+    <h2>Pazar Özeti</h2>
+    <div class="grid grid-3">
+      <div class="card"><div class="stat-label">TR AI Healthcare Pazarı 2030</div><div class="stat">$1.12 Mr</div><div style="font-size:12px;color:var(--text-muted)">CAGR %45.7 (2022→2030)</div></div>
+      <div class="card"><div class="stat-label">Global Healthcare Chatbot 2033</div><div class="stat">$2.5 Mr</div><div style="font-size:12px;color:var(--text-muted)">CAGR %20.3</div></div>
+      <div class="card"><div class="stat-label">Ortalama Klinik Arama/Gün</div><div class="stat">50-100+</div><div style="font-size:12px;color:var(--text-muted)">Çağrı başına 3-8 dk personel zamanı</div></div>
+    </div>
+  </div>
+
+  <h2>Feature Karşılaştırma Matrisi</h2>
+  <table class="matrix">
+    <thead>
+      <tr>
+        <th>Feature</th>
+        <th>Cognivault</th>
+        <th>PatientDesk</th>
+        <th>Hyro</th>
+        <th>Notable</th>
+        <th>Klara</th>
+        <th>TR Yerel</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Türkçe NLU</strong></td><td class="win">★ Native</td><td class="lose">✗</td><td class="lose">✗</td><td class="lose">✗</td><td class="lose">✗</td><td class="tie-c">Var</td></tr>
+      <tr><td><strong>KVKK / VERBİS Uyum</strong></td><td class="win">✓ Roadmap</td><td class="lose">HIPAA only</td><td class="lose">HIPAA only</td><td class="lose">HIPAA only</td><td class="lose">HIPAA only</td><td class="tie-c">Çoğu uyum</td></tr>
+      <tr><td><strong>WhatsApp-First</strong></td><td class="win">★ Native</td><td class="tie-c">Kısmi</td><td class="tie-c">SMS odaklı</td><td class="lose">EHR odaklı</td><td class="tie-c">Web chat</td><td class="win">Native</td></tr>
+      <tr><td><strong>Telefon (Twilio)</strong></td><td class="win">✓</td><td class="win">★ Real-time</td><td class="win">✓</td><td class="tie-c">RPA</td><td class="tie-c">Voicemail→text</td><td class="tie-c">Sınırlı</td></tr>
+      <tr><td><strong>AI Triage + Confidence Skoru</strong></td><td class="win">★ Var</td><td class="tie-c">Sınırlı</td><td class="win">✓</td><td class="tie-c">Sınırlı</td><td class="lose">Yok</td><td class="lose">Genelde yok</td></tr>
+      <tr><td><strong>Doktor Inbox Escalation</strong></td><td class="win">✓ Built-in</td><td class="tie-c">Var</td><td class="tie-c">Var</td><td class="win">EHR'a yazar</td><td class="win">Mesaj thread</td><td class="lose">Genelde yok</td></tr>
+      <tr><td><strong>EHR Entegrasyonu</strong></td><td class="lose">Yol haritasında</td><td class="tie-c">CRM/PMS</td><td class="win">★ Epic/Cerner</td><td class="win">★ Epic/Cerner</td><td class="tie-c">ModMed</td><td class="tie-c">Yerel HIS</td></tr>
+      <tr><td><strong>Real-time Sigorta Doğrulama</strong></td><td class="lose">Yok</td><td class="win">★ Aktif</td><td class="tie-c">Var</td><td class="win">Var</td><td class="lose">Yok</td><td class="lose">Yok</td></tr>
+      <tr><td><strong>Bilingual (TR/EN sağlık turizmi)</strong></td><td class="win">★ Native</td><td class="lose">EN only</td><td class="tie-c">Multi-lang</td><td class="lose">EN only</td><td class="lose">EN only</td><td class="tie-c">Bazıları</td></tr>
+      <tr><td><strong>RBAC + Audit Log</strong></td><td class="win">★ Built-in</td><td class="tie-c">Standart</td><td class="win">Enterprise</td><td class="win">Enterprise</td><td class="tie-c">Standart</td><td class="lose">Sınırlı</td></tr>
+      <tr><td><strong>Ticketing / Department Routing</strong></td><td class="win">★ Enterprise mode</td><td class="lose">Tek lokasyon</td><td class="win">Call center</td><td class="tie-c">Workflow</td><td class="lose">Sadece mesaj</td><td class="lose">Genelde yok</td></tr>
+      <tr><td><strong>Aylık Başlangıç Fiyat</strong></td><td class="win">~ $300-500</td><td class="lose">$1,000+</td><td class="lose">$10,000+</td><td class="lose">Enterprise</td><td class="lose">Custom</td><td class="tie-c">$50-300</td></tr>
+      <tr><td><strong>TR Pazara Lokasyon/Destek</strong></td><td class="win">★ Yerel</td><td class="lose">US/UK/AU</td><td class="lose">US</td><td class="lose">US</td><td class="lose">US</td><td class="win">Yerel</td></tr>
+    </tbody>
+  </table>
+
+  <h2 style="margin-top:32px">Quick Win/Loss Kılavuzu</h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <h3 style="color:var(--you-win)">🏆 Biz Kazandığımız Durumlar</h3>
+      <ul>
+        <li><strong>Türkiye'de klinik / poliklinik zinciri</strong> arıyorsa: yerel dil + KVKK + WhatsApp</li>
+        <li><strong>Sağlık turizmi (TR/EN, AR opsiyonel)</strong> hedefliyorsa: bilingual</li>
+        <li><strong>Bütçe sıkıntısı</strong> varsa: $1K+/ay PatientDesk veya $10K+ Hyro vs bizim erişilebilir fiyat</li>
+        <li><strong>Hızlı kurulum</strong> isteniyorsa: deep EHR entegrasyonu olmadan günlerde aktif</li>
+        <li><strong>Çok kanallı (WhatsApp+telefon+web+form) tek pipeline</strong> isteyene</li>
+        <li><strong>Departman bazlı triage + ticketing</strong> isteyen büyük klinikler (Enterprise Mode)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--they-win)">⚠️ Kaybettiğimiz Durumlar</h3>
+      <ul>
+        <li><strong>Büyük US/UK health system</strong>: Hyro/Notable derin EHR + büyük case study</li>
+        <li><strong>Diş klinikleri (US)</strong>: PatientDesk niche-spesifik, YC backing</li>
+        <li><strong>Real-time sigorta verification</strong> kritikse: PatientDesk + Notable kazanır</li>
+        <li><strong>Ambient clinical documentation</strong> istiyorsa: Suki AI (farklı kategori ama bütçesi varsa karıştırılır)</li>
+        <li><strong>In-room virtual nursing</strong>: Hellocare.ai $47M raise, hardware+software bundle</li>
+        <li><strong>Brand / referans</strong>: Henüz büyük case study yok</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ COGNIVAULT ============ -->
+<section id="cognivault" class="tab-content">
+  <h2>Cognivault Medical AI — Bizim Profilimiz</h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <h4>Pozisyon</h4>
+      <p><strong>Türkiye odaklı, çoklu kanal AI hasta intake & triage platformu.</strong> WhatsApp, telefon, web chat ve formdan gelen hasta taleplerini tek pipeline'a normalize eder, AI ile dil/niyet/aciliyet tespiti yapar, KVKK uyumlu audit izi tutar, doktor inbox'ına escalate eder.</p>
+      <h4>Hedef Kitle (ICP)</h4>
+      <ul>
+        <li>5-50 doktorlu özel poliklinikler (dental, dermatoloji, estetik, fizyoterapi)</li>
+        <li>Sağlık turizmi klinikleri (saç ekim, estetik cerrahi, IVF)</li>
+        <li>Klinik zincirleri (2-10 lokasyon)</li>
+        <li>Sağlık çağrı merkezi outsourcing firmaları</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Key Differentiators</h4>
+      <div class="pill-row">
+        <span class="pill">🇹🇷 KVKK-native</span>
+        <span class="pill">WhatsApp-first</span>
+        <span class="pill">TR/EN bilingual</span>
+        <span class="pill">Multi-channel unified</span>
+        <span class="pill">RBAC + audit</span>
+        <span class="pill">Doctor escalation</span>
+        <span class="pill">Sağlık turizmi-ready</span>
+        <span class="pill">Open architecture</span>
+      </div>
+      <h4 style="margin-top:16px">Proof Points</h4>
+      <ul>
+        <li>Layered architecture: API / Service / Agent / Tool / DB</li>
+        <li>4 channel webhook (Meta WhatsApp Cloud, Twilio voice, web, form)</li>
+        <li>OpenAI function calling orchestration</li>
+        <li>Bilingual TR/EN demo: randevu + escalation senaryoları</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Son 90 Gün — Bizim Shipping</h3>
+  <ul>
+    <li>Clinical intake architecture dokümante edildi (4 kanal birleşimi)</li>
+    <li>Enterprise Mode: departman routing + ticketing + escalation handoff package</li>
+    <li>Audit log + RBAC + multi-role auth (admin/operator/customer)</li>
+    <li>Bilingual TR/EN agent orchestrator + intent classification</li>
+    <li>SQLite local mode + PostgreSQL docker mode</li>
+    <li>WhatsApp / voice webhook endpoint'leri (Meta + Twilio payload parsers)</li>
+  </ul>
+</section>
+
+<!-- ============ PATIENTDESK ============ -->
+<section id="patientdesk" class="tab-content">
+  <h2>PatientDesk.ai <span class="badge">Direct Competitor</span> <span class="badge red">YC W26</span></h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <h4>Şirket Profili</h4>
+      <ul>
+        <li><strong>Kuruluş:</strong> 2024-2025</li>
+        <li><strong>Funding:</strong> $1M Pre-seed (YC + E2VC, Şubat 2026)</li>
+        <li><strong>Pazar:</strong> US, UK, Australia — 60+ klinik</li>
+        <li><strong>Dikey:</strong> Diş hekimliği (front desk)</li>
+        <li><strong>Fiyat:</strong> $1,000+/ay/lokasyon + usage</li>
+      </ul>
+      <h4>Ne Satıyor</h4>
+      <p>AI front & back office agent: gelen aramayı cevaplayan, sigorta doğrulayan, randevu açan, follow-up otomatize eden voice + chat assistant. CRM/PMS entegrasyonlu.</p>
+    </div>
+    <div class="card">
+      <h4>Killer Feature</h4>
+      <div class="quote">"Real-time insurance verification during live patient calls" — diğer araçlar çağrı sonrası geri arama gerektirirken PatientDesk canlı olarak teminat doğrular ve hastaya açıklar.</div>
+      <h4>Son Releases (90 gün)</h4>
+      <ul>
+        <li>Şubat 2026: $1M YC pre-seed close</li>
+        <li>Multi-region launch (UK + AU)</li>
+        <li>Insurance verification API genişlemesi</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <h3 style="color:var(--they-win)">Onlar Kazanır</h3>
+      <ul>
+        <li>YC marka değeri + US/UK pazar varlığı</li>
+        <li>Real-time sigorta verification (US-spesifik)</li>
+        <li>Diş klinikleri dikeyinde derinleşme</li>
+        <li>CRM/PMS entegrasyon listesi (Dentrix, Open Dental)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--you-win)">Biz Kazanırız</h3>
+      <ul>
+        <li>Türkçe NLU + KVKK + WhatsApp (TR'de WhatsApp = standart kanal)</li>
+        <li>Tek dikey (dental) değil çoklu klinik tipi</li>
+        <li>Sağlık turizmi (TR/EN bilingual + saç/estetik klinikleri)</li>
+        <li>Fiyat: $300-500 vs $1,000+ (TR pazarı için kritik)</li>
+        <li>TR yerel destek + saat dilimi</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Talk Tracks</h3>
+  <div class="talk-track"><strong>Erken bahis</strong>PatientDesk harika bir ürün ama US diş kliniklerine optimize edilmiş. Türkiye'de SGK/özel sigorta yapısı farklı, WhatsApp ana kanal — onların yapısı buraya 1:1 oturmuyor.</div>
+  <div class="talk-track"><strong>Fiyat sorulduğunda</strong>$1,000/ay/lokasyon + usage. 5 lokasyonlu bir zincire $60-80K/yıl. Bizimle aynı kapasitenin 1/3'üne sahip oluyorsunuz, üstüne TR'ye özel uyum geliyor.</div>
+  <div class="talk-track"><strong>Sigorta verification konusu</strong>US sigorta sistemi gerçek zamanlı API açıyor; Türkiye'de SGK MEDULA üzerinden zaten farklı bir akış var. Aynı feature TR'de aynı şekilde kıymetli değil — biz onun yerine TR-spesifik VEM/Medula entegrasyonuna yatırıyoruz.</div>
+
+  <h3>Landmines (sormalı sorular)</h3>
+  <div class="landmine">"WhatsApp Cloud API entegrasyonu native mi yoksa 3rd party connector mı? TR'deki hasta volume'un %70+'ı WhatsApp."</div>
+  <div class="landmine">"KVKK VERBİS kaydı için Data Processing Agreement şablonunuz hazır mı?"</div>
+  <div class="landmine">"Türkçe medikal jargon (özel ad, ilaç adı, semptom) için tuning yapılmış mı yoksa generic GPT mi kullanıyorsunuz?"</div>
+  <div class="landmine">"Sağlık turizmi hastalarına aynı agent içinde EN ⇄ TR geçişi yapabiliyor mu?"</div>
+
+  <h3>Objections</h3>
+  <div class="obj"><div class="obj-title">"PatientDesk YC mezunu, daha güvenilir"</div>Doğru, sermaye ve mentörlük avantajı var. Ancak ürün US dental front desk için yapılmış. Türkiye'de saatte 60+ WhatsApp mesajı, MEDULA, KVKK gibi gerçeklikler farklı bir tasarım gerektiriyor. Bizim ürün buraya doğan ürün, sonradan uyarlanan değil.</div>
+</section>
+
+<!-- ============ HYRO ============ -->
+<section id="hyro" class="tab-content">
+  <h2>Hyro <span class="badge">Enterprise Threat</span> <span class="badge red">$45M raised</span></h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <h4>Şirket Profili</h4>
+      <ul>
+        <li><strong>Funding:</strong> $45M (Cornell Tech ekosistem)</li>
+        <li><strong>Pazar:</strong> US büyük sağlık sistemleri</li>
+        <li><strong>Fiyat:</strong> $10,000/ay flat'den başlıyor + enterprise custom</li>
+        <li><strong>Position:</strong> "Responsible AI Agents for Healthcare"</li>
+      </ul>
+      <h4>Ne Satıyor</h4>
+      <p>Omnichannel conversational AI: web, mobil, çağrı merkezi, SMS. Randevu, reçete yenileme, doktor arama, fatura, kayıt. Epic/Cerner deep integration.</p>
+      <h4>İddialar</h4>
+      <ul>
+        <li>%85+ call deflection rate</li>
+        <li>%82 health system $500K+ yıllık ROI</li>
+        <li>Salesforce AppExchange + Azure marketplace</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--they-win)">Onlar Kazanır</h3>
+      <ul>
+        <li>Enterprise-grade EHR entegrasyonları</li>
+        <li>Büyük ROI case study'leri ($1M+)</li>
+        <li>Salesforce ekosistem partnerliği</li>
+        <li>Knowledge graph + source citation</li>
+        <li>Marka tanınırlığı (PR News, Microsoft case)</li>
+      </ul>
+      <h3 style="color:var(--you-win);margin-top:16px">Biz Kazanırız</h3>
+      <ul>
+        <li>SME klinikler (Hyro'nun fiyatı SME'ye uygun değil)</li>
+        <li>Türkiye / yerel pazar</li>
+        <li>WhatsApp-first (Hyro SMS odaklı)</li>
+        <li>Hızlı deployment (haftalar değil günler)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Talk Tracks</h3>
+  <div class="talk-track"><strong>Hyro'nun ne olduğunu duyduysam</strong>Hyro US büyük hastane zincirleri için yapılmış enterprise bir ürün. Türkiye'de hedef kitlemiz olan 5-50 doktorlu klinikler için $10K+/ay başlangıç bütçeleri uygun değil. Onların ROI hesapları US sigorta sistemiyle uyumlu.</div>
+  <div class="talk-track"><strong>Deflection metriği gelirse</strong>%85 deflection güzel rakam ama hangi pazar, hangi dil, hangi kanal? Bizim TR pazarındaki WhatsApp-first hasta davranışıyla SMS-ağırlıklı bir sistemin metriklerini doğrudan karşılaştırmak yanıltıcı.</div>
+
+  <h3>Landmines</h3>
+  <div class="landmine">"Türkçe NLU'da knowledge graph training source'ınız nedir? Sağlık Bakanlığı SUT kodları dahil mi?"</div>
+  <div class="landmine">"5 doktorlu bir klinik için minimum yıllık taahhüt nedir?"</div>
+  <div class="landmine">"Implementation süresi ortalama ne kadar? Aktif olmamız için ne zaman gerekir?"</div>
+</section>
+
+<!-- ============ NOTABLE ============ -->
+<section id="notable" class="tab-content">
+  <h2>Notable Health <span class="badge">Enterprise</span></h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <h4>Profil</h4>
+      <ul>
+        <li>US büyük sağlık sistemleri ve revenue cycle teams</li>
+        <li>Deep EHR: Epic, Cerner, Meditech, Athena</li>
+        <li>RPA + AI: form doldurma, kayıt, prior auth, billing</li>
+        <li>HIPAA + Athenahealth Marketplace</li>
+      </ul>
+      <h4>Killer Capability</h4>
+      <p>Prior authorization automation + insurance eligibility checks: US sağlık sistemlerinde devasa admin yükü. Notable bunu RPA + AI ile otomatize ediyor.</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--they-win)">Onlar Kazanır</h3>
+      <ul>
+        <li>US enterprise RCM (revenue cycle management) dikeyi</li>
+        <li>EHR deep integration + form/chart RPA</li>
+        <li>Athenahealth marketplace varlığı</li>
+      </ul>
+      <h3 style="color:var(--you-win);margin-top:16px">Biz Kazanırız</h3>
+      <ul>
+        <li>Notable'ın domain'i US — TR'de US-spesifik formlar yok</li>
+        <li>Notable patient-facing conversation değil, back-office odaklı</li>
+        <li>Bizim agent hasta ile direkt konuşur (Notable form/sistem doldurur)</li>
+        <li>SME erişilebilirlik</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Talk Track</h3>
+  <div class="talk-track"><strong>Konum farkı</strong>Notable arka ofis otomasyonu (kart doldurma, sigorta kontrol). Biz ön ofis konuşması (hasta ile WhatsApp/telefon diyaloğu). Aynı pazar değil; ancak büyük sağlık sistemleri ikisini birden alabilir. Türkiye'deki ICP'mizde Notable yarışmıyor bile.</div>
+</section>
+
+<!-- ============ KLARA ============ -->
+<section id="klara" class="tab-content">
+  <h2>Klara <span class="badge">Patient Messaging</span> <span class="badge red">ModMed owned</span></h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <h4>Profil</h4>
+      <ul>
+        <li>ModMed'e ait, US-focused patient communication</li>
+        <li>2-way messaging, web chat, voicemail-to-text</li>
+        <li>eForms, broadcast messaging, video visits</li>
+        <li>Custom quote-based pricing</li>
+      </ul>
+      <h4>Ne Yapar</h4>
+      <p>Tüm hasta etkileşimini (SMS, web chat, telefon, voicemail) tek HIPAA-uyumlu thread'e topluyor. Personel cevap yazıyor, AI değil.</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--they-win)">Onlar Kazanır</h3>
+      <ul>
+        <li>Olgun ürün, mevcut müşteri tabanı</li>
+        <li>ModMed EHR + Klara bundle</li>
+        <li>HIPAA olgunluğu, broadcast messaging</li>
+      </ul>
+      <h3 style="color:var(--you-win);margin-top:16px">Biz Kazanırız</h3>
+      <ul>
+        <li><strong>Klara mesajlaşma platformu, biz AI agent.</strong> Klara'da personel hala yazıyor; bizimkinde AI cevaplıyor</li>
+        <li>WhatsApp Türkiye'de SMS'in yerini almış — Klara SMS-ağırlıklı</li>
+        <li>Bizim AI triage + confidence scoring + escalation policy var</li>
+        <li>TR / KVKK / TR dil yapısı</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Landmine</h3>
+  <div class="landmine">"Klara mesajları AI mı cevaplıyor yoksa personel mi yazıyor? Çünkü manuel cevap = personel yükü düşmüyor."</div>
+</section>
+
+<!-- ============ SUKI ============ -->
+<section id="suki" class="tab-content">
+  <h2>Suki AI <span class="badge yellow">Different Category</span></h2>
+  <div class="alert">
+    <strong>Karıştırma!</strong> Suki AI hasta intake değil — <strong>klinik dokümantasyon</strong> aracı (doktorun konuşmasını dinleyip not yazıyor). Müşteri sohbetinde "Suki" geçerse, bu bir ambient documentation tool — bizimle direkt rakip değil ama bütçe rakibi olabilir.
+  </div>
+  <div class="grid grid-2">
+    <div class="card">
+      <h4>Profil</h4>
+      <ul>
+        <li>Ambient clinical documentation</li>
+        <li>$299/ay/kullanıcı (Compose) — $399/ay (Assistant)</li>
+        <li>Epic, Cerner, Athena, MEDITECH, eClinicalWorks</li>
+        <li>80+ dil, 100+ uzmanlık</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--you-win)">Konum</h3>
+      <p><strong>Suki = doktorun yardımcısı, biz = hastanın ilk teması.</strong> Komplementer ürünler; rekabet değil. Doktor bütçesi kıt olan kliniklerde "biri ya o ya bu" tercihi olabilir → biz operasyonel ROI'yi (no-show azalması, randevu doluluk) ön plana çıkarmalıyız.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HELLOCARE ============ -->
+<section id="hellocare" class="tab-content">
+  <h2>Hellocare.ai <span class="badge yellow">Different Category</span> <span class="badge red">$47M raised</span></h2>
+  <div class="alert">
+    <strong>Karıştırma!</strong> Hellocare = <strong>in-room virtual nursing / eSitter</strong> (hasta odasında kamera + AI gözetim). Hastane içi hardware+software bundle, bizimle aynı pazarda değil.
+  </div>
+  <div class="card">
+    <h4>Profil</h4>
+    <ul>
+      <li>$47M raise (2025)</li>
+      <li>70+ US health system</li>
+      <li>HIPAA, HITRUST, ISO 27001, SOC</li>
+      <li>Virtual nursing, virtual sitting (32 oda/teknisyen), telehealth carts</li>
+    </ul>
+    <h4>Konum</h4>
+    <p>Bizim hedef kitlemiz (5-50 doktorlu poliklinik) Hellocare'in alıcısı değil. Hellocare US büyük hastaneler için in-patient gözetim. Konu kayması durumunda "ben hastayı odada izlemiyorum, hasta klinige ulaşmadan önceki anı çözüyorum" şeklinde net ayrıştırılmalı.</p>
+  </div>
+</section>
+
+<!-- ============ TR LOCAL RIVALS ============ -->
+<section id="tr-local" class="tab-content">
+  <h2>Türkiye Yerel Rakipler <span class="badge">En Kritik Tehdit</span></h2>
+  <div class="alert">
+    <strong>Strateji notu:</strong> Asıl rekabetimiz US oyuncularla değil, Türkiye'deki yerel chatbot/randevu çözümleriyle. Bunlar daha ucuz, hızlı satılıyor, "AI" değil çoğu zaman basit kural-tabanlı bot. Bizim diferansiyasyonumuz: <strong>agentic AI, triage, audit, multi-channel unified pipeline, enterprise mode.</strong>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>BOB AI (beonebot.com)</h3>
+      <ul>
+        <li><strong>Pazar:</strong> Türkiye, klinik AI asistanı</li>
+        <li><strong>Kanallar:</strong> WhatsApp, Instagram, web, telefon</li>
+        <li><strong>Uyum:</strong> KVKK + ISO 27001</li>
+        <li><strong>İddia:</strong> "Türkiye'nin en gelişmiş klinik AI asistanı"</li>
+      </ul>
+      <h4 style="color:var(--they-win)">Onlar Kazanır</h4>
+      <ul><li>ISO 27001 sertifikası (sahip)</li><li>Marka mevcut, Türkiye'de görünürlük</li><li>Instagram entegrasyonu</li></ul>
+      <h4 style="color:var(--you-win)">Biz Kazanırız</h4>
+      <ul><li>Agentic AI orchestration (tool calling, function execution)</li><li>RBAC + audit log + enterprise mode</li><li>Doctor inbox + escalation policy formal</li><li>Bilingual sağlık turizmi</li></ul>
+    </div>
+
+    <div class="card">
+      <h3>ClinicFlow (clinicflow.com.tr)</h3>
+      <ul>
+        <li><strong>Pazar:</strong> Türk klinikler (diş, psikolog, diyetisyen, estetisyen)</li>
+        <li><strong>Özellik:</strong> Randevu takip, SMS/WhatsApp/email bildirim</li>
+        <li><strong>Konum:</strong> Klinik yönetim yazılımı + AI eklenti</li>
+      </ul>
+      <h4>Konum farkı</h4>
+      <p>ClinicFlow bir PMS (practice management). Biz hasta-ön intake + AI triage. Komplementer olabilir; entegrasyon partner adayı.</p>
+    </div>
+  </div>
+
+  <div class="grid grid-2" style="margin-top:16px">
+    <div class="card">
+      <h3>Palmate AI</h3>
+      <ul>
+        <li><strong>Pazar:</strong> Sağlık turizmi klinikleri</li>
+        <li><strong>Özellik:</strong> Multilingual chat + 7/24 randevu</li>
+      </ul>
+      <h4>Tehdit seviyesi</h4>
+      <p><strong>Yüksek</strong> — sağlık turizmi bizim de hedef segmentimiz. Bilingual yapı ile rekabet ediyorlar. Bizim farkımız: agentic AI + ticketing + audit + telefon dahil çoklu kanal.</p>
+    </div>
+
+    <div class="card">
+      <h3>AICalls.com.tr / YapayZekaChatbot</h3>
+      <ul>
+        <li><strong>Konum:</strong> Generic AI chatbot satıcıları (sağlık bir dikey)</li>
+        <li><strong>Fiyat:</strong> Düşük ($50-200/ay aralığı)</li>
+      </ul>
+      <h4>Tehdit</h4>
+      <p>Düşük fiyatlı entry-level rakipler. Triage + RBAC + audit + escalation gibi enterprise özellikler yok. Bizim "klinik-grade vs generic chatbot" söylemi burayı keser.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:24px">TR Yerel Pazarda Pozisyonlama</h3>
+  <div class="talk-track"><strong>"Zaten WhatsApp botumuz var" diyene</strong>WhatsApp botu ≠ klinik-grade intake. Botunuz hastayı sınıflandırıyor mu? Aciliyet seviyesi belirleyip doktora hemen iletiyor mu? Her etkileşim audit'leniyor mu? KVKK denetiminde kanıt sunabilir misiniz? Bizim ürün bu seviyede tasarlandı.</div>
+  <div class="talk-track"><strong>"Daha ucuz alternatif var" diyene</strong>$50/ay'lık bir bot ile $500/ay'lık bir platform aynı şey değil. 100 hasta/gün gelen bir poliklinik, kaçırılan 5 randevu = 5x işlem ücreti kaybı. ROI hesabı yapalım: bizim platform ortalama %20 no-show azaltıyor.</div>
+</section>
+
+<!-- ============ STRATEGY ============ -->
+<section id="strategy" class="tab-content">
+  <h2>Genel Strateji & Pozisyonlama</h2>
+
+  <h3>Bizim "Ölü Olmayan" Pozisyon Cümlesi</h3>
+  <div class="quote">"Türkiye'de WhatsApp, telefon, web ve formdan gelen hasta taleplerini tek pipeline'da AI ile triage edip doktor onayıyla randevu/ticket'a çeviren KVKK-uyumlu klinik intake platformu. US oyuncuların 3x ucuz, yerel chatbot'ların 10x kurumsal."</div>
+
+  <h3>3 Ana Differentiator (Vurgulanacak)</h3>
+  <div class="grid grid-3">
+    <div class="card">
+      <div class="stat-label">🇹🇷 #1</div>
+      <h4>TR-Native + KVKK</h4>
+      <p>Türkçe medikal NLU, WhatsApp-first kanal, VERBİS-ready, sağlık turizmi için TR/EN bilingual.</p>
+    </div>
+    <div class="card">
+      <div class="stat-label">⚙️ #2</div>
+      <h4>Agentic AI + Triage</h4>
+      <p>Sadece chatbot değil, agent: niyet sınıflandırma, aciliyet skoru, tool calling (slot bul, randevu aç, ticket aç), policy gate'leri.</p>
+    </div>
+    <div class="card">
+      <div class="stat-label">🛡️ #3</div>
+      <h4>Enterprise Mode + Audit</h4>
+      <p>Departman routing, RBAC, audit log, doctor inbox handoff. Klinik zincirleri için kurumsal-grade.</p>
+    </div>
+  </div>
+
+  <h3>Hangi Müşteriye Hangi Söylem</h3>
+  <div class="talk-track"><strong>Diş kliniği zinciri</strong>"PatientDesk YC mezunu ama US-only. Türkiye'de WhatsApp+KVKK gerçekliği var. Biz buraya yapıldık."</div>
+  <div class="talk-track"><strong>Sağlık turizmi (saç ekim, estetik)</strong>"Hasta İngiltere'den WhatsApp yazıyor, kliniği TR. Biz aynı agent içinde TR-EN-AR geçişi yapıyoruz, Palmate'ın yapamadığı şekilde audit + escalation veriyoruz."</div>
+  <div class="talk-track"><strong>Büyük hastane (Acıbadem, Memorial vb.)</strong>"Hyro/Notable enterprise oyuncuları var ama $10K+/ay başlıyorlar ve US-system odaklılar. Biz TR-yerli, daha hızlı kurulum, daha esnek özelleştirme.</div>
+  <div class="talk-track"><strong>Solo doktor / küçük muayene</strong>"Generic chatbot yerine klinik-grade. Aylık fiyat ucuz chatbot'a yakın, ama audit + triage + escalation kurumsal seviyede."</div>
+
+  <h3>Genel Landmine Bankası</h3>
+  <div class="landmine">"WhatsApp Cloud API native entegrasyonunuz var mı, yoksa 3rd party?"</div>
+  <div class="landmine">"Türkçe medikal terminoloji için custom tuning yapıldı mı?"</div>
+  <div class="landmine">"KVKK VERBİS kaydı için Data Processing Agreement (DPA) örneğiniz hazır mı?"</div>
+  <div class="landmine">"Hasta tıbbi acil durum belirtisi gösterdiğinde escalation policy nasıl tetikleniyor?"</div>
+  <div class="landmine">"Her etkileşim için audit log nereye yazılıyor? Klinik incelemesinde kanıt sunabiliyor muyuz?"</div>
+  <div class="landmine">"5 lokasyonlu zincirde yıllık maliyet ne olur? (Onların quote'unu sor, sonra karşılaştır.)"</div>
+
+  <h3>BiGG Masters için Roadmap Bağlantısı</h3>
+  <div class="card">
+    <p>Bu battlecard, BiGG Masters 2026-1 Deliverable 2'deki <strong>Strategic Objective</strong> ve <strong>Key Objectives</strong>'i besler:</p>
+    <ul>
+      <li><strong>OBJ 1 (Value Prop Validation):</strong> 25 discovery görüşmesinde bu battlecard'daki landmine soruları sor, rakip kullanım oranlarını ölç</li>
+      <li><strong>OBJ 2 (Product):</strong> KVKK + agentic AI + audit log = differentiator yatırımı</li>
+      <li><strong>OBJ 3 (GTM):</strong> Sağlık turizmi + 5-50 doktorlu klinik ICP (Hyro/Notable'ın değdiği büyük hastaneler değil)</li>
+      <li><strong>OBJ 5 (Funding):</strong> "Türkiye'nin PatientDesk + KVKK twist'i" hikayesi</li>
+    </ul>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.tab').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.tab).classList.add('active');
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+</script>
+
+</body>
+</html>

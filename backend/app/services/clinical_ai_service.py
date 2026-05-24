@@ -8,7 +8,9 @@ from anthropic import Anthropic
 
 from app.core.config import get_settings
 from app.models import Clinic, ClinicIntent
+from app.services.clinical_compliance_service import build_governance_context
 from app.services.clinical_persona_service import ClinicalPersona, choose_persona
+from app.services.clinical_slot_service import build_slot_decision
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,91 @@ INTENT_KEYWORDS: list[tuple[ClinicIntent, set[str]]] = [
 
 FRUSTRATION_TERMS = {"sinir", "kizgin", "kızgın", "şikayet", "sikayet", "cevap vermiyorsunuz", "rezalet", "bekliyorum"}
 
+DENTAL_APPOINTMENT_TERMS = {
+    "diş",
+    "dis",
+    "dişim",
+    "disim",
+    "ağrı",
+    "agri",
+    "ağrıyor",
+    "agriyor",
+    "zonkluyor",
+    "dolgu",
+    "dolgum",
+    "kanal",
+    "implant",
+    "diş eti",
+    "dis eti",
+    "braket",
+    "tel",
+    "ortodonti",
+    "çekim",
+    "cekim",
+    "beyazlatma",
+    "çocuğum",
+    "cocugum",
+    "akne",
+    "sivilce",
+    "leke",
+    "ben",
+    "egzama",
+    "saç",
+    "sac",
+    "botoks",
+    "dudak dolgusu",
+    "lazer",
+    "cilt bakımı",
+    "cilt bakimi",
+    "muayene",
+    "kontrol",
+}
+
+EMERGENCY_TERMS = {
+    "nefes",
+    "nefes alamiyorum",
+    "nefes alamıyorum",
+    "gogus",
+    "göğüs",
+    "kalp",
+    "bayildi",
+    "bayıldı",
+    "kontrol edilemeyen kanama",
+    "durmayan kanama",
+    "cene kirigi",
+    "çene kırığı",
+    "yuzum sisti",
+    "yüzüm şişti",
+    "yutamiyorum",
+    "yutamıyorum",
+    "112",
+}
+
+DENTAL_SPECIALTY_RULES: list[tuple[str, set[str], str]] = [
+    ("Restoratif Diş Tedavisi", {"dolgu", "dolgum", "dolgu düştü", "dolgu dustu", "kırık diş", "kirik dis"}, "restorative_dental"),
+    ("Endodonti", {"zonkluyor", "kanal", "gece ağrısı", "gece agrisi", "sinir", "köke", "koke"}, "dis_pain_root_canal"),
+    ("Periodontoloji", {"diş eti", "dis eti", "kanıyor", "kaniyor", "diş etim", "dis etim"}, "gum_bleeding"),
+    ("Pedodonti", {"çocuğum", "cocugum", "çocuk", "cocuk", "süt dişi", "sut disi"}, "pediatric_dental"),
+    ("Ortodonti", {"tel", "braket", "ortodonti", "plak", "şeffaf plak", "seffaf plak"}, "orthodontics"),
+    ("İmplantoloji", {"implant", "vida", "kemik tozu"}, "implant_followup"),
+    ("Ağız, Diş ve Çene Cerrahisi", {"çekim", "cekim", "20lik", "yirmilik", "gömülü", "gomulu"}, "oral_surgery"),
+    ("Estetik Diş Hekimliği", {"beyazlatma", "gülüş", "gulus", "lamina", "zirkonyum"}, "cosmetic_dentistry"),
+    ("Dermatoloji", {"akne", "sivilce", "leke", "ben", "egzama", "saç dökülmesi", "sac dokulmesi"}, "dermatology"),
+    ("Medikal Estetik", {"botoks", "dudak dolgusu", "mezoterapi", "lazer", "cilt bakımı", "cilt bakimi"}, "medical_aesthetic"),
+]
+
+
+def normalize_tr(text: str) -> str:
+    return (
+        text.lower()
+        .replace("ı", "i")
+        .replace("ğ", "g")
+        .replace("ü", "u")
+        .replace("ş", "s")
+        .replace("ö", "o")
+        .replace("ç", "c")
+    )
+
 
 def detect_language(text: str, default: str = "tr") -> str:
     lowered = text.lower()
@@ -67,13 +154,20 @@ def detect_language(text: str, default: str = "tr") -> str:
 
 def classify_intent(text: str) -> tuple[ClinicIntent, float]:
     normalized = text.lower()
+    normalized_ascii = normalize_tr(text)
+    if any(normalize_tr(term) in normalized_ascii for term in EMERGENCY_TERMS):
+        return ClinicIntent.MEDICAL_EMERGENCY, 0.99
     for intent, keywords in INTENT_KEYWORDS:
         hits = [keyword for keyword in keywords if keyword in normalized]
         if hits:
             confidence = min(0.94, 0.74 + (0.07 * len(hits)))
+            if intent == ClinicIntent.BOOK_APPOINTMENT and len(hits) >= 2:
+                confidence = max(confidence, 0.92)
             if intent == ClinicIntent.MEDICAL_EMERGENCY:
                 confidence = 0.99
             return intent, confidence
+    if any(normalize_tr(term) in normalized_ascii for term in DENTAL_APPOINTMENT_TERMS):
+        return ClinicIntent.BOOK_APPOINTMENT, 0.88
     if len(re.findall(r"\w+", normalized)) <= 2:
         return ClinicIntent.UNKNOWN, 0.48
     return ClinicIntent.GENERAL_QUESTION, 0.68
@@ -82,6 +176,55 @@ def classify_intent(text: str) -> tuple[ClinicIntent, float]:
 def detect_frustration(text: str) -> bool:
     normalized = text.lower()
     return any(term in normalized for term in FRUSTRATION_TERMS)
+
+
+def extract_clinical_intake(text: str) -> dict:
+    normalized = normalize_tr(text)
+    specialty = "Genel Diş Hekimliği"
+    routing_reason = "general_dental_intake"
+    for candidate, keywords, reason in DENTAL_SPECIALTY_RULES:
+        if any(normalize_tr(keyword) in normalized for keyword in keywords):
+            specialty = candidate
+            routing_reason = reason
+            break
+
+    preferred_time = None
+    if "bugun" in normalized:
+        preferred_time = "bugün"
+    elif "yarin" in normalized:
+        preferred_time = "yarın"
+    else:
+        weekday_match = re.search(r"\b(pazartesi|sali|sali|carsamba|persembe|cuma|cumartesi|pazar)\b", normalized)
+        if weekday_match:
+            preferred_time = weekday_match.group(1)
+
+    urgency = "routine"
+    if any(term in normalized for term in ["agri", "agriyor", "zonkluyor", "sisti", "kanama"]):
+        urgency = "priority"
+    if any(normalize_tr(term) in normalized for term in EMERGENCY_TERMS):
+        urgency = "emergency"
+
+    return {
+        "specialty": specialty,
+        "routing_reason": routing_reason,
+        "preferred_time": preferred_time,
+        "urgency": urgency,
+        "complaint_summary": text.strip()[:240],
+    }
+
+
+def _looks_like_planning_reply(reply: str) -> bool:
+    normalized = normalize_tr(reply)
+    planning_markers = [
+        "su anki plan goruntuleniyor",
+        "neleri degistirmek istersiniz",
+        "brainstorming raporu",
+        "benzeri yapay zeka randevu sistemleri",
+        "(1)",
+        "(2)",
+        "(3)",
+    ]
+    return any(marker in normalized for marker in planning_markers)
 
 
 def _safe_reply(intent: ClinicIntent, language: str, clinic: Clinic, persona: ClinicalPersona) -> str:
@@ -141,6 +284,32 @@ def _safe_reply(intent: ClinicIntent, language: str, clinic: Clinic, persona: Cl
     )
 
 
+def _appointment_reply(language: str, persona: ClinicalPersona, intake: dict, slot_decision: dict) -> str:
+    specialty = intake["specialty"]
+    preferred_time = intake.get("preferred_time")
+    if language == "tr":
+        slot_offer = slot_decision.get("patient_offer")
+        if slot_decision.get("status") in {"full", "waitlist", "doctor_review"}:
+            return (
+                f"Ben {persona.display_name}. Şikayetinizi {specialty} için randevu talebi olarak aldım. "
+                f"{slot_offer} "
+                "Ağrı, şişlik, kanama veya hızlı kötüleşme varsa bunu doktor ekranına öncelikli not olarak düşüyorum."
+            )
+        time_part = f" {preferred_time} için" if preferred_time else ""
+        return (
+            f"Ben {persona.display_name}. Şikayetinizi {specialty} için randevu talebi olarak not aldım.{time_part} "
+            f"{slot_offer} "
+            "Randevuyu netleştirebilmem için tercih ettiğiniz saat aralığını ve hastanın ad-soyad bilgisini paylaşır mısınız? "
+            "Ağrı, şişlik veya kanama hızla artıyorsa sizi insan operatöre de öncelikli aktaracağım."
+        )
+    time_part = f" for {preferred_time}" if preferred_time else ""
+    return (
+        f"This sounds like a {specialty} appointment request{time_part}. "
+        "Please share the preferred time window and the patient's full name so I can check availability. "
+        "If pain, swelling, or bleeding is rapidly worsening, I will escalate to a human operator."
+    )
+
+
 def _structured_prompt(clinic: Clinic, text: str, language: str, intent: ClinicIntent, persona: ClinicalPersona) -> str:
     return f"""
 You are CogniVault AI, a safe multilingual AI receptionist for a medical clinic.
@@ -156,6 +325,9 @@ Rules:
 - Never diagnose or give medical treatment instructions.
 - For emergency symptoms, recommend emergency services.
 - Follow this persona safety rule: {persona.safety_rule}
+- Treat health complaints as special category data. Collect only the minimum data needed for appointment routing.
+- Do not ask for national ID, card, insurance member details, or voice recording consent unless the compliance layer explicitly allows it.
+- If insurance verification, identity lookup, urgent symptoms, or uncertain medical content appears, prepare a human-review draft instead of a final medical answer.
 - Ask one concise follow-up question when data is missing.
 - Return only valid JSON with keys: reply, confidence, intent, action, requires_human_review, risk_reason, data.
 
@@ -164,15 +336,44 @@ Patient message:
 """.strip()
 
 
+def _attach_governance(result: ClinicalAIResult, governance: dict) -> ClinicalAIResult:
+    data = {**(result.data or {}), "privacy_guardrail": governance}
+    requires_human_review = result.requires_human_review or not governance["auto_send_allowed"]
+    risk_reason = result.risk_reason
+    if requires_human_review and risk_reason is None:
+        risk_reason = governance["human_review_reasons"][0] if governance["human_review_reasons"] else "requires_human_review"
+    return ClinicalAIResult(
+        reply=result.reply,
+        confidence=result.confidence,
+        intent=result.intent,
+        action=result.action,
+        persona_id=result.persona_id,
+        persona_name=result.persona_name,
+        voice=result.voice,
+        requires_human_review=requires_human_review,
+        risk_reason=risk_reason,
+        data=data,
+    )
+
+
 def _try_anthropic_reply(
     clinic: Clinic,
     text: str,
     language: str,
     intent: ClinicIntent,
     persona: ClinicalPersona,
+    governance: dict,
 ) -> ClinicalAIResult | None:
     settings = get_settings()
     if not settings.clinical_ai_enabled or not settings.anthropic_api_key:
+        return None
+    if not settings.clinical_external_ai_allowed:
+        return None
+    if not governance.get("external_transfer_allowed", False):
+        return None
+    if "special_category_health_data" in governance.get("data_classes", []):
+        return None
+    if "financial_or_insurance_data" in governance.get("data_classes", []):
         return None
 
     client = Anthropic(api_key=settings.anthropic_api_key)
@@ -193,8 +394,12 @@ def _try_anthropic_reply(
     except ValueError:
         parsed_intent = intent
 
+    reply = str(payload.get("reply") or _safe_reply(parsed_intent, language, clinic, persona))
+    if _looks_like_planning_reply(reply):
+        return None
+
     return ClinicalAIResult(
-        reply=str(payload.get("reply") or _safe_reply(parsed_intent, language, clinic, persona)),
+        reply=reply,
         confidence=float(payload.get("confidence") or 0.0),
         intent=parsed_intent,
         action=str(payload.get("action") or "collect_info"),
@@ -215,10 +420,13 @@ def generate_clinical_reply(
 ) -> ClinicalAIResult:
     resolved_language = language or detect_language(text, clinic.default_language)
     intent, intent_confidence = classify_intent(text)
+    intake = extract_clinical_intake(text)
+    slot_decision = build_slot_decision(intake)
     persona = choose_persona(intent, requested_persona_id)
-    anthropic_reply = _try_anthropic_reply(clinic, text, resolved_language, intent, persona)
+    governance = build_governance_context(clinic, text, intent, resolved_language).as_dict()
+    anthropic_reply = _try_anthropic_reply(clinic, text, resolved_language, intent, persona, governance)
     if anthropic_reply is not None:
-        return anthropic_reply
+        return _attach_governance(anthropic_reply, governance)
 
     risk_reason = None
     requires_review = False
@@ -233,15 +441,26 @@ def generate_clinical_reply(
         risk_reason = "confidence_below_auto_reply_threshold"
         requires_review = True
 
+    action = "emergency_guidance" if intent == ClinicIntent.MEDICAL_EMERGENCY else "collect_info"
+    reply = _safe_reply(intent, resolved_language, clinic, persona)
+    if intent == ClinicIntent.BOOK_APPOINTMENT:
+        action = "collect_appointment_details"
+        reply = _appointment_reply(resolved_language, persona, intake, slot_decision)
+        requires_review = requires_review or intake["urgency"] == "priority" or slot_decision["status"] == "doctor_review"
+        risk_reason = risk_reason or ("priority_dental_symptom" if intake["urgency"] == "priority" else None)
+    if not governance["auto_send_allowed"]:
+        requires_review = True
+        risk_reason = risk_reason or governance["human_review_reasons"][0]
+
     return ClinicalAIResult(
-        reply=_safe_reply(intent, resolved_language, clinic, persona),
+        reply=reply,
         confidence=round(intent_confidence, 2),
         intent=intent,
-        action="emergency_guidance" if intent == ClinicIntent.MEDICAL_EMERGENCY else "collect_info",
+        action=action,
         persona_id=persona.id,
         persona_name=persona.display_name,
         voice=persona.voice,
         requires_human_review=requires_review,
         risk_reason=risk_reason,
-        data={},
+        data={"intake": intake, "slot_decision": slot_decision, "privacy_guardrail": governance},
     )

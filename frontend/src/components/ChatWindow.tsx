@@ -224,6 +224,8 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
   }
 
   const roleName = user.role.name;
+  const roleLabel = roleName === "customer" ? "MÜŞTERİ" : roleName === "operator" ? "OPERATÖR" : "YÖNETİCİ";
+  const canShowIntelligenceCards = roleName !== "customer";
   const locale = user.locale.toUpperCase();
   const messages = session?.messages ?? [];
 
@@ -232,19 +234,19 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
       <div className="chat-header">
         <div className="chat-header-left">
           <div className="chat-title">{session?.title ?? "Agent Workspace"}</div>
-          <div className="chat-subtitle">Guided enterprise workflow · RBAC enforced</div>
+          <div className="chat-subtitle">Kurumsal randevu akışı · Yetki kontrollü · Denetlenebilir</div>
         </div>
         <div className="chat-badges">
           <span className="chat-badge">
             <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="12"/></svg>
-            {roleName} · {locale}
+            {roleLabel} · {locale}
           </span>
           <span className="chat-badge">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
               <path d="M7 11V7a5 5 0 0110 0v4"/>
             </svg>
-            Audited
+            DENETLENİYOR
           </span>
         </div>
       </div>
@@ -260,12 +262,12 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
               </svg>
             </div>
             <h4>Konuşmayı başlat</h4>
-            <p>Yazarak veya 🎙️ mikrofon butonu ile sesli yazın. Türkçe ve İngilizce desteklenir.</p>
+            <p>Kurumsal destek randevusu için ihtiyacınızı yazın veya mikrofonla dikte edin. Türkçe ve İngilizce desteklenir.</p>
           </div>
         ) : (
           messages.map((msg) => {
             const isUser = msg.sender === "user";
-            const intelligenceActivity = getIntelligenceActivity(msg.metadata_json);
+            const intelligenceActivity = canShowIntelligenceCards ? getIntelligenceActivity(msg.metadata_json) : null;
             if (msg.sender === "system" || msg.sender === "tool") return null;
             return (
               <div key={msg.id} className={`message-row ${isUser ? "outbound" : ""}`}>
@@ -489,7 +491,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
 
           <textarea
             className="composer-textarea"
-            placeholder={recording ? "🔴 Dinliyorum..." : "Yazın veya 🎙️ ile sesli konuşun..."}
+            placeholder={recording ? "Dinliyorum..." : "Kurumsal destek ihtiyacınızı yazın..."}
             value={input}
             rows={1}
             onChange={(e) => setInput(e.target.value)}
@@ -506,13 +508,13 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
 
         {/* Hata mesajı */}
         {voiceError && (
-          <div className="voice-error" onClick={() => setVoiceError(null)}>{voiceError} ✕</div>
+          <div className="voice-error" onClick={() => setVoiceError(null)}>{voiceError} ×</div>
         )}
 
         <div className="composer-hint">
           {recording
-            ? "🔴 Kayıt devam ediyor — durdurmak için tekrar bas"
-            : "Enter gönder · Shift+Enter yeni satır · 🎙️ sesli yaz · 🔊 AI mesajını dinle"}
+            ? "Kayıt devam ediyor · Durdurmak için tekrar basın"
+            : "Enter gönder · Shift+Enter yeni satır · Mikrofonla dikte et · AI mesajını dinle"}
         </div>
       </div>
     </div>
