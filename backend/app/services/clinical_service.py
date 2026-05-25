@@ -161,6 +161,29 @@ def ensure_default_clinic(db: Session) -> Clinic:
     if clinic is not None:
         return clinic
 
+    # Patient page için varsayılan branding + KVKK aydınlatma metni.
+    # Bunlar `settings_json` üstünden okunduğu için yeni tabloya gerek yok.
+    _default_kvkk_body = (
+        "Demo Klinik AI Resepsiyonu — KVKK Aydınlatma Metni v1.\n\n"
+        "1. Veri Sorumlusu: Demo Klinik.\n"
+        "2. İşlenen kişisel veriler: ad-soyad, telefon, sağlık şikayeti metni.\n"
+        "3. Amaç: Randevu yönetimi, hastayla iletişim, hizmet kalitesi.\n"
+        "4. Hukuki sebep: KVKK m.5/2-c (sözleşmenin kurulması) + m.6/3 (özel "
+        "nitelikli sağlık verisi için açık rıza).\n"
+        "5. Yurt dışı aktarımı: Sistem yerel sunucularda işlenir; ek olarak "
+        "WhatsApp veya telefon kanalı kullanılırsa transit aracıları için "
+        "ayrı m.9 onayınız sorulur.\n"
+        "6. Saklama süresi: Konuşma kayıtları 90 gün anonimleştirilir, 1 yıl "
+        "sonunda silinir. Randevu kaydı Sağlık Bakanlığı yönetmeliklerine "
+        "tabidir.\n"
+        "7. Haklarınız: 6698 sayılı Kanun m.11 kapsamındaki tüm haklara "
+        "sahipsiniz (bilgi talebi, düzeltme, silme, itiraz). "
+        "kvkk@demoklinik.com adresinden ulaşabilirsiniz.\n"
+    )
+    import hashlib as _hashlib
+
+    _default_kvkk_hash = _hashlib.sha256(_default_kvkk_body.encode("utf-8")).hexdigest()
+
     clinic = Clinic(
         name="Demo Klinik",
         slug=settings.clinical_default_clinic_slug,
@@ -170,6 +193,34 @@ def ensure_default_clinic(db: Session) -> Clinic:
         settings_json={
             "pricing_policy": "Prices vary by department and clinician.",
             "kvkk_note": "Demo data only; production requires Turkish hosting and DPA review.",
+            "branding": {
+                "headline": "Demo Klinik AI Resepsiyonu",
+                "sub_headline": "Saniyeler içinde KVKK onayı verip AI asistanımızla randevu alın.",
+                "logo_url": None,
+                "primary_color": "#1f3b73",
+                "accent_color": "#28c8a6",
+                "contact_phone": "+90 212 000 00 00",
+                "public_address": "Demo Cad. No:12, İstanbul",
+                "services": [
+                    "Genel Diş Hekimliği",
+                    "Endodonti",
+                    "Ortodonti",
+                    "İmplantoloji",
+                    "Estetik Diş Hekimliği",
+                    "Dermatoloji",
+                    "Medikal Estetik",
+                ],
+            },
+            "kvkk_disclosures": [
+                {
+                    "version": "v1",
+                    "headline": "Kişisel Verilerin İşlenmesi — Aydınlatma",
+                    "body": _default_kvkk_body,
+                    "body_hash": _default_kvkk_hash,
+                    "is_active": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ],
         },
     )
     db.add(clinic)

@@ -1,0 +1,616 @@
+"""
+Public (anonim hasta) endpoint'leri.
+
+Patient page için tasarlanmıştır. Hiçbir kullanıcı login'i gerekmez; bunun
+yerine iki kısa-ömürlü token (consent + session) ile yetkilendirme yapılır.
+Detaylar için: `docs/product/patient-clinic-experience.md` §5.3
+
+Akış:
+  1.  GET  /api/public/clinics/{slug}                          (anonim)
+  2.  POST /api/public/clinics/{slug}/consent                  (anonim → consent_token)
+  3.  POST /api/public/clinics/{slug}/conversations            (consent_token → session_token)
+  4.  POST /api/public/clinics/{slug}/conversations/{id}/messages   (session_token)
+  5.  POST /api/public/clinics/{slug}/conversations/{id}/appointments (session_token)
+
+Rate limit: IP başına saatlik 30 mesaj (Faz 1.5'te slowapi ile).
+"""
+
+from __future__ import annotations
+
+import hashlib
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.api.dependencies import get_db
+from app.models import (
+    Clinic,
+    ClinicBranch,
+    ClinicChannel,
+    ClinicConversation,
+    ClinicMessage,
+    ClinicMessageSender,
+    ClinicPatient,
+    ConsentRecord,
+    ConsentType,
+)
+from app.services import patient_session
+from app.services.clinical_service import (
+    IncomingClinicalMessage,
+    ingest_clinical_message,
+    normalize_phone,
+)
+
+router = APIRouter(prefix="/public", tags=["public-patient"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pydantic schemas — patient-facing minimal payload'lar
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class PublicBranchView(BaseModel):
+    name: str
+    address: str | None = None
+    phone: str | None = None
+    working_hours: dict | None = None
+
+
+class PublicDisclosureView(BaseModel):
+    version: str
+    body_hash: str
+    headline: str
+
+
+class PublicClinicView(BaseModel):
+    slug: str
+    name: str
+    headline: str
+    sub_headline: str
+    logo_url: str | None = None
+    primary_color: str
+    accent_color: str
+    contact_phone: str | None = None
+    public_address: str | None = None
+    branches: list[PublicBranchView]
+    services: list[str]
+    disclosure: PublicDisclosureView
+
+
+class ConsentRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=160)
+    phone: str = Field(min_length=6, max_length=40)
+    disclosure_version: str = Field(min_length=1, max_length=32)
+    disclosure_hash: str = Field(min_length=8, max_length=128)
+    accepted_cross_border: bool = Field(
+        default=False,
+        description="WhatsApp / Twilio gibi yurt dışı işleyiciler için ayrı m.9 onayı.",
+    )
+
+
+class ConsentResponse(BaseModel):
+    consent_token: str
+    expires_in_seconds: int
+
+
+class StartConversationRequest(BaseModel):
+    initial_message: str | None = Field(default=None, max_length=2000)
+
+
+class StartConversationResponse(BaseModel):
+    session_token: str
+    conversation_id: int
+    patient_id: int
+    welcome_message: str | None = None
+
+
+class PublicMessageRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+class PublicMessageView(BaseModel):
+    id: int
+    sender: str
+    body: str
+    intent: str | None
+    confidence_score: float | None
+    metadata_json: dict | None
+    created_at: datetime
+
+
+class PublicMessageResponse(BaseModel):
+    patient_message: PublicMessageView
+    assistant_message: PublicMessageView | None
+    requires_human_review: bool
+    conversation_status: str
+
+
+class PublicAppointmentConfirmRequest(BaseModel):
+    department: str = Field(min_length=2, max_length=140)
+    slot_offer_id: str | None = Field(default=None, max_length=80)
+    starts_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class PublicAppointmentConfirmResponse(BaseModel):
+    appointment_id: int
+    status: str
+    starts_at: datetime | None
+    department: str
+    summary: str
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _branding_or_default(clinic: Clinic) -> dict:
+    """Klinik branding'i settings_json'dan oku, eksik alanları default'la."""
+    raw = (clinic.settings_json or {}).get("branding") or {}
+    return {
+        "headline": raw.get("headline") or f"{clinic.name} AI Resepsiyonu",
+        "sub_headline": raw.get("sub_headline")
+        or "KVKK onayınızla, AI asistanımız üzerinden saniyeler içinde randevu alın.",
+        "logo_url": raw.get("logo_url"),
+        "primary_color": raw.get("primary_color") or "#1f3b73",
+        "accent_color": raw.get("accent_color") or "#28c8a6",
+        "contact_phone": raw.get("contact_phone"),
+        "public_address": raw.get("public_address"),
+        "services": list(raw.get("services") or []) or [
+            "Genel Diş Hekimliği",
+            "Endodonti",
+            "Ortodonti",
+            "İmplantoloji",
+            "Estetik Diş Hekimliği",
+            "Dermatoloji",
+            "Medikal Estetik",
+        ],
+    }
+
+
+def _disclosure_or_default(clinic: Clinic) -> dict:
+    """KVKK aydınlatma metnini settings_json'dan oku, yoksa default v0 üret."""
+    disclosures = (clinic.settings_json or {}).get("kvkk_disclosures") or []
+    active = next((d for d in disclosures if d.get("is_active")), None)
+    if active is None and disclosures:
+        active = disclosures[-1]
+    if active is None:
+        default_body = (
+            f"{clinic.name} AI Resepsiyonu KVKK Aydınlatma Metni\n\n"
+            "1. Veri Sorumlusu: " + clinic.name + "\n"
+            "2. İşlenen veriler: ad-soyad, telefon, sağlık şikayeti metni.\n"
+            "3. Amaç: Randevu yönetimi ve hasta bilgilendirmesi.\n"
+            "4. Yurt dışı aktarımı: yapılmaz; veriler yerel sunucularımızda işlenir.\n"
+            "5. Haklarınız: 6698 sayılı KVKK m.11'de belirtilen tüm haklara sahipsiniz.\n"
+        )
+        body_hash = hashlib.sha256(default_body.encode("utf-8")).hexdigest()
+        active = {
+            "version": "v0-implicit",
+            "body": default_body,
+            "body_hash": body_hash,
+            "is_active": True,
+            "headline": "KVKK Aydınlatma — Lütfen Okuyup Onaylayın",
+        }
+    return active
+
+
+def _find_clinic_by_slug(db: Session, slug: str) -> Clinic:
+    clinic = db.scalars(
+        select(Clinic).options(selectinload(Clinic.branches)).where(Clinic.slug == slug)
+    ).first()
+    if clinic is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="clinic_not_found")
+    return clinic
+
+
+def _extract_bearer(authorization: str | None) -> str:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing_patient_token",
+        )
+    return authorization.split(" ", 1)[1].strip()
+
+
+def _ip_or_device_hint(request: Request) -> str:
+    # Trust X-Forwarded-For first (proxy), then remote
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()[:120]
+    return (request.client.host if request.client else "unknown")[:120]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint 1 — Klinik public görünümü
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/clinics/{slug}", response_model=PublicClinicView)
+def get_public_clinic(slug: str, db: Session = Depends(get_db)) -> PublicClinicView:
+    clinic = _find_clinic_by_slug(db, slug)
+    branding = _branding_or_default(clinic)
+    disclosure = _disclosure_or_default(clinic)
+    return PublicClinicView(
+        slug=clinic.slug,
+        name=clinic.name,
+        headline=branding["headline"],
+        sub_headline=branding["sub_headline"],
+        logo_url=branding["logo_url"],
+        primary_color=branding["primary_color"],
+        accent_color=branding["accent_color"],
+        contact_phone=branding["contact_phone"],
+        public_address=branding["public_address"],
+        branches=[
+            PublicBranchView(
+                name=b.name,
+                address=b.address,
+                phone=b.phone,
+                working_hours=b.working_hours_json,
+            )
+            for b in clinic.branches
+        ],
+        services=branding["services"],
+        disclosure=PublicDisclosureView(
+            version=disclosure["version"],
+            body_hash=disclosure["body_hash"],
+            headline=disclosure.get("headline") or "KVKK Aydınlatma — Lütfen Okuyup Onaylayın",
+        ),
+    )
+
+
+@router.get("/clinics/{slug}/disclosure")
+def get_public_disclosure(slug: str, db: Session = Depends(get_db)) -> dict:
+    """Tam aydınlatma metni — modal'da "tam metni oku" link'i bunu açar."""
+    clinic = _find_clinic_by_slug(db, slug)
+    disclosure = _disclosure_or_default(clinic)
+    return {
+        "version": disclosure["version"],
+        "body_hash": disclosure["body_hash"],
+        "headline": disclosure.get("headline"),
+        "body": disclosure["body"],
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint 2 — KVKK onayı al, consent_token döndür
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/clinics/{slug}/consent", response_model=ConsentResponse)
+def submit_patient_consent(
+    slug: str,
+    payload: ConsentRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> ConsentResponse:
+    clinic = _find_clinic_by_slug(db, slug)
+    disclosure = _disclosure_or_default(clinic)
+
+    # Versiyon ve hash tutarlılığı kontrolü — frontend metnin SHA256'sını gönderir
+    if payload.disclosure_version != disclosure["version"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="disclosure_version_mismatch",
+        )
+    if payload.disclosure_hash.lower() != disclosure["body_hash"].lower():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="disclosure_hash_mismatch",
+        )
+
+    # ConsentRecord — patient_id henüz yok, conversation oluştururken bağlanacak
+    consent = ConsentRecord(
+        clinic_id=clinic.id,
+        patient_id=None,
+        conversation_id=None,
+        consent_type=ConsentType.DATA_PROCESSING,
+        granted=True,
+        channel=ClinicChannel.WEB_CHAT,
+        ip_or_device_hint=_ip_or_device_hint(request),
+        consent_text_version=disclosure["version"],
+    )
+    db.add(consent)
+
+    # Cross-border ayrı tipte ayrı satır
+    if payload.accepted_cross_border:
+        db.add(
+            ConsentRecord(
+                clinic_id=clinic.id,
+                patient_id=None,
+                conversation_id=None,
+                consent_type=ConsentType.CROSS_BORDER_TRANSFER,
+                granted=True,
+                channel=ClinicChannel.WEB_CHAT,
+                ip_or_device_hint=_ip_or_device_hint(request),
+                consent_text_version=disclosure["version"],
+            )
+        )
+
+    db.commit()
+
+    token = patient_session.issue_consent_token(
+        clinic_id=clinic.id,
+        clinic_slug=clinic.slug,
+        disclosure_version=disclosure["version"],
+    )
+    # Body'deki name/phone şu an consent satırına yazılmıyor — patient
+    # ConsentRecord değil ClinicPatient tablosunda yaşıyor; consent token
+    # ile gelecek conversation start'ta birleştirilecek.
+    return ConsentResponse(
+        consent_token=token,
+        expires_in_seconds=patient_session.CONSENT_TOKEN_TTL_MIN * 60,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint 3 — Conversation başlat (consent_token → session_token + initial AI reply)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _resolve_or_create_patient(
+    db: Session, clinic: Clinic, full_name: str, phone: str
+) -> ClinicPatient:
+    """Var olan hastayı bul, yoksa yarat. Ad-soyad bilgisini eksikse doldur."""
+    normalized = normalize_phone(phone)
+    patient = db.scalars(
+        select(ClinicPatient).where(
+            ClinicPatient.clinic_id == clinic.id, ClinicPatient.phone == normalized
+        )
+    ).first()
+    if patient is not None:
+        if full_name and not patient.full_name:
+            patient.full_name = full_name
+            db.add(patient)
+            db.commit()
+            db.refresh(patient)
+        return patient
+    patient = ClinicPatient(
+        clinic_id=clinic.id,
+        full_name=full_name,
+        phone=normalized,
+        language=clinic.default_language or "tr",
+        source=ClinicChannel.WEB_CHAT,
+        external_ref=normalized,
+        metadata_json={"source": "patient_page"},
+    )
+    db.add(patient)
+    db.commit()
+    db.refresh(patient)
+    return patient
+
+
+class PatientIdentityRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=160)
+    phone: str = Field(min_length=6, max_length=40)
+    initial_message: str | None = Field(default=None, max_length=2000)
+
+
+@router.post("/clinics/{slug}/conversations", response_model=StartConversationResponse)
+def start_patient_conversation(
+    slug: str,
+    payload: PatientIdentityRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+) -> StartConversationResponse:
+    token = _extract_bearer(authorization)
+    consent = patient_session.decode_consent_token(token)
+    if consent.clinic_slug != slug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="consent_clinic_mismatch"
+        )
+
+    clinic = _find_clinic_by_slug(db, slug)
+    if clinic.id != consent.clinic_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="consent_clinic_mismatch"
+        )
+
+    patient = _resolve_or_create_patient(db, clinic, payload.full_name, payload.phone)
+
+    # Bekleyen anonim consent satırlarını bu patient_id'ye bağla
+    anon_rows = db.scalars(
+        select(ConsentRecord).where(
+            ConsentRecord.clinic_id == clinic.id,
+            ConsentRecord.patient_id.is_(None),
+            ConsentRecord.consent_text_version == consent.disclosure_version,
+            ConsentRecord.ip_or_device_hint == _ip_or_device_hint(request),
+        )
+    ).all()
+    for row in anon_rows:
+        row.patient_id = patient.id
+        db.add(row)
+    db.commit()
+
+    # İlk mesaj varsa onu işle (ingest), yoksa boş conversation yarat
+    initial = payload.initial_message or "Merhaba"
+    incoming = IncomingClinicalMessage(
+        channel=ClinicChannel.WEB_CHAT,
+        from_phone=patient.phone,
+        body=initial,
+        patient_name=patient.full_name,
+        external_message_id=None,
+        external_thread_id=patient.phone,
+        raw_payload={"source": "patient_page", "consent_version": consent.disclosure_version},
+    )
+    result = ingest_clinical_message(db, incoming, clinic=clinic)
+
+    # Anonim consent'leri conversation'a da bağla
+    for row in db.scalars(
+        select(ConsentRecord).where(
+            ConsentRecord.clinic_id == clinic.id,
+            ConsentRecord.patient_id == patient.id,
+            ConsentRecord.conversation_id.is_(None),
+        )
+    ).all():
+        row.conversation_id = result.conversation.id
+        db.add(row)
+    db.commit()
+
+    session_token = patient_session.issue_session_token(
+        clinic_id=clinic.id,
+        clinic_slug=clinic.slug,
+        patient_id=patient.id,
+        conversation_id=result.conversation.id,
+        disclosure_version=consent.disclosure_version,
+    )
+
+    welcome = result.reply
+    return StartConversationResponse(
+        session_token=session_token,
+        conversation_id=result.conversation.id,
+        patient_id=patient.id,
+        welcome_message=welcome,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint 4 — Mesaj gönder
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _message_view(m: ClinicMessage) -> PublicMessageView:
+    return PublicMessageView(
+        id=m.id,
+        sender=m.sender.value if hasattr(m.sender, "value") else str(m.sender),
+        body=m.content,
+        intent=m.intent.value if m.intent else None,
+        confidence_score=m.confidence_score,
+        metadata_json=m.metadata_json,
+        created_at=m.created_at,
+    )
+
+
+@router.post(
+    "/clinics/{slug}/conversations/{conversation_id}/messages",
+    response_model=PublicMessageResponse,
+)
+def send_patient_message(
+    slug: str,
+    conversation_id: int,
+    payload: PublicMessageRequest,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+) -> PublicMessageResponse:
+    token = _extract_bearer(authorization)
+    session = patient_session.decode_session_token(token)
+    if session.clinic_slug != slug or session.conversation_id != conversation_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="session_scope_mismatch"
+        )
+
+    clinic = _find_clinic_by_slug(db, slug)
+    patient = db.get(ClinicPatient, session.patient_id)
+    if patient is None or patient.clinic_id != clinic.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="patient_not_found")
+
+    conversation = db.get(ClinicConversation, session.conversation_id)
+    if conversation is None or conversation.clinic_id != clinic.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="conversation_not_found"
+        )
+
+    incoming = IncomingClinicalMessage(
+        channel=ClinicChannel.WEB_CHAT,
+        from_phone=patient.phone,
+        body=payload.body,
+        patient_name=patient.full_name,
+        external_message_id=None,
+        external_thread_id=patient.phone,
+        raw_payload={"source": "patient_page"},
+    )
+    result = ingest_clinical_message(db, incoming, clinic=clinic)
+
+    # En son hasta + asistan mesajı çek
+    msgs = sorted(result.conversation.messages, key=lambda m: m.created_at)
+    last_patient = next((m for m in reversed(msgs) if m.sender == ClinicMessageSender.PATIENT), None)
+    last_assistant = next(
+        (m for m in reversed(msgs) if m.sender == ClinicMessageSender.ASSISTANT), None
+    )
+
+    return PublicMessageResponse(
+        patient_message=_message_view(last_patient) if last_patient else _message_view(result.message),
+        assistant_message=_message_view(last_assistant) if last_assistant else None,
+        requires_human_review=result.action == "shadow_review",
+        conversation_status=result.conversation.status.value
+        if hasattr(result.conversation.status, "value")
+        else str(result.conversation.status),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint 5 — Randevu oluştur (slot picker UI'dan tetiklenir)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/clinics/{slug}/conversations/{conversation_id}/appointments",
+    response_model=PublicAppointmentConfirmResponse,
+)
+def confirm_patient_appointment(
+    slug: str,
+    conversation_id: int,
+    payload: PublicAppointmentConfirmRequest,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+) -> PublicAppointmentConfirmResponse:
+    token = _extract_bearer(authorization)
+    session = patient_session.decode_session_token(token)
+    if session.clinic_slug != slug or session.conversation_id != conversation_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="session_scope_mismatch"
+        )
+
+    clinic = _find_clinic_by_slug(db, slug)
+    from app.models import ClinicalAppointment, ClinicalAppointmentStatus
+
+    appointment = ClinicalAppointment(
+        clinic_id=clinic.id,
+        patient_id=session.patient_id,
+        conversation_id=conversation_id,
+        branch_id=None,
+        department=payload.department,
+        starts_at=payload.starts_at,
+        status=ClinicalAppointmentStatus.PENDING,
+        notes=payload.notes,
+        metadata_json={
+            "source": "patient_page",
+            "slot_offer_id": payload.slot_offer_id,
+            "confirmed_via": "web_chat",
+        },
+    )
+    db.add(appointment)
+
+    # Konuşmayı kapanışa al
+    conversation = db.get(ClinicConversation, conversation_id)
+    if conversation is not None:
+        from app.models import ClinicConversationStatus
+
+        conversation.status = ClinicConversationStatus.APPOINTMENT_PENDING
+        conversation.metadata_json = {
+            **(conversation.metadata_json or {}),
+            "last_appointment_id_pending": True,
+        }
+        db.add(conversation)
+
+    db.commit()
+    db.refresh(appointment)
+
+    return PublicAppointmentConfirmResponse(
+        appointment_id=appointment.id,
+        status=appointment.status.value
+        if hasattr(appointment.status, "value")
+        else str(appointment.status),
+        starts_at=appointment.starts_at,
+        department=appointment.department,
+        summary=(
+            f"{payload.department} randevunuz {appointment.starts_at.strftime('%d %B %Y, %H:%M')} "
+            "için oluşturuldu. Onayınız klinik ekibine iletilmiştir."
+        )
+        if appointment.starts_at
+        else f"{payload.department} randevu talebiniz oluşturuldu, klinik ekibimiz en kısa sürede sizinle iletişime geçecek.",
+    )
