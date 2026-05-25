@@ -45,7 +45,7 @@ export function ClinicalPlayground({ token }: Props) {
     }
   }
 
-  function riskClass(risk?: string): string {
+  function riskClass(risk?: string | null): string {
     if (risk === "high") return "playground-pill playground-pill--high";
     if (risk === "medium") return "playground-pill playground-pill--medium";
     return "playground-pill playground-pill--low";
