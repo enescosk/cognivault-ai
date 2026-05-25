@@ -30,14 +30,18 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-if settings.has_weak_jwt_secret:
-    message = (
-        "JWT_SECRET is missing or uses a known-weak default. "
-        "Set a strong random JWT_SECRET (>=16 chars) in the environment."
+# Production fail-fast: JWT_SECRET zayıfsa uygulamayı başlatma.
+# Mesaj, operatöre nasıl güçlü secret üreteceğini anlatır.
+_jwt_error = settings.jwt_secret_validation_error()
+if _jwt_error is not None:
+    raise RuntimeError(
+        f"Refusing to start in {settings.environment!r}: {_jwt_error}"
     )
-    if settings.is_production:
-        raise RuntimeError(f"Refusing to start in {settings.environment!r}: {message}")
-    logger.warning("SECURITY WARNING: %s", message)
+if settings.has_weak_jwt_secret:
+    logger.warning(
+        "SECURITY WARNING: JWT_SECRET is weak for production. "
+        "Generate a strong one: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+    )
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -94,7 +98,15 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
-    if settings.seed_demo_data:
+    # Production guard — demo kullanıcıları (ayse, admin@…) prod'da YARATILMAMALI.
+    # SEED_DEMO_DATA=true bile olsa, ENVIRONMENT=production ise atla + uyarı logla.
+    if settings.seed_demo_data and settings.is_production:
+        logger.warning(
+            "SECURITY: SEED_DEMO_DATA=true but ENVIRONMENT=%r — demo users + sample "
+            "data will NOT be created. Disable SEED_DEMO_DATA in prod env.",
+            settings.environment,
+        )
+    elif settings.seed_demo_data:
         db = SessionLocal()
         try:
             seed_database(db)
@@ -116,8 +128,16 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Whitelist — wildcard "*" yerine sadece kullanılan HTTP verb'leri.
+    # Yeni verb gerekirse buraya ekle; eklemeden frontend'den çağrılan
+    # OPTIONS preflight'lar 403 alır.
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    # Frontend'in gerçekten gönderdiği header'lar — wildcard yerine açık liste.
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    # Response'da frontend'in okuyabilmesi gereken header'lar (request-id korelasyonu)
+    expose_headers=["X-Request-ID"],
+    # Preflight cache — 1 saat. Browser CORS preflight'larını az gönderir.
+    max_age=3600,
 )
 
 
