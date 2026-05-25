@@ -344,6 +344,14 @@ export type WebhookIngestionResponse = {
   action: string;
   reply?: string | null;
   shadow_review_id?: number | null;
+  // AI triage outputs (playground UI için ek alanlar — backend bunları
+  // ingestion_payload'a opsiyonel olarak ekliyor)
+  intent?: string | null;
+  confidence?: number | null;
+  risk?: "low" | "medium" | "high" | null;
+  requires_human_review?: boolean;
+  persona_name?: string | null;
+  risk_reason?: string | null;
 };
 export type ClinicalPersona = {
   id: "selin" | "arzu" | "can";

@@ -10,7 +10,22 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SQLITE_DB = PROJECT_ROOT / "backend" / "data" / "cognivault.db"
 
 
-WEAK_JWT_SECRETS = frozenset({"change-me-in-production", "replace-me", "secret", "secret-key", "jwt-secret"})
+WEAK_JWT_SECRETS = frozenset({
+    "change-me-in-production",
+    "replace-me",
+    "secret",
+    "secret-key",
+    "jwt-secret",
+    "dev-secret",
+    "test-secret",
+    "password",
+    "12345678",
+})
+
+# Production'da JWT secret için minimum uzunluk. 32 byte = 256 bit entropy hedefi.
+MIN_JWT_SECRET_LENGTH_PROD = 32
+# Development'ta uyarı eşiği — daha esnek
+MIN_JWT_SECRET_LENGTH_DEV = 16
 
 
 class Settings(BaseSettings):
@@ -81,8 +96,36 @@ class Settings(BaseSettings):
 
     @property
     def has_weak_jwt_secret(self) -> bool:
+        """Dev için zayıflık kontrolü — production'da daha sıkı kural geçerli."""
         secret = self.jwt_secret.strip()
-        return secret in WEAK_JWT_SECRETS or len(secret) < 16
+        return secret in WEAK_JWT_SECRETS or len(secret) < MIN_JWT_SECRET_LENGTH_DEV
+
+    def jwt_secret_validation_error(self) -> str | None:
+        """Production'da JWT_SECRET'in güçlü olduğunu doğrular.
+
+        Dönen mesaj None değilse uygulama başlatılmamalı. Mesaj, operatöre nasıl
+        çözüleceğini anlatır (`secrets.token_urlsafe(32)` komutu önerilir).
+        """
+        if not self.is_production:
+            return None
+        secret = self.jwt_secret.strip()
+        if not secret:
+            return "JWT_SECRET zorunlu — production'da boş geçilemez."
+        if secret in WEAK_JWT_SECRETS:
+            return (
+                "JWT_SECRET bilinen-zayıf default değerlerden biri. "
+                f"Yeni bir gizli üret: `python -c \"import secrets; print(secrets.token_urlsafe({MIN_JWT_SECRET_LENGTH_PROD}))\"`"
+            )
+        if len(secret) < MIN_JWT_SECRET_LENGTH_PROD:
+            return (
+                f"JWT_SECRET production için en az {MIN_JWT_SECRET_LENGTH_PROD} karakter olmalı "
+                f"(mevcut: {len(secret)}). "
+                f"Üret: `python -c \"import secrets; print(secrets.token_urlsafe({MIN_JWT_SECRET_LENGTH_PROD}))\"`"
+            )
+        # Entropi-hafif kontrol: tek-karakter veya çok tekrar eden pattern
+        if len(set(secret)) < 8:
+            return "JWT_SECRET düşük entropili (8'den az farklı karakter). Daha rastgele bir değer kullan."
+        return None
 
     @property
     def cors_origin_list(self) -> list[str]:

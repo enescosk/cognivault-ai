@@ -104,6 +104,8 @@ class ClinicalComplianceProfileResponse(BaseModel):
     mandatory_controls: list[str]
     blocked_by_default: list[str]
     operator_review_triggers: list[str]
+    # KVKK Md. 7 saklama politikası — admin paneli ve denetim için yapılandırılmış kayıt
+    retention_policy: dict | None = None
 
 
 class ClinicalPatentDossierResponse(BaseModel):
@@ -140,6 +142,13 @@ class WebhookIngestionResponse(BaseModel):
     action: str
     reply: str | None = None
     shadow_review_id: int | None = None
+    # Playground & gözlemleme için AI triage özeti
+    intent: str | None = None
+    confidence: float | None = None
+    risk: str | None = None
+    requires_human_review: bool = False
+    persona_name: str | None = None
+    risk_reason: str | None = None
 
 
 class ClinicalPersonaResponse(BaseModel):

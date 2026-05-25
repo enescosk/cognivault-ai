@@ -3,18 +3,32 @@ from __future__ import annotations
 from html import escape
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
 from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.core.webhook_security import (
     signature_required,
     verify_meta_signature,
     verify_twilio_signature,
 )
-from app.models import ClinicChannel, ClinicConversation, ClinicalAppointment, ShadowReview, ShadowReviewStatus, User
+from app.models import (
+    AuditResultStatus,
+    ClinicChannel,
+    ClinicConversation,
+    ClinicMessage,
+    ClinicPatient,
+    ClinicalAppointment,
+    ConsentRecord,
+    RoleName,
+    ShadowReview,
+    ShadowReviewStatus,
+    User,
+)
 from app.schemas.clinical import (
     ClinicalAppointmentCreateRequest,
     ClinicalAppointmentResponse,
@@ -157,15 +171,34 @@ def appointment_payload(appointment: ClinicalAppointment) -> ClinicalAppointment
 
 
 def ingestion_payload(result) -> WebhookIngestionResponse:
+    # Triage çıktıları playground UI'da görünür. Mevcut konuşma ve son
+    # AgentDecisionLog'tan çekiyoruz — IngestionResult zaten metadata taşır.
+    conv = result.conversation
+    risk = None
+    requires_review = False
+    persona_name = None
+    risk_reason = None
+    shadow = result.shadow_review
+    if shadow is not None:
+        risk = "high" if shadow.confidence_score < 0.6 else "medium"
+        requires_review = True
+        risk_reason = shadow.risk_reason
+        persona_name = (shadow.metadata_json or {}).get("persona_name")
     return WebhookIngestionResponse(
         ok=True,
         clinic_id=result.clinic.id,
         patient_id=result.patient.id,
-        conversation_id=result.conversation.id,
+        conversation_id=conv.id,
         message_id=result.message.id,
         action=result.action,
         reply=result.reply,
-        shadow_review_id=result.shadow_review.id if result.shadow_review else None,
+        shadow_review_id=shadow.id if shadow else None,
+        intent=conv.intent.value if conv.intent else None,
+        confidence=float(conv.confidence_score) if conv.confidence_score is not None else None,
+        risk=risk if risk else ("low" if not requires_review else None),
+        requires_human_review=requires_review,
+        persona_name=persona_name,
+        risk_reason=risk_reason,
     )
 
 
@@ -565,3 +598,120 @@ async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_d
     messages = parse_meta_payload(payload)
     results = [ingestion_payload(ingest_clinical_message(db, item, clinic=clinic)) for item in messages]
     return results
+
+
+# ─── KVKK Md. 11 — Silme Hakkı (Right to Erasure) ──────────────────────────
+@router.delete("/clinical/patients/{patient_id}/erasure")
+def erase_patient_data(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    """KVKK Md. 11 silme hakkı — hasta verisini anonymize eder.
+
+    Bu işlem geri alınamaz. Sadece operator veya admin rolü tetikleyebilir.
+    Tüm adımlar AuditLog'a `action_type="right_to_erasure"` olarak yazılır.
+
+    Anonymization stratejisi:
+      - ClinicPatient.full_name → "[SİLİNDİ]"
+      - ClinicPatient.phone → SHA-256(phone + clinic_pepper) — telefon hâlâ
+        eşsiz tutulmalı (UniqueConstraint), düz silinemez.
+      - ClinicMessage.content → "[İçerik KVKK gereği silindi]"
+      - ShadowReview.draft_reply / final_reply → "[Silindi]"
+      - ConsentRecord.withdrawn_at → şimdi (rıza geri çekildi olarak işaretle)
+    """
+    import hashlib
+    from datetime import datetime, timezone
+
+    from app.services.audit_service import log_action
+
+    # KVKK silme hakkını sadece operator/admin tetikleyebilir
+    if current_user.role.name not in (RoleName.OPERATOR, RoleName.ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Silme hakkı yalnızca operatör veya yönetici tarafından kullanılabilir (KVKK Md. 11).",
+        )
+
+    patient = db.get(ClinicPatient, patient_id)
+    if patient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hasta bulunamadı")
+
+    # Klinik scope kontrolü — operatörün kendi kliniği dışındaki hastaya erişimi yasak
+    clinic = ensure_clinic_access(db, current_user)
+    if patient.clinic_id != clinic.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hasta bulunamadı")
+
+    now = datetime.now(timezone.utc)
+    settings_obj = get_settings()
+    # Tuz: JWT secret + clinic id (klinik bazlı, geri-türetilemeyen)
+    pepper = f"{settings_obj.jwt_secret}:{clinic.id}".encode()
+
+    # 1) Hasta kimliği anonymization
+    original_phone = patient.phone
+    hashed_phone = hashlib.sha256(original_phone.encode() + pepper).hexdigest()[:32]
+    patient.full_name = "[SİLİNDİ]"
+    patient.phone = f"erased:{hashed_phone}"
+    patient.metadata_json = {}
+    patient.external_ref = None
+
+    # 2) Konuşma mesajlarını anonymize et
+    messages = db.scalars(
+        select(ClinicMessage).where(ClinicMessage.conversation_id.in_(
+            select(ClinicConversation.id).where(ClinicConversation.patient_id == patient.id)
+        ))
+    ).all()
+    erased_message_count = 0
+    for msg in messages:
+        msg.content = "[İçerik KVKK gereği silindi]"
+        msg.metadata_json = {"erased": True}
+        erased_message_count += 1
+
+    # 3) Shadow review draft + final reply'leri anonymize et
+    reviews = db.scalars(
+        select(ShadowReview).where(ShadowReview.conversation_id.in_(
+            select(ClinicConversation.id).where(ClinicConversation.patient_id == patient.id)
+        ))
+    ).all()
+    erased_review_count = 0
+    for review in reviews:
+        review.draft_reply = "[Silindi]"
+        if review.final_reply:
+            review.final_reply = "[Silindi]"
+        erased_review_count += 1
+
+    # 4) Tüm rıza kayıtlarını geri çek
+    consents = db.scalars(
+        select(ConsentRecord).where(
+            ConsentRecord.patient_id == patient.id,
+            ConsentRecord.withdrawn_at.is_(None),
+        )
+    ).all()
+    for consent in consents:
+        consent.withdrawn_at = now
+
+    db.commit()
+
+    # 5) Tüm bu adımları tek bir audit kaydı altında topla
+    log_action(
+        db,
+        user_id=current_user.id,
+        action_type="right_to_erasure",
+        explanation=f"KVKK Md. 11 silme hakkı — hasta #{patient_id} verileri anonymize edildi.",
+        result_status=AuditResultStatus.SUCCESS,
+        clinic_id=clinic.id,
+        organization_id=current_user.organization_id,
+        details={
+            "patient_id": patient_id,
+            "messages_erased": erased_message_count,
+            "shadow_reviews_erased": erased_review_count,
+            "consents_withdrawn": len(consents),
+        },
+    )
+
+    return {
+        "patient_id": patient_id,
+        "erased_at": now.isoformat(),
+        "messages_erased": erased_message_count,
+        "shadow_reviews_erased": erased_review_count,
+        "consents_withdrawn": len(consents),
+    }

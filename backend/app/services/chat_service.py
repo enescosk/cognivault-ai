@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import HTTPException, status
+from app.core.exceptions import NotFoundError, PermissionError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -25,7 +25,14 @@ def create_session(db: Session, user: User, title: str | None = None) -> ChatSes
 
 
 def list_sessions(db: Session, current_user: User) -> list[ChatSession]:
-    query = select(ChatSession).order_by(ChatSession.updated_at.desc())
+    # `chat.py` route'u her session için `session.messages[-1]` okuyor — bu N+1
+    # demek. `selectinload(ChatSession.messages)` ile 1 ek query'de tüm mesajlar
+    # toplu olarak yüklenir; 10 session yüklemesi 1+1=2 query'e iner.
+    query = (
+        select(ChatSession)
+        .options(selectinload(ChatSession.messages))
+        .order_by(ChatSession.updated_at.desc())
+    )
     if current_user.role.name == RoleName.CUSTOMER:
         query = query.where(ChatSession.user_id == current_user.id)
     return list(db.scalars(query))
@@ -40,9 +47,9 @@ def get_session(db: Session, session_id: int, current_user: User) -> ChatSession
     )
     session = db.scalars(query).first()
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+        raise NotFoundError("Chat session not found")
     if current_user.role.name == RoleName.CUSTOMER and session.user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to access this chat")
+        raise PermissionError("Not allowed to access this chat")
     return session
 
 

@@ -11,7 +11,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import agents, appointments, audit, auth, chat, clinical, enterprise, intelligence, users, voice
+from app.api.routes import agents, appointments, audit, auth, billing, chat, clinical, enterprise, intelligence, users, voice
 from app.core.config import get_settings
 from app.core.observability import (
     MetricsTimer,
@@ -20,8 +20,8 @@ from app.core.observability import (
     render_metrics,
 )
 from app.core.rate_limit import limiter
-from app.db.base import Base
-from app.db.session import SessionLocal, engine
+from app.db.schema import ensure_schema_up_to_date
+from app.db.session import SessionLocal
 from app.seed.data import seed_database
 from app.services.agents import bootstrap_agent_registry
 
@@ -30,14 +30,18 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-if settings.has_weak_jwt_secret:
-    message = (
-        "JWT_SECRET is missing or uses a known-weak default. "
-        "Set a strong random JWT_SECRET (>=16 chars) in the environment."
+# Production fail-fast: JWT_SECRET zayıfsa uygulamayı başlatma.
+# Mesaj, operatöre nasıl güçlü secret üreteceğini anlatır.
+_jwt_error = settings.jwt_secret_validation_error()
+if _jwt_error is not None:
+    raise RuntimeError(
+        f"Refusing to start in {settings.environment!r}: {_jwt_error}"
     )
-    if settings.is_production:
-        raise RuntimeError(f"Refusing to start in {settings.environment!r}: {message}")
-    logger.warning("SECURITY WARNING: %s", message)
+if settings.has_weak_jwt_secret:
+    logger.warning(
+        "SECURITY WARNING: JWT_SECRET is weak for production. "
+        "Generate a strong one: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+    )
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -73,28 +77,58 @@ class MetricsMiddleware(BaseHTTPMiddleware):
     Uses `request.scope["route"].path` when FastAPI resolves a matching route, so
     `/api/users/42` is bucketed as `/api/users/{user_id}` instead of producing a
     new label per ID — keeps cardinality under control.
+
+    Side-effect: her tamamlanmış request için JSON log satırı düşer (method,
+    path, status, duration_ms, request_id). Bu satır admin-side log query'leri
+    için temel kayıt.
     """
 
     async def dispatch(self, request: Request, call_next):
+        import time as _time
         route_obj = request.scope.get("route")
         route_path = getattr(route_obj, "path", request.url.path)
         timer = MetricsTimer(request.method, route_path)
-        with timer:
-            try:
+        started = _time.perf_counter()
+        status_code = "500"
+        try:
+            with timer:
                 response = await call_next(request)
                 timer.status = str(response.status_code)
+                status_code = str(response.status_code)
                 return response
-            except Exception:
-                timer.status = "500"
-                # Count the failure even when we re-raise.
-                http_requests_total.labels(request.method, route_path, "500").inc()
-                raise
+        except Exception:
+            timer.status = "500"
+            http_requests_total.labels(request.method, route_path, "500").inc()
+            raise
+        finally:
+            duration_ms = round((_time.perf_counter() - started) * 1000.0, 2)
+            logger.info(
+                "http.request",
+                extra={
+                    "method": request.method,
+                    "path": route_path,
+                    "status": status_code,
+                    "duration_ms": duration_ms,
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+            )
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    if settings.seed_demo_data:
+    # Şema kurulumu — sadece dev'de Alembic head'e taşır.
+    # Production'da deploy pipeline `alembic upgrade head`'i kendisi koşar;
+    # uygulama startup'ı DB şemasına dokunmaz.
+    ensure_schema_up_to_date()
+    # Production guard — demo kullanıcıları (ayse, admin@…) prod'da YARATILMAMALI.
+    # SEED_DEMO_DATA=true bile olsa, ENVIRONMENT=production ise atla + uyarı logla.
+    if settings.seed_demo_data and settings.is_production:
+        logger.warning(
+            "SECURITY: SEED_DEMO_DATA=true but ENVIRONMENT=%r — demo users + sample "
+            "data will NOT be created. Disable SEED_DEMO_DATA in prod env.",
+            settings.environment,
+        )
+    elif settings.seed_demo_data:
         db = SessionLocal()
         try:
             seed_database(db)
@@ -116,9 +150,35 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Whitelist — wildcard "*" yerine sadece kullanılan HTTP verb'leri.
+    # Yeni verb gerekirse buraya ekle; eklemeden frontend'den çağrılan
+    # OPTIONS preflight'lar 403 alır.
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    # Frontend'in gerçekten gönderdiği header'lar — wildcard yerine açık liste.
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    # Response'da frontend'in okuyabilmesi gereken header'lar (request-id korelasyonu)
+    expose_headers=["X-Request-ID"],
+    # Preflight cache — 1 saat. Browser CORS preflight'larını az gönderir.
+    max_age=3600,
 )
+
+
+# DomainError → HTTPException — servis katmanı HTTP'yi bilmek zorunda değil.
+# Her domain hatası kendi `http_status`'unu taşır, burada tek noktadan tutarlı
+# JSON formatına çevirir.
+from app.core.exceptions import DomainError
+
+
+@app.exception_handler(DomainError)
+async def domain_error_handler(request: Request, exc: DomainError):
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={
+            "error": exc.__class__.__name__,
+            "detail": exc.message,
+            **({"context": exc.details} if exc.details else {}),
+        },
+    )
 
 
 @app.exception_handler(404)
@@ -145,6 +205,7 @@ app.include_router(enterprise.router, prefix=settings.api_prefix)
 app.include_router(intelligence.router, prefix=settings.api_prefix)
 app.include_router(clinical.router, prefix=settings.api_prefix)
 app.include_router(agents.router, prefix=settings.api_prefix)
+app.include_router(billing.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

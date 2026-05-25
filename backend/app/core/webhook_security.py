@@ -66,4 +66,13 @@ def verify_meta_signature(
 
 
 def signature_required() -> bool:
-    return bool(get_settings().clinical_webhook_signature_required)
+    """Webhook imza doğrulamasının zorunlu olup olmadığını döner.
+
+    Production'da her zaman True — `clinical_webhook_signature_required` flag'i
+    false olsa bile prod'da imza zorunlu. Bu, config'i unutarak yanlış deploy
+    edilen senaryolarda ikinci savunma katmanıdır.
+    """
+    settings = get_settings()
+    if settings.is_production:
+        return True
+    return bool(settings.clinical_webhook_signature_required)

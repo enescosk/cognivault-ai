@@ -2,7 +2,7 @@ from collections.abc import Generator
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,19 @@ def get_current_user(
     ).first()
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not available")
+
+    # Faz 8 RLS — bağlantıya tenant context'i enjekte et.
+    # PostgreSQL'de tüm sonraki sorgular `current_setting('app.org_id')` ile
+    # filtrelenir. SQLite/MySQL no-op (try/except dialect kontrolü yerine).
+    if user.organization_id is not None:
+        try:
+            db.execute(
+                text("SELECT set_config('app.org_id', :v, true)"),
+                {"v": str(user.organization_id)},
+            )
+        except Exception:  # noqa: BLE001 — SQLite'da fonksiyon yok, sessizce geç
+            pass
+
     return user
 
 

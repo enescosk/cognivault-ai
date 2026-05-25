@@ -8,9 +8,25 @@ type ChatWindowProps = {
   sending: boolean;
   pendingMessage: string | null;
   streamingContent: string | null;  // null=yok, ""=başladı ama token gelmedi, "abc"=akan içerik
+  activeTools: string[];
+  isThinking: boolean;
   token: string;
   onSend: (content: string) => void;
 };
+
+// Backend tool isimlerini kullanıcı-dostu Türkçe etiketlere çeviren mapping
+const TOOL_LABELS: Record<string, string> = {
+  fetch_user_profile: "Profil bilgileri alınıyor",
+  validate_user_role: "Yetki kontrol ediliyor",
+  check_available_slots: "Müsait randevu saatleri aranıyor",
+  create_appointment: "Randevu oluşturuluyor",
+  save_application: "Başvuru kaydediliyor",
+  save_user_phone: "Telefon numarası kaydediliyor",
+};
+
+function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? name.replace(/_/g, " ");
+}
 
 const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
 
@@ -77,7 +93,7 @@ function getMicrophoneErrorMessage(error: unknown): string {
   return "Mikrofon izni alınamadı. Tarayıcı izinlerini kontrol edip tekrar deneyin.";
 }
 
-export function ChatWindow({ session, user, sending, pendingMessage, streamingContent, token, onSend }: ChatWindowProps) {
+export function ChatWindow({ session, user, sending, pendingMessage, streamingContent, activeTools, isThinking, token, onSend }: ChatWindowProps) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -442,8 +458,26 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
                 <div className="message-content streaming-content">
                   {streamingContent}<span className="stream-cursor" />
                 </div>
+              ) : activeTools.length > 0 ? (
+                /* Tool çağrıları çalışıyor — kullanıcıya ne yapıldığını göster */
+                <div className="agent-activity">
+                  {activeTools.map((name) => (
+                    <div key={name} className="agent-activity-row">
+                      <span className="agent-activity-spinner" />
+                      <span className="agent-activity-label">{toolLabel(name)}…</span>
+                    </div>
+                  ))}
+                </div>
+              ) : isThinking ? (
+                /* LLM düşünüyor (tool çağrısı öncesi) */
+                <div className="agent-activity">
+                  <div className="agent-activity-row">
+                    <span className="agent-activity-spinner" />
+                    <span className="agent-activity-label">Düşünülüyor…</span>
+                  </div>
+                </div>
               ) : (
-                /* Henüz token gelmedi — tool loop çalışıyor */
+                /* İlk tepki gelmeden — klasik typing dots */
                 <div className="typing-indicator">
                   <span className="typing-dot" />
                   <span className="typing-dot" />

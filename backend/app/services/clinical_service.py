@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from urllib.parse import parse_qs
 
-from fastapi import HTTPException, status
+from app.core.exceptions import NotFoundError, PermissionError, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -23,6 +23,8 @@ from app.models import (
     ClinicUserRole,
     ClinicalAppointment,
     ClinicalAppointmentStatus,
+    ConsentRecord,
+    ConsentType,
     FrustrationLog,
     InboundEvent,
     PreIntake,
@@ -33,6 +35,38 @@ from app.models import (
 )
 from app.services.agents import AgentType, DecisionRisk, build_decision, record_agent_decision
 from app.services.clinical_ai_service import detect_frustration, detect_language, generate_clinical_reply
+
+
+# KVKK Md. 10 — Aydınlatma metni sürümü. Metin değişirse versiyon yükseltilmeli.
+KVKK_NOTICE_VERSION = "v1.0.0"
+
+# KVKK retention politikası — hasta verisi varsayılan 10 yıl saklanır.
+# T.C. Sağlık Bakanlığı yönetmeliği ile uyumlu (Md. 7).
+RETENTION_PERIOD_YEARS = 10
+
+# KVKK Md. 10 aydınlatma metni — {clinic_name} ve {clinic_email} runtime'da doldurulur.
+KVKK_NOTICE_TEMPLATE_TR = (
+    "Merhaba, ben {clinic_name} AI asistanıyım. Görüşmeniz sırasında ad-soyad, "
+    "telefon numaranız ve sağlık şikayetiniz gibi kişisel verileriniz yalnızca "
+    "randevu oluşturma amacıyla işlenecektir. Verileriniz Türkiye sınırları içinde "
+    "saklanmakta olup üçüncü taraflarla paylaşılmamaktadır. KVKK kapsamındaki "
+    "haklarınız için {clinic_email} adresine yazabilirsiniz. Devam etmek veri "
+    "işlemeye onay verdiğiniz anlamına gelir."
+)
+
+
+def _build_kvkk_notice_text(clinic: Clinic) -> str:
+    """Klinik bağlamına göre KVKK aydınlatma metnini oluşturur."""
+    settings = clinic.settings_json or {}
+    clinic_email = (
+        settings.get("kvkk_contact_email")
+        or settings.get("contact_email")
+        or f"kvkk@{clinic.slug}.local"
+    )
+    return KVKK_NOTICE_TEMPLATE_TR.format(
+        clinic_name=clinic.name,
+        clinic_email=clinic_email,
+    )
 
 
 @dataclass(frozen=True)
@@ -74,7 +108,7 @@ def parse_twilio_form(body: bytes) -> IncomingClinicalMessage:
     profile_name = parsed.get("ProfileName", [None])[0]
     message_sid = parsed.get("MessageSid", [None])[0]
     if not from_phone or not message_body:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing Twilio WhatsApp fields")
+        raise ValidationError("Missing Twilio WhatsApp fields")
     return IncomingClinicalMessage(
         from_phone=normalize_phone(from_phone),
         body=message_body.strip(),
@@ -146,7 +180,7 @@ def ensure_default_clinic(db: Session) -> Clinic:
 
 def ensure_clinic_access(db: Session, current_user: User) -> Clinic:
     if current_user.role.name not in {RoleName.OPERATOR, RoleName.ADMIN}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clinical dashboard requires operator access")
+        raise PermissionError("Clinical dashboard requires operator access")
 
     clinic: Clinic | None = None
     if current_user.organization_id is not None:
@@ -225,6 +259,7 @@ def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPat
     if conversation is not None:
         return conversation
 
+    now = datetime.now(timezone.utc)
     conversation = ClinicConversation(
         clinic_id=clinic.id,
         patient_id=patient.id,
@@ -232,11 +267,64 @@ def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPat
         language=patient.language,
         external_thread_id=incoming.external_thread_id or patient.phone,
         metadata_json={},
+        # KVKK retention — 10 yıl sonra anonymization sürecine girer
+        data_expires_at=now + timedelta(days=365 * RETENTION_PERIOD_YEARS),
     )
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
+
+    # Hasta ilk kez yazıyor — KVKK Md. 10 aydınlatma yükümlülüğünü yerine getir.
+    # `_emit_kvkk_notice_and_consent` hem sistem mesajı hem ConsentRecord yazar.
+    _emit_kvkk_notice_and_consent(db, clinic, patient, conversation)
+
+    # Hasta için ilk kayıt anında data_expires_at'i de set et (varsa override etme).
+    if patient.data_expires_at is None:
+        patient.data_expires_at = now + timedelta(days=365 * RETENTION_PERIOD_YEARS)
+        db.commit()
+
     return conversation
+
+
+def _emit_kvkk_notice_and_consent(
+    db: Session,
+    clinic: Clinic,
+    patient: ClinicPatient,
+    conversation: ClinicConversation,
+) -> None:
+    """KVKK Md. 10 aydınlatma metnini sistem mesajı olarak yaz + örtük rıza kaydı oluştur.
+
+    Hasta WhatsApp/telefon/web üzerinden ilk kez geldiğinde tetiklenir. Mesaj
+    `sender=system` ile kaydedilir ki gerçek hasta/asistan dialogundan ayırt edilebilsin.
+    Devam etmesi açık rıza sayılır (TEMPLATE'in son cümlesi); geri çekme `withdrawn_at`
+    işaretlemesiyle yapılır.
+    """
+    notice_text = _build_kvkk_notice_text(clinic)
+    system_message = ClinicMessage(
+        clinic_id=clinic.id,
+        conversation_id=conversation.id,
+        sender=ClinicMessageSender.SYSTEM,
+        content=notice_text,
+        language=patient.language,
+        intent=None,
+        metadata_json={
+            "kvkk_notice": True,
+            "consent_text_version": KVKK_NOTICE_VERSION,
+        },
+    )
+    db.add(system_message)
+
+    consent_row = ConsentRecord(
+        clinic_id=clinic.id,
+        patient_id=patient.id,
+        conversation_id=conversation.id,
+        consent_type=ConsentType.DATA_PROCESSING,
+        granted=True,
+        channel=conversation.channel,
+        consent_text_version=KVKK_NOTICE_VERSION,
+    )
+    db.add(consent_row)
+    db.commit()
 
 
 def _provider_from_channel(channel: ClinicChannel) -> str:
@@ -474,7 +562,7 @@ def get_clinical_conversation(db: Session, clinic: Clinic, conversation_id: int)
         .where(ClinicConversation.clinic_id == clinic.id, ClinicConversation.id == conversation_id)
     ).first()
     if conversation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clinical conversation not found")
+        raise NotFoundError("Clinical conversation not found")
     return conversation
 
 
@@ -559,11 +647,11 @@ def update_shadow_review(
 ) -> ShadowReview:
     review = db.scalars(select(ShadowReview).where(ShadowReview.clinic_id == clinic.id, ShadowReview.id == review_id)).first()
     if review is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shadow review not found")
+        raise NotFoundError("Shadow review not found")
 
     next_status = ShadowReviewStatus(status_value)
     if next_status == ShadowReviewStatus.EDITED and not final_reply:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Edited review requires final_reply")
+        raise ValidationError("Edited review requires final_reply")
 
     review.status = next_status
     review.final_reply = final_reply or review.draft_reply
@@ -709,7 +797,7 @@ def _get_clinic_patient(db: Session, clinic: Clinic, patient_id: int) -> ClinicP
         select(ClinicPatient).where(ClinicPatient.id == patient_id, ClinicPatient.clinic_id == clinic.id)
     ).first()
     if patient is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+        raise NotFoundError("Patient not found")
     return patient
 
 
@@ -743,7 +831,7 @@ def get_pre_intake(db: Session, clinic: Clinic, pre_intake_id: int) -> PreIntake
         select(PreIntake).where(PreIntake.id == pre_intake_id, PreIntake.clinic_id == clinic.id)
     ).first()
     if pre_intake is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pre-intake not found")
+        raise NotFoundError("Pre-intake not found")
     return pre_intake
 
 

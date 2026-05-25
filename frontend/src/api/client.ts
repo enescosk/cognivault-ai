@@ -264,11 +264,18 @@ export function getUpcomingClinicalAppointments(token: string, withinMinutes = 1
  *   Backend → Faz1 tool loop (sync) → Faz2 OpenAI stream → SSE satırları
  *   Frontend → ReadableStream → TextDecoder → SSE parser → token buffer
  */
+export type StreamEvent =
+  | { t: "tk"; v: string }
+  | { t: "done"; card: unknown }
+  | { t: "err"; v: string }
+  | { t: "thinking" }
+  | { t: "tool"; name: string; status: "running" | "done" };
+
 export async function* streamMessage(
   sessionId: number,
   content: string,
   token: string
-): AsyncGenerator<{ t: "tk"; v: string } | { t: "done"; card: unknown } | { t: "err"; v: string }> {
+): AsyncGenerator<StreamEvent> {
   const res = await fetch(`${API_URL}/chat/sessions/${sessionId}/messages/stream`, {
     method: "POST",
     headers: {
@@ -301,10 +308,20 @@ export async function* streamMessage(
       const line = part.trim();
       if (!line.startsWith("data: ")) continue;
       try {
-        const payload = JSON.parse(line.slice(6)) as { t: string; v?: string; card?: unknown };
-        if (payload.t === "tk")   yield { t: "tk",   v: payload.v ?? "" };
-        if (payload.t === "done") yield { t: "done", card: payload.card ?? null };
-        if (payload.t === "err")  yield { t: "err",  v: payload.v ?? "Unknown error" };
+        const payload = JSON.parse(line.slice(6)) as {
+          t: string;
+          v?: string;
+          card?: unknown;
+          name?: string;
+          status?: string;
+        };
+        if (payload.t === "tk")       yield { t: "tk",   v: payload.v ?? "" };
+        if (payload.t === "done")     yield { t: "done", card: payload.card ?? null };
+        if (payload.t === "err")      yield { t: "err",  v: payload.v ?? "Unknown error" };
+        if (payload.t === "thinking") yield { t: "thinking" };
+        if (payload.t === "tool" && payload.name && (payload.status === "running" || payload.status === "done")) {
+          yield { t: "tool", name: payload.name, status: payload.status };
+        }
       } catch { /* malformed line — skip */ }
     }
   }
@@ -404,4 +421,28 @@ export function listAgentDecisions(
   if (filters.limit) params.set("limit", String(filters.limit));
   const qs = params.toString();
   return request<AgentDecisionLog[]>(`/agents/decisions${qs ? `?${qs}` : ""}`, {}, token);
+}
+
+// ─── LLM Usage / Cost ───────────────────────────────────────────────────────
+export interface UsageSummaryByModel {
+  model: string;
+  provider: string;
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export interface UsageSummary {
+  range_days: number;
+  total_calls: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  by_model: UsageSummaryByModel[];
+  by_agent_type: Record<string, number>;
+}
+
+export function getUsageSummary(token: string, days: number = 7): Promise<UsageSummary> {
+  return request<UsageSummary>(`/agents/usage/summary?days=${days}`, {}, token);
 }

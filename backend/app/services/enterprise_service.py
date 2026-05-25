@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from fastapi import HTTPException, status
+from app.core.exceptions import NotFoundError, PermissionError, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -44,7 +44,7 @@ class RoutingDecision:
 
 def ensure_enterprise_access(user: User) -> None:
     if user.role.name not in {RoleName.OPERATOR, RoleName.ADMIN}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Enterprise mode requires operator or admin role")
+        raise PermissionError("Enterprise mode requires operator or admin role")
 
 
 def get_default_organization(db: Session) -> Organization:
@@ -71,10 +71,7 @@ def resolve_user_organization(db: Session, user: User) -> Organization:
             select(Organization).where(Organization.id == user.organization_id)
         ).first()
         if organization is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User's organization no longer exists",
-            )
+            raise NotFoundError("User's organization no longer exists")
         return organization
     return get_default_organization(db)
 
@@ -272,7 +269,7 @@ def get_enterprise_session(db: Session, current_user: User, session_id: int) -> 
         )
     ).first()
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enterprise session not found")
+        raise NotFoundError("Enterprise session not found")
     return session
 
 
@@ -321,12 +318,12 @@ def update_enterprise_ticket_status(
         )
     ).first()
     if ticket is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enterprise ticket not found")
+        raise NotFoundError("Enterprise ticket not found")
 
     try:
         next_status = EnterpriseTicketStatus(status_value)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported ticket status") from exc
+        raise ValidationError("Unsupported ticket status") from exc
 
     ticket.status = next_status
     if next_status == EnterpriseTicketStatus.ESCALATED:

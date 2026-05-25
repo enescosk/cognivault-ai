@@ -4,12 +4,20 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.rate_limit import limiter
 from app.db.base import Base
 from app.db.session import SessionLocal
 from app.main import app
 from app.api.dependencies import get_db
 from app.models import Role, RoleName, User
 from app.core.security import hash_password
+
+# Test suite TestClient'ı tek IP üzerinden binlerce istek atar; login için
+# `@limiter.limit("10/minute")` testleri brute-force kabul edip 429 döner ve
+# `KeyError: 'access_token'` ile her fixture çöker. Üretim davranışı korunur,
+# sadece test koşumunda kapatıyoruz. SlowAPI Limiter'ın resmi `enabled` flag'i
+# bu amaç için var.
+limiter.enabled = False
 
 SQLITE_URL = "sqlite://"
 
