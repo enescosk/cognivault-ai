@@ -16,11 +16,12 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
 from app.core.config import get_settings
-from app.models import User
+from app.models import ConsentRecord, ConsentType, User
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 settings = get_settings()
@@ -39,12 +40,16 @@ TTS_MODEL = "tts-1"   # tts-1-hd daha yüksek kalite ama 2× maliyetli
 async def transcribe_audio(
     file: UploadFile,
     language: str = "tr",
+    clinic_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
     """
     MediaRecorder webm blob'unu OpenAI Whisper-1 ile metne çevirir.
     language: "tr" (varsayılan) veya "en" — açıkça vermek doğruluğu artırır.
+
+    KVKK Md. 6: `clinic_id` verilirse (klinik modu), o klinik için aktif bir
+    `voice_recording` rızası aranır. Yoksa 403 döner.
     """
     if not settings.voice_external_enabled:
         raise HTTPException(
@@ -54,6 +59,25 @@ async def transcribe_audio(
     if not settings.openai_api_key:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail="OpenAI API key gerekli.")
+
+    # KVKK Md. 6 — Klinik bağlamında ses kaydı için hasta açık rızası şart.
+    if clinic_id is not None:
+        consent_row = db.scalars(
+            select(ConsentRecord)
+            .where(
+                ConsentRecord.clinic_id == clinic_id,
+                ConsentRecord.consent_type == ConsentType.VOICE_RECORDING,
+                ConsentRecord.granted == True,  # noqa: E712
+                ConsentRecord.withdrawn_at.is_(None),
+            )
+            .order_by(ConsentRecord.granted_at.desc())
+            .limit(1)
+        ).first()
+        if consent_row is None:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="Ses kaydı için hasta açık rızası alınmadan harici transkripsiyon servisi kullanılamaz (KVKK Md. 6).",
+            )
 
     audio_bytes = await file.read()
     if not audio_bytes:

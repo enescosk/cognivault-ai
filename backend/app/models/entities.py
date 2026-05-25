@@ -137,6 +137,20 @@ class ReminderStatus(str, Enum):
     FAILED = "failed"
 
 
+class ConsentType(str, Enum):
+    """KVKK Md. 5/6 kapsamında hastadan alınacak açık rıza tipleri.
+
+    Her rıza tipi ayrı satır olarak kaydedilir; geri çekme `withdrawn_at` ile
+    işaretlenir. Aynı hasta için aynı tipte birden çok satır olabilir — en
+    son `granted_at` baz alınır.
+    """
+
+    VOICE_RECORDING = "voice_recording"           # Ses kaydının harici STT/TTS'e gönderilmesi
+    DATA_PROCESSING = "data_processing"           # Ad-soyad, iletişim, sağlık şikayeti işleme
+    CROSS_BORDER_TRANSFER = "cross_border_transfer"  # Yurt dışı veri transferi
+    INSURANCE_LOOKUP = "insurance_lookup"         # Sigorta / SGK sorgusu
+
+
 class Clinic(Base):
     __tablename__ = "clinics"
 
@@ -206,6 +220,8 @@ class ClinicPatient(Base):
     source: Mapped[ClinicChannel] = mapped_column(SqlEnum(ClinicChannel), default=ClinicChannel.WHATSAPP, nullable=False)
     external_ref: Mapped[str | None] = mapped_column(String(120))
     metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    # KVKK retention policy — 10 yıl sonra otomatik anonymization tetiklenmeli (cron job)
+    data_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -231,6 +247,8 @@ class ClinicConversation(Base):
     last_patient_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     external_thread_id: Mapped[str | None] = mapped_column(String(160), index=True)
     metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    # KVKK retention policy — 10 yıl sonra mesaj içerikleri anonymization sürecine girer
+    data_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -387,6 +405,57 @@ class AgentDecisionLog(Base):
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     payload_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ConsentRecord(Base):
+    """KVKK Md. 5/6 açık rıza kaydı — her rıza/geri-çekme ayrı satır olarak tutulur.
+
+    KVKK ispat yükü işleyene (klinik) ait olduğu için bu tablo append-only
+    yaklaşımıyla yönetilir: rızayı geri çekme ayrı bir satır olarak değil,
+    ilgili satıra `withdrawn_at` damgalanarak yapılır. `consent_text_version`
+    hangi aydınlatma metninin kabul edildiğini izlemek için zorunludur — metin
+    güncellendiğinde önceki sürümler hâlâ denetlenebilir kalır.
+    """
+
+    __tablename__ = "consent_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_patients.id"), nullable=True, index=True)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_conversations.id"), nullable=True, index=True)
+    consent_type: Mapped[ConsentType] = mapped_column(SqlEnum(ConsentType), nullable=False, index=True)
+    granted: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    channel: Mapped[ClinicChannel | None] = mapped_column(SqlEnum(ClinicChannel), nullable=True)
+    # IP veya cihaz parmak izi — denetim izi için (zorunlu değil)
+    ip_or_device_hint: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Hangi aydınlatma metninin kabul edildiği — semver veya tarih (örn. "v1.2.0" veya "2026-05-25")
+    consent_text_version: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class LlmUsageRecord(Base):
+    """Per-call token + cost telemetry for every LLM invocation.
+
+    Captures both successful and failed calls. `estimated_cost_usd` is computed
+    at write-time from the static pricing table in `app.services.llm_pricing`,
+    so historical rows survive future model price changes.
+    """
+
+    __tablename__ = "llm_usage_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False, index=True)   # "openai" | "anthropic"
+    model: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    agent_type: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    estimated_cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
 
 class FrustrationLog(Base):

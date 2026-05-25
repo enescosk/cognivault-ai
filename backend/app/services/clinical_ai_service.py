@@ -383,6 +383,26 @@ def _try_anthropic_reply(
         temperature=0.2,
         messages=[{"role": "user", "content": _structured_prompt(clinic, text, language, intent, persona)}],
     )
+    # Usage telemetrisi — admin dashboard maliyet kartı için.
+    # Clinical fonksiyonları db session almıyor; telemetri için ayrı kısa-ömürlü session aç.
+    try:
+        from app.db.session import SessionLocal
+        from app.services.llm_usage import extract_anthropic_usage, record_llm_usage
+        prompt_t, completion_t = extract_anthropic_usage(response)
+        telemetry_db = SessionLocal()
+        try:
+            record_llm_usage(
+                telemetry_db,
+                model=settings.anthropic_model,
+                prompt_tokens=prompt_t,
+                completion_tokens=completion_t,
+                agent_type="clinical_triage",
+                organization_id=getattr(clinic, "organization_id", None),
+            )
+        finally:
+            telemetry_db.close()
+    except Exception:  # noqa: BLE001
+        pass
     raw = "".join(block.text for block in response.content if getattr(block, "type", "") == "text")
     try:
         payload = json.loads(raw)

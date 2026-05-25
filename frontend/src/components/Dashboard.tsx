@@ -20,6 +20,7 @@ import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
 import { DecisionLogView } from "./DecisionLogView";
+import { UsageCostCard } from "./UsageCostCard";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
@@ -46,6 +47,8 @@ export function Dashboard({ audience }: DashboardProps = {}) {
   const [sending, setSending] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const [activeTools, setActiveTools] = useState<string[]>([]);  // şu an çalışan tool'lar
+  const [isThinking, setIsThinking] = useState(false);            // LLM düşünüyor mu
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"chat" | "appointments" | "clinical">("chat");
 
@@ -166,6 +169,8 @@ export function Dashboard({ audience }: DashboardProps = {}) {
     setSending(true);
     setPendingMessage(content);   // kullanıcı balonu anında görünür
     setStreamingContent("");      // AI balon hazır, içi dolacak
+    setActiveTools([]);
+    setIsThinking(false);
     setError(null);
 
     try {
@@ -174,13 +179,28 @@ export function Dashboard({ audience }: DashboardProps = {}) {
 
       for await (const event of stream) {
         if (event.t === "tk") {
-          // Her token gelince buffer'a ekle → AI balon büyür
+          // İlk token gelince düşünme + tool göstergelerini kaldır
+          if (buffer === "") {
+            setIsThinking(false);
+            setActiveTools([]);
+          }
           buffer += event.v;
           setStreamingContent(buffer);
+        } else if (event.t === "thinking") {
+          setIsThinking(true);
+        } else if (event.t === "tool") {
+          if (event.status === "running") {
+            setIsThinking(false);
+            setActiveTools((prev) => prev.includes(event.name) ? prev : [...prev, event.name]);
+          } else {
+            setActiveTools((prev) => prev.filter((n) => n !== event.name));
+          }
         } else if (event.t === "done") {
           // Stream bitti — session'ı yenile, streaming state'i temizle
           setPendingMessage(null);
           setStreamingContent(null);
+          setActiveTools([]);
+          setIsThinking(false);
           await loadDashboard(selectedSession.id);
           break;
         } else if (event.t === "err") {
@@ -190,6 +210,8 @@ export function Dashboard({ audience }: DashboardProps = {}) {
     } catch (err) {
       setPendingMessage(null);
       setStreamingContent(null);
+      setActiveTools([]);
+      setIsThinking(false);
       setError(err instanceof Error ? err.message : "Mesaj gönderilemedi");
       if (selectedSession?.id) {
         try { setSelectedSession(await getSession(selectedSession.id, token)); } catch { /* ignore */ }
@@ -242,7 +264,7 @@ export function Dashboard({ audience }: DashboardProps = {}) {
           </ErrorBoundary>
         ) : (
           <ErrorBoundary scope="Sohbet">
-            <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
+            <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} activeTools={activeTools} isThinking={isThinking} token={token ?? ""} onSend={handleSend} />
           </ErrorBoundary>
         )}
       </main>
@@ -253,7 +275,10 @@ export function Dashboard({ audience }: DashboardProps = {}) {
       )}
       {isAdmin && !isClinicalView && (
         <ErrorBoundary scope="Yönetim paneli">
-          <AdminPanel users={users} appointments={appointments} logs={logs} />
+          <aside className="audit-panel">
+            <UsageCostCard token={token ?? ""} />
+            <AdminPanel users={users} appointments={appointments} logs={logs} />
+          </aside>
         </ErrorBoundary>
       )}
       {(isOperator || isAdmin) && isClinicalView && (

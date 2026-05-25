@@ -104,6 +104,8 @@ class ClinicalComplianceProfileResponse(BaseModel):
     mandatory_controls: list[str]
     blocked_by_default: list[str]
     operator_review_triggers: list[str]
+    # KVKK Md. 7 saklama politikası — admin paneli ve denetim için yapılandırılmış kayıt
+    retention_policy: dict | None = None
 
 
 class ClinicalPatentDossierResponse(BaseModel):

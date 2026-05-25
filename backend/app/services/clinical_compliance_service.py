@@ -208,6 +208,17 @@ def build_compliance_profile(clinic: Clinic) -> dict:
             "patient_frustration_detected",
             "national_identifier_detected",
         ],
+        # KVKK Md. 7 — Saklama (Retention) Politikası
+        # Hasta verisi varsayılan 10 yıl tutulur, sonra anonymization (`right_to_erasure`
+        # iş akışı) tetiklenir. Süre dolan kayıtlar `data_expires_at` kolonu ile takip edilir.
+        "retention_policy": {
+            "default_period_years": 10,
+            "anchor_field": "data_expires_at",
+            "anchored_tables": ["clinic_patients", "clinic_conversations"],
+            "post_expiry_action": "anonymize_via_right_to_erasure",
+            "legal_basis": "T.C. Sağlık Bakanlığı Kişisel Sağlık Verileri Yönetmeliği Md. 7",
+            "patient_initiated_erasure_endpoint": "DELETE /api/clinical/patients/{patient_id}/erasure",
+        },
     }
 
 

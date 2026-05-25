@@ -19,6 +19,7 @@ from app.services.appointment_service import format_slot_label
 from app.services.chat_service import add_message, update_workflow_state
 from app.services.external_intent_service import extract_external_request_terms
 from app.services.intelligence_service import discover_company_contact_for_agent
+from app.services.llm_usage import extract_openai_usage, record_llm_usage
 from app.services.notification_service import send_appointment_confirmation
 from app.tools.registry import execute_tool, tool_specs, tool_specs_anthropic
 
@@ -31,6 +32,22 @@ class AgentContext:
     db: Session
     user: User
     session: ChatSession
+
+
+def _record_openai_usage(context: AgentContext, response, model: str, agent_type: str) -> None:
+    """Non-streaming OpenAI completion → usage kaydı. Telemetri başarısızlığı request'i bozmamalı."""
+    prompt_t, completion_t = extract_openai_usage(response)
+    if prompt_t == 0 and completion_t == 0:
+        return
+    record_llm_usage(
+        context.db,
+        model=model,
+        prompt_tokens=prompt_t,
+        completion_tokens=completion_t,
+        agent_type=agent_type,
+        organization_id=getattr(context.user, "organization_id", None),
+        user_id=context.user.id,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -747,6 +764,7 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
             tool_choice="auto",
             temperature=0.65,
         )
+        _record_openai_usage(context, response, settings.openai_model, "appointment")
         message = response.choices[0].message
         if message.tool_calls:
             history.append(
@@ -820,6 +838,7 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
                     messages=history,
                     temperature=0.65,
                 )
+                _record_openai_usage(context, final, settings.openai_model, "appointment")
                 final_text = final.choices[0].message.content or default_reply(
                     language,
                     f"Randevunuz onaylandı! Kod: {confirmation_card.confirmation_code}",
@@ -1034,7 +1053,10 @@ def stream_openai_agent(
     confirmation_card: AppointmentConfirmationCard | None = None
 
     # ── Faz 1: Tool Loop ─────────────────────────────────────────────────────
+    # Tool çağrıları sırasında frontend "AI düşünüyor" boş ekran görmesin diye
+    # her tool call için "running" + "done" event'leri yield ediyoruz.
     for _ in range(6):
+        yield _sse({"t": "thinking"})
         response = client.chat.completions.create(
             model=settings.openai_model,
             messages=history,
@@ -1042,14 +1064,22 @@ def stream_openai_agent(
             tool_choice="auto",
             temperature=0.65,
         )
+        _record_openai_usage(context, response, settings.openai_model, "appointment")
         message = response.choices[0].message
 
         if not message.tool_calls:
             # Tool call yok → Faz 2'ye geç (bu history ile stream aç)
             break
 
-        # Tool call var → çalıştır, history'e ekle, döngüye devam et
+        # Tool call var → her aracı tek tek çalıştır + event yay
+        for tc in message.tool_calls:
+            yield _sse({"t": "tool", "name": tc.function.name, "status": "running"})
+
         history, card = _execute_tool_calls(context, message, history)
+
+        for tc in message.tool_calls:
+            yield _sse({"t": "tool", "name": tc.function.name, "status": "done"})
+
         if card:
             confirmation_card = card
         # Tool sonuçları history'de, bir sonraki turda AI yanıt üretecek
@@ -1063,17 +1093,36 @@ def stream_openai_agent(
             messages=history,
             tools=tool_specs(),
             stream=True,
+            stream_options={"include_usage": True},  # son chunk usage taşır
             tool_choice="none",   # Faz 2'de tool call istemiyoruz
             temperature=0.65,
         )
 
         full_text = ""
+        final_usage = None
         for chunk in stream:
+            # Final usage chunk'unda choices=[] olabilir
+            if getattr(chunk, "usage", None) is not None:
+                final_usage = chunk.usage
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta
             token = delta.content or ""
             if token:
                 full_text += token
                 yield _sse({"t": "tk", "v": token})
+
+        # Stream bitti — usage'ı kaydet
+        if final_usage is not None:
+            record_llm_usage(
+                context.db,
+                model=settings.openai_model,
+                prompt_tokens=int(getattr(final_usage, "prompt_tokens", 0) or 0),
+                completion_tokens=int(getattr(final_usage, "completion_tokens", 0) or 0),
+                agent_type="appointment",
+                organization_id=getattr(context.user, "organization_id", None),
+                user_id=context.user.id,
+            )
 
         # Stream bitti — mesajı DB'ye kaydet
         card_meta = confirmation_card.model_dump(mode="json") if confirmation_card else {}

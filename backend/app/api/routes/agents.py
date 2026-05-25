@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_organization, get_db, require_roles
-from app.models import AgentDecisionLog, Organization, RoleName, User
+from app.models import AgentDecisionLog, LlmUsageRecord, Organization, RoleName, User
 from app.services.agents import (
     AgentDecision,
     AgentType,
@@ -154,3 +154,107 @@ def post_agent_dispatch(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _decision_payload(decision)
+
+
+# ─── LLM Usage / Cost Summary ───────────────────────────────────────────────
+class UsageSummaryByModel(BaseModel):
+    model: str
+    provider: str
+    calls: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cost_usd: float
+
+
+class UsageSummaryResponse(BaseModel):
+    range_days: int
+    total_calls: int
+    total_tokens: int
+    total_cost_usd: float
+    by_model: list[UsageSummaryByModel]
+    by_agent_type: dict[str, float]   # agent_type → cost_usd
+
+
+@router.get("/agents/usage/summary", response_model=UsageSummaryResponse)
+def get_usage_summary(
+    days: int = Query(7, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(RoleName.OPERATOR, RoleName.ADMIN)),
+    organization: Organization | None = Depends(get_current_organization),
+) -> UsageSummaryResponse:
+    """LLM token + maliyet özeti — son N gün, organizasyon scope'lu."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    from sqlalchemy import or_
+    base_filter = [LlmUsageRecord.created_at >= since]
+    if organization is not None:
+        # Legacy kayıtlar (organization_id IS NULL) admin'in default org'una dahil edilsin —
+        # böylece Phase 1 öncesi veri ve customer/staff dağıtık org'lar görünür kalır.
+        base_filter.append(
+            or_(
+                LlmUsageRecord.organization_id == organization.id,
+                LlmUsageRecord.organization_id.is_(None),
+            )
+        )
+
+    # Toplam metrikler
+    totals = db.execute(
+        select(
+            func.count(LlmUsageRecord.id),
+            func.coalesce(func.sum(LlmUsageRecord.total_tokens), 0),
+            func.coalesce(func.sum(LlmUsageRecord.estimated_cost_usd), 0.0),
+        ).where(*base_filter)
+    ).one()
+    total_calls, total_tokens, total_cost = totals
+
+    # Model bazlı kırılım
+    model_rows = db.execute(
+        select(
+            LlmUsageRecord.model,
+            LlmUsageRecord.provider,
+            func.count(LlmUsageRecord.id),
+            func.coalesce(func.sum(LlmUsageRecord.prompt_tokens), 0),
+            func.coalesce(func.sum(LlmUsageRecord.completion_tokens), 0),
+            func.coalesce(func.sum(LlmUsageRecord.total_tokens), 0),
+            func.coalesce(func.sum(LlmUsageRecord.estimated_cost_usd), 0.0),
+        )
+        .where(*base_filter)
+        .group_by(LlmUsageRecord.model, LlmUsageRecord.provider)
+        .order_by(func.sum(LlmUsageRecord.estimated_cost_usd).desc())
+    ).all()
+    by_model = [
+        UsageSummaryByModel(
+            model=row[0],
+            provider=row[1],
+            calls=int(row[2]),
+            prompt_tokens=int(row[3]),
+            completion_tokens=int(row[4]),
+            total_tokens=int(row[5]),
+            cost_usd=round(float(row[6]), 4),
+        )
+        for row in model_rows
+    ]
+
+    # Agent type kırılımı (None'lar "unknown" altında toplanır)
+    agent_rows = db.execute(
+        select(
+            LlmUsageRecord.agent_type,
+            func.coalesce(func.sum(LlmUsageRecord.estimated_cost_usd), 0.0),
+        )
+        .where(*base_filter)
+        .group_by(LlmUsageRecord.agent_type)
+    ).all()
+    by_agent: dict[str, float] = {}
+    for agent_type, cost in agent_rows:
+        key = agent_type or "unknown"
+        by_agent[key] = round(float(cost), 4)
+
+    return UsageSummaryResponse(
+        range_days=days,
+        total_calls=int(total_calls),
+        total_tokens=int(total_tokens),
+        total_cost_usd=round(float(total_cost), 4),
+        by_model=by_model,
+        by_agent_type=by_agent,
+    )
