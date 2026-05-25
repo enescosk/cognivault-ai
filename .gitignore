@@ -1,5 +1,11 @@
 .DS_Store
 .env
+.env.local
+.env.*.local
+.env.production
+*.key
+*.pem
+secrets/
 __pycache__/
 *.pyc
 backend/.venv/
