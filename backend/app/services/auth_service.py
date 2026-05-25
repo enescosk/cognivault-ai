@@ -2,7 +2,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import create_access_token, hash_password, needs_rehash, verify_password
 from app.models import AuditResultStatus, Role, RoleName, User
 from app.schemas.auth import AuthResponse, UserResponse
 from app.services.audit_service import log_action
@@ -22,6 +22,15 @@ def authenticate_user(db: Session, email: str, password: str) -> AuthResponse:
             details={"email": email},
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # SHA-256 → bcrypt opportunistic upgrade. Kullanıcı şifresini değiştirmek
+    # zorunda kalmadan otomatik geçer; ilk başarılı login sonrası hash güçlenir.
+    if needs_rehash(user.hashed_password):
+        try:
+            user.hashed_password = hash_password(password)
+            db.commit()
+        except Exception:  # noqa: BLE001 — upgrade başarısızsa login'i bozma
+            db.rollback()
 
     token = create_access_token(str(user.id), organization_id=user.organization_id)
     log_action(
