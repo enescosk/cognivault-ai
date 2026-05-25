@@ -20,8 +20,8 @@ from typing import Sequence, Union
 from alembic import op
 
 
-revision: str = "d4e5f6a7b8c9"
-down_revision: Union[str, None] = "c3d4e5f6a7b8"
+revision: str = "0002_postgres_rls"
+down_revision: Union[str, None] = "0001_baseline"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

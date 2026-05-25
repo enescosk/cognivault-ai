@@ -18,10 +18,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-settings = get_settings()
-
-# Override the URL from alembic.ini with the app's configured URL
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Caller (CLI veya programatik) `sqlalchemy.url`'ı ezdiyse ona saygı göster.
+# Aksi takdirde `Settings.database_url`'a düş — bu sayede CI / test'ler
+# tempfile DB'sini hedefleyebilir.
+existing_url = config.get_main_option("sqlalchemy.url")
+if not existing_url or existing_url.startswith("driver://"):
+    settings = get_settings()
+    config.set_main_option("sqlalchemy.url", settings.database_url)
 
 target_metadata = Base.metadata
 

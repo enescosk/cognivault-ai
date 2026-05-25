@@ -20,8 +20,8 @@ from app.core.observability import (
     render_metrics,
 )
 from app.core.rate_limit import limiter
-from app.db.base import Base
-from app.db.session import SessionLocal, engine
+from app.db.schema import ensure_schema_up_to_date
+from app.db.session import SessionLocal
 from app.seed.data import seed_database
 from app.services.agents import bootstrap_agent_registry
 
@@ -116,7 +116,10 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    # Şema kurulumu — sadece dev'de Alembic head'e taşır.
+    # Production'da deploy pipeline `alembic upgrade head`'i kendisi koşar;
+    # uygulama startup'ı DB şemasına dokunmaz.
+    ensure_schema_up_to_date()
     # Production guard — demo kullanıcıları (ayse, admin@…) prod'da YARATILMAMALI.
     # SEED_DEMO_DATA=true bile olsa, ENVIRONMENT=production ise atla + uyarı logla.
     if settings.seed_demo_data and settings.is_production:
