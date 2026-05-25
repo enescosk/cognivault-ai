@@ -258,3 +258,69 @@ def get_usage_summary(
         by_model=by_model,
         by_agent_type=by_agent,
     )
+
+
+# ─── LLM Trace (Faz 10 — lightweight observability) ─────────────────────────
+class LlmTraceRow(BaseModel):
+    id: int
+    provider: str
+    model: str
+    agent_type: str | None
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    estimated_cost_usd: float
+    request_id: str | None
+    user_id: int | None
+    created_at: str
+
+
+@router.get("/agents/llm-trace", response_model=list[LlmTraceRow])
+def get_llm_trace(
+    limit: int = Query(50, ge=1, le=200),
+    agent_type: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(RoleName.OPERATOR, RoleName.ADMIN)),
+    organization: Organization | None = Depends(get_current_organization),
+) -> list[LlmTraceRow]:
+    """Son N LLM çağrısının ham trace'i — debug için.
+
+    Langfuse / Phoenix entegrasyonu yerine: zaten DB'ye yazılan
+    `LlmUsageRecord` satırlarını yapılandırılmış olarak döndürüyoruz.
+    Production'da bunu Phoenix / Langfuse'a forwardlamak için
+    OutboxEvent + handler eklenebilir.
+    """
+    from sqlalchemy import or_
+    filters = []
+    if organization is not None:
+        filters.append(
+            or_(
+                LlmUsageRecord.organization_id == organization.id,
+                LlmUsageRecord.organization_id.is_(None),
+            )
+        )
+    if agent_type:
+        filters.append(LlmUsageRecord.agent_type == agent_type)
+
+    rows = db.scalars(
+        select(LlmUsageRecord)
+        .where(*filters)
+        .order_by(LlmUsageRecord.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [
+        LlmTraceRow(
+            id=r.id,
+            provider=r.provider,
+            model=r.model,
+            agent_type=r.agent_type,
+            prompt_tokens=r.prompt_tokens,
+            completion_tokens=r.completion_tokens,
+            total_tokens=r.total_tokens,
+            estimated_cost_usd=round(float(r.estimated_cost_usd), 6),
+            request_id=r.request_id,
+            user_id=r.user_id,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in rows
+    ]

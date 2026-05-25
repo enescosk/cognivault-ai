@@ -3,7 +3,7 @@ from __future__ import annotations
 from html import escape
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -171,15 +171,34 @@ def appointment_payload(appointment: ClinicalAppointment) -> ClinicalAppointment
 
 
 def ingestion_payload(result) -> WebhookIngestionResponse:
+    # Triage çıktıları playground UI'da görünür. Mevcut konuşma ve son
+    # AgentDecisionLog'tan çekiyoruz — IngestionResult zaten metadata taşır.
+    conv = result.conversation
+    risk = None
+    requires_review = False
+    persona_name = None
+    risk_reason = None
+    shadow = result.shadow_review
+    if shadow is not None:
+        risk = "high" if shadow.confidence_score < 0.6 else "medium"
+        requires_review = True
+        risk_reason = shadow.risk_reason
+        persona_name = (shadow.metadata_json or {}).get("persona_name")
     return WebhookIngestionResponse(
         ok=True,
         clinic_id=result.clinic.id,
         patient_id=result.patient.id,
-        conversation_id=result.conversation.id,
+        conversation_id=conv.id,
         message_id=result.message.id,
         action=result.action,
         reply=result.reply,
-        shadow_review_id=result.shadow_review.id if result.shadow_review else None,
+        shadow_review_id=shadow.id if shadow else None,
+        intent=conv.intent.value if conv.intent else None,
+        confidence=float(conv.confidence_score) if conv.confidence_score is not None else None,
+        risk=risk if risk else ("low" if not requires_review else None),
+        requires_human_review=requires_review,
+        persona_name=persona_name,
+        risk_reason=risk_reason,
     )
 
 
@@ -303,9 +322,7 @@ def patch_shadow_review(
 
 
 @router.post("/clinical/simulate-whatsapp", response_model=WebhookIngestionResponse)
-@limiter.limit("30/minute")
 def simulate_whatsapp(
-    request: Request,
     payload: SimulateWhatsAppRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
@@ -15,13 +15,21 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # default'unun üstüne çok daha sıkı limit koyuyoruz: login 10/dk, register 5/dk.
 @router.post("/login", response_model=AuthResponse)
 @limiter.limit("10/minute")
-def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def login(
+    request: Request,
+    payload: LoginRequest,
+    db: Session = Depends(get_db),
+) -> AuthResponse:
     return authenticate_user(db, payload.email, payload.password)
 
 
 @router.post("/register", response_model=AuthResponse)
 @limiter.limit("5/minute")
-def register(request: Request, payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def register(
+    request: Request,
+    payload: RegisterRequest,
+    db: Session = Depends(get_db),
+) -> AuthResponse:
     return register_customer(db, payload.full_name, payload.email, payload.password, payload.locale)
 
 

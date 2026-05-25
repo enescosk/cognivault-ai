@@ -19,6 +19,7 @@ import { AppointmentsPage } from "./AppointmentsPage";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
+import { ClinicalPlayground } from "./ClinicalPlayground";
 import { DecisionLogView } from "./DecisionLogView";
 import { UsageCostCard } from "./UsageCostCard";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -282,8 +283,9 @@ export function Dashboard({ audience }: DashboardProps = {}) {
         </ErrorBoundary>
       )}
       {(isOperator || isAdmin) && isClinicalView && (
-        <ErrorBoundary scope="Ajan kararları">
+        <ErrorBoundary scope="Klinik araçlar">
           <aside className="audit-panel">
+            <ClinicalPlayground token={token ?? ""} />
             <DecisionLogView />
           </aside>
         </ErrorBoundary>

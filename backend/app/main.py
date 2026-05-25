@@ -11,7 +11,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import agents, appointments, audit, auth, chat, clinical, enterprise, intelligence, users, voice
+from app.api.routes import agents, appointments, audit, auth, billing, chat, clinical, enterprise, intelligence, users, voice
 from app.core.config import get_settings
 from app.core.observability import (
     MetricsTimer,
@@ -184,6 +184,7 @@ app.include_router(enterprise.router, prefix=settings.api_prefix)
 app.include_router(intelligence.router, prefix=settings.api_prefix)
 app.include_router(clinical.router, prefix=settings.api_prefix)
 app.include_router(agents.router, prefix=settings.api_prefix)
+app.include_router(billing.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

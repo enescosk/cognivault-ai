@@ -142,6 +142,13 @@ class WebhookIngestionResponse(BaseModel):
     action: str
     reply: str | None = None
     shadow_review_id: int | None = None
+    # Playground & gözlemleme için AI triage özeti
+    intent: str | None = None
+    confidence: float | None = None
+    risk: str | None = None
+    requires_human_review: bool = False
+    persona_name: str | None = None
+    risk_reason: str | None = None
 
 
 class ClinicalPersonaResponse(BaseModel):
