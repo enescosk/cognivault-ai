@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from urllib.parse import parse_qs
 
-from fastapi import HTTPException, status
+from app.core.exceptions import NotFoundError, PermissionError, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -108,7 +108,7 @@ def parse_twilio_form(body: bytes) -> IncomingClinicalMessage:
     profile_name = parsed.get("ProfileName", [None])[0]
     message_sid = parsed.get("MessageSid", [None])[0]
     if not from_phone or not message_body:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing Twilio WhatsApp fields")
+        raise ValidationError("Missing Twilio WhatsApp fields")
     return IncomingClinicalMessage(
         from_phone=normalize_phone(from_phone),
         body=message_body.strip(),
@@ -180,7 +180,7 @@ def ensure_default_clinic(db: Session) -> Clinic:
 
 def ensure_clinic_access(db: Session, current_user: User) -> Clinic:
     if current_user.role.name not in {RoleName.OPERATOR, RoleName.ADMIN}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clinical dashboard requires operator access")
+        raise PermissionError("Clinical dashboard requires operator access")
 
     clinic: Clinic | None = None
     if current_user.organization_id is not None:
@@ -562,7 +562,7 @@ def get_clinical_conversation(db: Session, clinic: Clinic, conversation_id: int)
         .where(ClinicConversation.clinic_id == clinic.id, ClinicConversation.id == conversation_id)
     ).first()
     if conversation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clinical conversation not found")
+        raise NotFoundError("Clinical conversation not found")
     return conversation
 
 
@@ -647,11 +647,11 @@ def update_shadow_review(
 ) -> ShadowReview:
     review = db.scalars(select(ShadowReview).where(ShadowReview.clinic_id == clinic.id, ShadowReview.id == review_id)).first()
     if review is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shadow review not found")
+        raise NotFoundError("Shadow review not found")
 
     next_status = ShadowReviewStatus(status_value)
     if next_status == ShadowReviewStatus.EDITED and not final_reply:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Edited review requires final_reply")
+        raise ValidationError("Edited review requires final_reply")
 
     review.status = next_status
     review.final_reply = final_reply or review.draft_reply
@@ -797,7 +797,7 @@ def _get_clinic_patient(db: Session, clinic: Clinic, patient_id: int) -> ClinicP
         select(ClinicPatient).where(ClinicPatient.id == patient_id, ClinicPatient.clinic_id == clinic.id)
     ).first()
     if patient is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+        raise NotFoundError("Patient not found")
     return patient
 
 
@@ -831,7 +831,7 @@ def get_pre_intake(db: Session, clinic: Clinic, pre_intake_id: int) -> PreIntake
         select(PreIntake).where(PreIntake.id == pre_intake_id, PreIntake.clinic_id == clinic.id)
     ).first()
     if pre_intake is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pre-intake not found")
+        raise NotFoundError("Pre-intake not found")
     return pre_intake
 
 

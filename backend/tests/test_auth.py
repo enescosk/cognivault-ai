@@ -53,12 +53,17 @@ def test_register_new_user(client):
 
 
 def test_register_duplicate_email(client):
+    """Duplicate registration → 409 Conflict (Phase 11 exception model upgrade).
+
+    Önceki davranış: 400 BAD REQUEST — ama duplicate kaynak validation hatası
+    değil, *çakışma*. RFC 7231 §6.5.8'e uygun olarak 409 dönüyor.
+    """
     res = client.post("/api/auth/register", json={
         "full_name": "Duplicate",
         "email": "customer@test.com",
         "password": "securepass123",
     })
-    assert res.status_code == 400
+    assert res.status_code == 409
 
 
 def test_register_short_password(client):

@@ -163,6 +163,24 @@ app.add_middleware(
 )
 
 
+# DomainError → HTTPException — servis katmanı HTTP'yi bilmek zorunda değil.
+# Her domain hatası kendi `http_status`'unu taşır, burada tek noktadan tutarlı
+# JSON formatına çevirir.
+from app.core.exceptions import DomainError
+
+
+@app.exception_handler(DomainError)
+async def domain_error_handler(request: Request, exc: DomainError):
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={
+            "error": exc.__class__.__name__,
+            "detail": exc.message,
+            **({"context": exc.details} if exc.details else {}),
+        },
+    )
+
+
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
     return JSONResponse(status_code=404, content={"error": "Not found", "detail": str(exc.detail)})

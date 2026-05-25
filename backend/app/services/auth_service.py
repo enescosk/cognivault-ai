@@ -1,4 +1,4 @@
-from fastapi import HTTPException, status
+from app.core.exceptions import AuthenticationError, ConflictError, UpstreamError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -21,7 +21,7 @@ def authenticate_user(db: Session, email: str, password: str) -> AuthResponse:
             result_status=AuditResultStatus.FAILURE,
             details={"email": email},
         )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise AuthenticationError("Invalid credentials")
 
     # SHA-256 → bcrypt opportunistic upgrade. Kullanıcı şifresini değiştirmek
     # zorunda kalmadan otomatik geçer; ilk başarılı login sonrası hash güçlenir.
@@ -48,11 +48,12 @@ def authenticate_user(db: Session, email: str, password: str) -> AuthResponse:
 def register_customer(db: Session, full_name: str, email: str, password: str, locale: str = "tr") -> AuthResponse:
     existing = db.scalars(select(User).where(User.email == email)).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Bu e-posta adresi zaten kayıtlı")
+        raise ConflictError("Bu e-posta adresi zaten kayıtlı")
 
     customer_role = db.scalars(select(Role).where(Role.name == RoleName.CUSTOMER)).first()
     if not customer_role:
-        raise HTTPException(status_code=500, detail="Customer role not found")
+        # Sistem konfigürasyon hatası — operatöre kapanmış customer rolüne işaret.
+        raise UpstreamError("Customer role not found")
 
     user = User(
         full_name=full_name.strip(),

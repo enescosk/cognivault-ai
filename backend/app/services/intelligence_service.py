@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import HTTPException, status
+from app.core.exceptions import NotFoundError, PermissionError, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -23,7 +23,7 @@ from app.services.intelligence_connectors import get_connector
 
 def ensure_intelligence_access(user: User) -> None:
     if user.role.name not in {RoleName.OPERATOR, RoleName.ADMIN}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+        raise PermissionError("Insufficient permissions")
 
 
 def seed_intelligence_sources(db: Session) -> None:
@@ -136,7 +136,7 @@ def _run_connector_job(
     _check_source_allowed(kind)
     source = db.scalars(select(IntelligenceSource).where(IntelligenceSource.kind == kind)).first()
     if not source or not source.is_active:
-        raise HTTPException(status_code=400, detail=f"{kind.value} intelligence source is not active")
+        raise ValidationError(f"{kind.value} intelligence source is not active")
 
     job = IntelligenceJob(
         source_id=source.id,
@@ -181,13 +181,13 @@ def _source_kind(value: str) -> IntelligenceSourceKind:
     try:
         return IntelligenceSourceKind(value)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Unsupported source kind: {value}") from exc
+        raise ValidationError(f"Unsupported source kind: {value}") from exc
 
 
 def _check_source_allowed(kind: IntelligenceSourceKind) -> None:
     settings = get_settings()
     if kind.value not in settings.intelligence_allowed_source_list:
-        raise HTTPException(status_code=400, detail=f"Source kind is not allowed by policy: {kind.value}")
+        raise ValidationError(f"Source kind is not allowed by policy: {kind.value}")
 
 
 def create_job(
@@ -206,7 +206,7 @@ def create_job(
     _check_source_allowed(kind)
     source = db.scalars(select(IntelligenceSource).where(IntelligenceSource.kind == kind)).first()
     if not source or not source.is_active:
-        raise HTTPException(status_code=400, detail="Source is not active")
+        raise ValidationError("Source is not active")
 
     job = IntelligenceJob(
         source_id=source.id,
@@ -227,7 +227,7 @@ def run_job(db: Session, *, current_user: User, job_id: int, seed_text: str | No
     ensure_intelligence_access(current_user)
     job = db.get(IntelligenceJob, job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise NotFoundError("Job not found")
     connector = get_connector(job.source.kind)
     if connector is None:
         job.status = IntelligenceJobStatus.BLOCKED
@@ -344,9 +344,9 @@ def get_job(db: Session, *, current_user: User, job_id: int) -> IntelligenceJob:
         .where(IntelligenceJob.id == job_id)
     ).first()
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise NotFoundError("Job not found")
     if current_user.role.name not in {RoleName.OPERATOR, RoleName.ADMIN} and job.requested_by_user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+        raise PermissionError("Insufficient permissions")
     return job
 
 
@@ -374,7 +374,7 @@ def create_outreach_draft(
     ensure_intelligence_access(current_user)
     lead = db.scalars(select(Lead).options(selectinload(Lead.contact_points)).where(Lead.id == lead_id)).first()
     if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+        raise NotFoundError("Lead not found")
     primary_contact = next((item for item in lead.contact_points if item.is_primary), None)
     subject = f"Cognivault AI - {intent}" if channel == "email" else None
     body = (

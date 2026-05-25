@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import HTTPException, status
+from app.core.exceptions import NotFoundError, PermissionError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -47,9 +47,9 @@ def get_session(db: Session, session_id: int, current_user: User) -> ChatSession
     )
     session = db.scalars(query).first()
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+        raise NotFoundError("Chat session not found")
     if current_user.role.name == RoleName.CUSTOMER and session.user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to access this chat")
+        raise PermissionError("Not allowed to access this chat")
     return session
 
 

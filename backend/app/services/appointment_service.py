@@ -4,10 +4,10 @@ from datetime import datetime
 import re
 import secrets
 
-from fastapi import HTTPException, status
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import PermissionError, ValidationError
 from app.models import Appointment, AppointmentSlot, AuditResultStatus, RoleName, User
 from app.services.audit_service import log_action
 
@@ -71,15 +71,15 @@ def create_appointment(
 ) -> Appointment:
     target_user_id = target_user_id or acting_user.id
     if acting_user.role.name == RoleName.CUSTOMER and target_user_id != acting_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Customers can only create their own request")
+        raise PermissionError("Customers can only create their own request")
 
     slot = db.get(AppointmentSlot, slot_id)
     if slot is None or slot.is_booked:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected slot is not available")
+        raise ValidationError("Selected slot is not available")
 
     cleaned_phone = re.sub(r"[^\d+]", "", contact_phone)
     if len(cleaned_phone) < 10:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone number is too short")
+        raise ValidationError("Phone number is too short")
 
     appointment = Appointment(
         user_id=target_user_id,

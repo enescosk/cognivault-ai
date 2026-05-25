@@ -10,6 +10,31 @@ from fastapi import HTTPException
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.agent.classify import (
+    CUSTOMER_MEDICAL_TERMS as _CUSTOMER_MEDICAL_TERMS,
+    ENTERPRISE_APPOINTMENT_TERMS as _ENTERPRISE_APPOINTMENT_TERMS,
+    classify_simple_intent,
+    detect_sentiment,
+    make_simple_reply,
+)
+from app.agent.context import AgentContext
+from app.agent.policy import (
+    _external_outreach_allowed,
+    _is_customer_chat,
+    _is_enterprise_context,
+    handle_customer_domain_boundary,
+)
+from app.agent.parsing import (
+    _clean_term,
+    _normalize_tr,
+    default_reply,
+    detect_language,
+    infer_place_category,
+    parse_department,
+    parse_phone,
+    parse_preferred_date,
+    parse_slot_selection,
+)
 from app.agent.prompts import build_system_prompt
 from app.core.config import get_settings
 from app.models import ChatSession, MessageSender, RoleName, User
@@ -28,13 +53,6 @@ from app.tools.registry import execute_tool, tool_specs, tool_specs_anthropic
 settings = get_settings()
 
 
-@dataclass
-class AgentContext:
-    db: Session
-    user: User
-    session: ChatSession
-
-
 def _record_openai_usage(context: AgentContext, response, model: str, agent_type: str) -> None:
     """Non-streaming OpenAI completion → usage kaydı. Telemetri başarısızlığı request'i bozmamalı."""
     prompt_t, completion_t = extract_openai_usage(response)
@@ -51,180 +69,12 @@ def _record_openai_usage(context: AgentContext, response, model: str, agent_type
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SENTIMENT DETECTION
-# Lightweight rule-based — zero API cost. Used to adjust fallback tone.
-# ─────────────────────────────────────────────────────────────────────────────
-
-_SENTIMENT_RULES: list[tuple[str, list[str]]] = [
-    ("frustrated", ["saçmalık", "hâlâ", "hala", "olmadı", "olmadi", "bir türlü", "bir turlu",
-                    "yine aynı", "yine ayni", "çözülmedi", "cozulmedi", "rezalet",
-                    "I'm frustrated", "still not", "ridiculous", "unacceptable", "terrible"]),
-    ("urgent",     ["acil", "urgent", "asap", "şu an", "su an", "hemen", "right now",
-                    "immediately", "as soon as possible"]),
-    ("confused",   ["anlamadım", "anlamadim", "nasıl", "nasil", "ne demek", "I don't understand",
-                    "confused", "what does", "how do i", "how to"]),
-    ("happy",      ["teşekkürler", "tesekkurler", "mükemmel", "mukkemmel", "harika", "süper",
-                    "thank you", "thanks", "great", "perfect", "excellent", "awesome"]),
-]
+# Sentiment, simple intent classifier ve boundary term'leri `agent/classify.py`
+# içine taşındı — orchestrator artık sadece bunları import edip dispatch eder.
 
 
-def detect_sentiment(text: str) -> str:
-    """Returns one of: frustrated | urgent | confused | happy | neutral"""
-    lower = text.lower()
-    for sentiment, keywords in _SENTIMENT_RULES:
-        if any(kw in lower for kw in keywords):
-            return sentiment
-    return "neutral"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# COST-AWARE INTENT CLASSIFIER
-# Decides whether to route to AI API or handle locally.
-# Goal: never call a paid API for trivial messages.
-# ─────────────────────────────────────────────────────────────────────────────
-
-_SIMPLE_INTENTS: dict[str, list[str]] = {
-    "greeting":    ["merhaba", "alo", "selam", "hi ", "hello", "hey ", "good morning", "iyi günler"],
-    "smalltalk":   ["nasılsın", "nasilsin", "naber", "ne var ne yok", "how are you", "how's it going"],
-    "thanks":      ["teşekkür", "tesekkur", "sağ ol", "sag ol", "thank you", "thanks", "cheers"],
-    "farewell":    ["görüşürüz", "gorusuruz", "iyi günler", "bye", "goodbye", "see you", "hoşça kal"],
-    "affirmative": ["evet", "tamam", "olur", "tabii", "yes", "sure", "ok", "okay", "yep"],
-}
-
-_SIMPLE_RESPONSES: dict[str, dict[str, str]] = {
-    "greeting": {
-        "tr": "Merhaba! 👋 Size nasıl yardımcı olabilirim?",
-        "en": "Hello! 👋 How can I help you today?",
-    },
-    "smalltalk": {
-        "tr": "İyiyim, teşekkürler! Sen nasılsın? Bugün sana nasıl yardımcı olabilirim?",
-        "en": "I'm doing well, thanks! How are you? What can I help you with today?",
-    },
-    "thanks": {
-        "tr": "Rica ederim! 😊 Başka yardımcı olabileceğim bir şey var mı?",
-        "en": "You're welcome! 😊 Is there anything else I can help you with?",
-    },
-    "farewell": {
-        "tr": "İyi günler! Tekrar görüşmek üzere. 👋",
-        "en": "Take care! Talk to you soon. 👋",
-    },
-}
-
-
-def classify_simple_intent(text: str) -> str | None:
-    """Returns intent name if message is trivially simple, else None."""
-    lower = text.lower().strip()
-    # Very short messages are likely simple
-    if len(lower) > 120:
-        return None
-    for intent, keywords in _SIMPLE_INTENTS.items():
-        if any(lower.startswith(kw) or f" {kw}" in lower for kw in keywords):
-            return intent
-    return None
-
-
-def make_simple_reply(intent: str, language: str, sentiment: str, user_name: str | None) -> str | None:
-    """Returns a canned reply for trivial intents — no API call needed."""
-    template = _SIMPLE_RESPONSES.get(intent, {}).get(language)
-    if not template:
-        return None
-    # Personalise with name if available
-    if user_name and intent == "greeting":
-        first = user_name.split()[0]
-        template = template.replace("Merhaba!", f"Merhaba, {first}!").replace("Hello!", f"Hello, {first}!")
-    # Sentiment overlay
-    if sentiment == "frustrated" and intent not in ("thanks", "farewell"):
-        prefix = "Üzgünüm duyduğuma. " if language == "tr" else "I'm sorry to hear that. "
-        template = prefix + template
-    return template
-
-
-_CUSTOMER_MEDICAL_TERMS = [
-    "diş",
-    "dis",
-    "doktor",
-    "hekim",
-    "muayene",
-    "hastane",
-    "klinik",
-    "ağrı",
-    "agri",
-    "ağrısı",
-    "agrisi",
-    "hasta",
-    "tedavi",
-    "reçete",
-    "recete",
-]
-
-_ENTERPRISE_APPOINTMENT_TERMS = [
-    "onboarding",
-    "kurulum",
-    "başlangıç",
-    "baslangic",
-    "devreye alma",
-    "technical",
-    "teknik",
-    "support",
-    "destek",
-    "sap",
-    "vpn",
-    "fatura",
-    "billing",
-    "ödeme",
-    "odeme",
-    "uyum",
-    "compliance",
-    "gdpr",
-    "kvk",
-]
-
-
-def _is_customer_chat(context: AgentContext) -> bool:
-    return context.user.role.name == RoleName.CUSTOMER
-
-
-def _is_enterprise_context(context: AgentContext) -> bool:
-    state = context.session.workflow_state or {}
-    return state.get("mode") == "enterprise"
-
-
-def _external_outreach_allowed(context: AgentContext) -> bool:
-    return not _is_customer_chat(context) or _is_enterprise_context(context)
-
-
-def handle_customer_domain_boundary(context: AgentContext, user_message: str, language: str) -> AgentReply | None:
-    if not _is_customer_chat(context) or _is_enterprise_context(context):
-        return None
-
-    normalized = _normalize_tr(user_message)
-    has_medical_term = any(_normalize_tr(term) in normalized for term in _CUSTOMER_MEDICAL_TERMS)
-    has_enterprise_term = any(_normalize_tr(term) in normalized for term in _ENTERPRISE_APPOINTMENT_TERMS)
-    if not has_medical_term or has_enterprise_term:
-        return None
-
-    first_name = (context.user.full_name or "").split()[0]
-    prefix_tr = f"{first_name} Hanım, " if first_name else ""
-    prefix_en = f"{first_name}, " if first_name else ""
-    return AgentReply(
-        message=default_reply(
-            language,
-            (
-                f"{prefix_tr}bu ekran kurumsal destek randevuları için tasarlandı; tıbbi veya dental randevu "
-                "yönlendirmesi yapmıyorum. Size Onboarding Desk, Technical Support, Billing Operations veya "
-                "Compliance Advisory ekipleri için güvenli bir randevu oluşturmada yardımcı olabilirim."
-            ),
-            (
-                f"{prefix_en}this workspace is for enterprise support appointments, so I cannot route medical or "
-                "dental appointment requests here. I can help you book a secure session with Onboarding Desk, "
-                "Technical Support, Billing Operations, or Compliance Advisory."
-            ),
-        ),
-        language=language,
-        outcome="unsupported_domain",
-        metadata_json={"intent": "unsupported_customer_domain", "domain": "medical"},
-    )
+# _is_customer_chat, _is_enterprise_context, _external_outreach_allowed ve
+# handle_customer_domain_boundary `agent/policy.py`'a taşındı (üstte import).
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -282,60 +132,9 @@ def _compress_history(messages: list) -> list[dict]:
     return [summary_block] + verbatim
 
 
-def detect_language(text: str, fallback: str = "en") -> str:
-    turkish_markers = ["ş", "ğ", "ı", "ç", "ö", "ü", "randevu", "merhaba", "yardım", "bugün", "yarın"]
-    return "tr" if any(marker in text.lower() for marker in turkish_markers) or fallback == "tr" else "en"
-
-
-def parse_preferred_date(text: str) -> str | None:
-    """Türkçe/kısa tarih ifadelerini YYYY-MM-DD'ye çevirir."""
-    from datetime import date, timedelta
-    today = date.today()
-    lower = text.lower()
-
-    if "bugün" in lower or "today" in lower:
-        return today.isoformat()
-    if "yarın" in lower or "tomorrow" in lower:
-        return (today + timedelta(days=1)).isoformat()
-
-    # "Gün.Ay" veya "Gün/Ay" formatları → bu yıl
-    match = re.search(r"\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b", text)
-    if match:
-        day, month = int(match.group(1)), int(match.group(2))
-        year = int(match.group(3)) if match.group(3) else today.year
-        if year < 100:
-            year += 2000
-        try:
-            return date(year, month, day).isoformat()
-        except ValueError:
-            pass
-
-    # Gün adları
-    days_tr = {"pazartesi": 0, "salı": 1, "çarşamba": 2, "perşembe": 3, "cuma": 4, "cumartesi": 5, "pazar": 6}
-    for name, weekday in days_tr.items():
-        if name in lower:
-            delta = (weekday - today.weekday()) % 7 or 7
-            return (today + timedelta(days=delta)).isoformat()
-    return None
-
-
-def parse_phone(text: str) -> str | None:
-    match = re.search(r"(\+?\d[\d\s()-]{8,}\d)", text)
-    return match.group(1).strip() if match else None
-
-
-def parse_department(text: str) -> str | None:
-    normalized = text.lower()
-    candidates = {
-        "onboarding desk": ["onboarding", "kurulum", "başlangıç", "devreye alma"],
-        "technical support": ["technical", "support", "teknik", "destek", "issue", "arıza"],
-        "billing operations": ["billing", "invoice", "payment", "fatura", "ödeme"],
-        "compliance advisory": ["compliance", "legal", "uyum", "denetim", "policy"],
-    }
-    for department, keywords in candidates.items():
-        if any(keyword in normalized for keyword in keywords):
-            return department.title()
-    return None
+# detect_language, parse_preferred_date, parse_phone, parse_department,
+# parse_slot_selection, _normalize_tr, infer_place_category, _clean_term ve
+# default_reply `agent/parsing.py`'a taşındı; yukarıda import edildi.
 
 
 _OUTREACH_KEYWORDS = [
@@ -359,43 +158,7 @@ _OUTREACH_KEYWORDS = [
     "danismanlik",
 ]
 
-_PLACE_CATEGORIES: list[tuple[list[str], str]] = [
-    (["diş", "dis", "dentist", "ortodonti"], "diş doktoru"),
-    (["göz", "goz", "oftalmoloji"], "göz doktoru"),
-    (["fizik tedavi", "fizyoterapi"], "fizik tedavi merkezi"),
-    (["psikolog", "psikiyatri", "terapi"], "psikolog"),
-    (["sağlık", "saglik", "hastane", "klinik", "doktor", "hekim", "muayene"], "sağlık merkezi"),
-    (["veteriner"], "veteriner kliniği"),
-    (["spor salonu", "fitness", "gym", "macfit"], "spor salonu"),
-    (["banka", "kredi", "akbank"], "banka"),
-    (["ihracat", "danışmanlık", "danismanlik"], "ihracat danışmanlığı"),
-]
-
-
-def _normalize_tr(value: str) -> str:
-    return (
-        value.lower()
-        .replace("ı", "i")
-        .replace("ğ", "g")
-        .replace("ü", "u")
-        .replace("ş", "s")
-        .replace("ö", "o")
-        .replace("ç", "c")
-    )
-
-
-def infer_place_category(text: str) -> str | None:
-    normalized = _normalize_tr(text)
-    for keywords, category in _PLACE_CATEGORIES:
-        if any(_normalize_tr(keyword) in normalized for keyword in keywords):
-            return category
-    return None
-
-
-def _clean_term(value: str) -> str:
-    cleaned = re.sub(r"\s+", " ", value.strip(" .,!?:;"))
-    cleaned = re.sub(r"^(ben|biz|şimdi|simdi|bir|bu)\s+", "", cleaned, flags=re.IGNORECASE)
-    return cleaned.strip()
+# _PLACE_CATEGORIES, _normalize_tr, infer_place_category, _clean_term parsing.py'a taşındı
 
 
 def extract_outreach_terms(text: str) -> dict | None:
@@ -608,23 +371,7 @@ def handle_company_outreach_request(context: AgentContext, user_message: str, la
     )
 
 
-def parse_slot_selection(text: str, suggested_slots: list[dict]) -> dict | None:
-    choice = re.search(r"\b([1-3])\b", text)
-    if choice:
-        index = int(choice.group(1)) - 1
-        if 0 <= index < len(suggested_slots):
-            return suggested_slots[index]
-    for slot in suggested_slots:
-        if str(slot["id"]) in text:
-            return slot
-        stamp = slot["start_time"][:16].replace("T", " ")
-        if stamp in text:
-            return slot
-    return None
-
-
-def default_reply(language: str, message_tr: str, message_en: str) -> str:
-    return message_tr if language == "tr" else message_en
+# parse_slot_selection ve default_reply parsing.py'a taşındı
 
 
 def anthropic_enabled() -> bool:
