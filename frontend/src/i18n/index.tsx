@@ -7,7 +7,13 @@ const LOCALE_KEY = "cognivault_locale";
 type I18nContextValue = {
   locale: Locale;
   setLocale: (next: Locale) => void;
-  t: (key: TKey) => string;
+  /**
+   * Translate a key. Pass an optional `fallback` for dynamic keys (e.g.
+   * `conv.status.${value}`) that may not always exist in the dictionary.
+   * When `fallback` is omitted we return the key itself so issues are
+   * visually obvious during development.
+   */
+  t: (key: TKey | string, fallback?: string) => string;
 };
 
 const I18nContext = createContext<I18nContextValue | undefined>(undefined);
@@ -29,10 +35,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         if (typeof window !== "undefined") window.localStorage.setItem(LOCALE_KEY, next);
         setLocaleState(next);
       },
-      t: (key) => {
+      t: (key, fallback) => {
         const table = DICT[locale];
-        // Fallback to the Turkish key if a translation is missing in `en` or vice versa.
-        return (table as Record<string, string>)[key] ?? (DICT.tr as Record<string, string>)[key] ?? key;
+        const lookup =
+          (table as Record<string, string>)[key as string] ??
+          (DICT.tr as Record<string, string>)[key as string];
+        return lookup ?? fallback ?? (key as string);
       },
     }),
     [locale],
