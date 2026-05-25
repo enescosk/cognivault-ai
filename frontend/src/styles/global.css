@@ -5682,3 +5682,129 @@ body:has(.login-shell) {
     padding: 14px 16px;
   }
 }
+
+/* === Conversation Detail — Research-driven enhancements ================= */
+
+/* Acil banner — Bölüm A6 */
+.conv-emergency-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, rgba(252, 70, 70, 0.18), rgba(252, 70, 70, 0.06));
+  border: 1px solid rgba(252, 129, 129, 0.45);
+  color: #fecaca;
+}
+.conv-emergency-pulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fc4646;
+  box-shadow: 0 0 0 0 rgba(252, 70, 70, 0.6);
+  animation: conv-emergency-pulse 1.6s ease-out infinite;
+  flex: 0 0 auto;
+}
+@keyframes conv-emergency-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(252, 70, 70, 0.6); }
+  70%  { box-shadow: 0 0 0 12px rgba(252, 70, 70, 0); }
+  100% { box-shadow: 0 0 0 0   rgba(252, 70, 70, 0); }
+}
+.conv-emergency-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+.conv-emergency-status {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.conv-emergency-ok      { background: rgba(72, 187, 120, 0.22); color: #86efac; }
+.conv-emergency-missing { background: rgba(252, 70, 70, 0.28); color: #fecaca; }
+
+/* Handoff banner — Bölüm B#6 */
+.conv-handoff-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(237, 137, 54, 0.10);
+  border: 1px solid rgba(237, 137, 54, 0.35);
+  color: #fde68a;
+  font-size: 0.84rem;
+}
+.conv-handoff-wait {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* KVKK consent — Bölüm C */
+.conv-consent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.82rem;
+}
+.conv-consent-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.conv-consent-accepted .conv-consent-dot { background: #4ade80; box-shadow: 0 0 8px rgba(72, 187, 120, 0.5); }
+.conv-consent-rejected .conv-consent-dot { background: #fc8181; }
+.conv-consent-pending  .conv-consent-dot { background: #fbbf24; }
+.conv-consent-unknown  .conv-consent-dot { background: var(--text-3); }
+.conv-consent-accepted { border-color: rgba(72, 187, 120, 0.35); }
+.conv-consent-rejected { border-color: rgba(252, 129, 129, 0.35); }
+.conv-consent-pending  { border-color: rgba(251, 191, 36, 0.35); }
+.conv-consent-meta { color: var(--text-3); }
+
+/* Sentiment strip — Bölüm F#9 */
+.conv-sentiment {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  align-self: flex-start;
+  font-variant-numeric: tabular-nums;
+}
+.conv-sentiment-label {
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+}
+.conv-sentiment-up      { background: rgba(72, 187, 120, 0.10);  border-color: rgba(72, 187, 120, 0.35); }
+.conv-sentiment-down    { background: rgba(252, 70, 70, 0.10);   border-color: rgba(252, 129, 129, 0.35); }
+.conv-sentiment-flat    { background: rgba(148, 163, 184, 0.10); }
+.conv-sentiment-delta   { font-weight: 600; }
+
+/* Mesaj balonu uyarı varyantları — Bölüm H, B#1, A6 */
+.conv-bubble-low-conf       { border-color: rgba(251, 191, 36, 0.55); box-shadow: inset 3px 0 0 #fbbf24; }
+.conv-bubble-hallucination  { border-color: rgba(252, 70, 70, 0.55);  box-shadow: inset 3px 0 0 #fc4646; }
+.conv-bubble-emergency      { border-color: rgba(252, 70, 70, 0.7);   background: rgba(252, 70, 70, 0.05); }
+.conv-bubble-warn           { color: #fbbf24; font-weight: 600; }
+.conv-bubble-secondary-intent {
+  color: var(--text-3);
+  font-style: italic;
+}
