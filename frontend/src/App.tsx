@@ -5,6 +5,7 @@ import { ConversationDetailPage } from "./components/ConversationDetailPage";
 import { Dashboard } from "./components/Dashboard";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoginRoute } from "./components/LoginRoute";
+import { PatientPage } from "./components/patient/PatientPage";
 import { RequireRole } from "./components/RequireRole";
 import { RoleRedirect } from "./components/RoleRedirect";
 import { ToastContainer } from "./components/ui/Toast";
@@ -26,6 +27,17 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
+
+      {/* Public hasta sayfası — auth yok, sadece klinik slug ile.
+          Detay: docs/product/patient-clinic-experience.md §3 */}
+      <Route
+        path="/c/:slug"
+        element={
+          <ErrorBoundary scope="Patient page">
+            <PatientPage />
+          </ErrorBoundary>
+        }
+      />
 
       {/* Bireysel müşteri paneli — /customer/* */}
       <Route
