@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.prompts import build_system_prompt
 from app.core.config import get_settings
-from app.models import ChatSession, MessageSender, User
+from app.models import ChatSession, MessageSender, RoleName, User
 from app.schemas.chat import AgentReply
 from app.schemas.appointment import AppointmentConfirmationCard
 from app.services.appointment_service import format_slot_label
@@ -120,6 +120,93 @@ def make_simple_reply(intent: str, language: str, sentiment: str, user_name: str
         prefix = "Üzgünüm duyduğuma. " if language == "tr" else "I'm sorry to hear that. "
         template = prefix + template
     return template
+
+
+_CUSTOMER_MEDICAL_TERMS = [
+    "diş",
+    "dis",
+    "doktor",
+    "hekim",
+    "muayene",
+    "hastane",
+    "klinik",
+    "ağrı",
+    "agri",
+    "ağrısı",
+    "agrisi",
+    "hasta",
+    "tedavi",
+    "reçete",
+    "recete",
+]
+
+_ENTERPRISE_APPOINTMENT_TERMS = [
+    "onboarding",
+    "kurulum",
+    "başlangıç",
+    "baslangic",
+    "devreye alma",
+    "technical",
+    "teknik",
+    "support",
+    "destek",
+    "sap",
+    "vpn",
+    "fatura",
+    "billing",
+    "ödeme",
+    "odeme",
+    "uyum",
+    "compliance",
+    "gdpr",
+    "kvk",
+]
+
+
+def _is_customer_chat(context: AgentContext) -> bool:
+    return context.user.role.name == RoleName.CUSTOMER
+
+
+def _is_enterprise_context(context: AgentContext) -> bool:
+    state = context.session.workflow_state or {}
+    return state.get("mode") == "enterprise"
+
+
+def _external_outreach_allowed(context: AgentContext) -> bool:
+    return not _is_customer_chat(context) or _is_enterprise_context(context)
+
+
+def handle_customer_domain_boundary(context: AgentContext, user_message: str, language: str) -> AgentReply | None:
+    if not _is_customer_chat(context) or _is_enterprise_context(context):
+        return None
+
+    normalized = _normalize_tr(user_message)
+    has_medical_term = any(_normalize_tr(term) in normalized for term in _CUSTOMER_MEDICAL_TERMS)
+    has_enterprise_term = any(_normalize_tr(term) in normalized for term in _ENTERPRISE_APPOINTMENT_TERMS)
+    if not has_medical_term or has_enterprise_term:
+        return None
+
+    first_name = (context.user.full_name or "").split()[0]
+    prefix_tr = f"{first_name} Hanım, " if first_name else ""
+    prefix_en = f"{first_name}, " if first_name else ""
+    return AgentReply(
+        message=default_reply(
+            language,
+            (
+                f"{prefix_tr}bu ekran kurumsal destek randevuları için tasarlandı; tıbbi veya dental randevu "
+                "yönlendirmesi yapmıyorum. Size Onboarding Desk, Technical Support, Billing Operations veya "
+                "Compliance Advisory ekipleri için güvenli bir randevu oluşturmada yardımcı olabilirim."
+            ),
+            (
+                f"{prefix_en}this workspace is for enterprise support appointments, so I cannot route medical or "
+                "dental appointment requests here. I can help you book a secure session with Onboarding Desk, "
+                "Technical Support, Billing Operations, or Compliance Advisory."
+            ),
+        ),
+        language=language,
+        outcome="unsupported_domain",
+        metadata_json={"intent": "unsupported_customer_domain", "domain": "medical"},
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -889,7 +976,24 @@ def stream_openai_agent(
     def _sse(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-    outreach_reply = handle_company_outreach_request(context, user_message, language)
+    boundary_reply = handle_customer_domain_boundary(context, user_message, language)
+    if boundary_reply:
+        full_text = boundary_reply.message
+        words = re.findall(r"\S+\s*", full_text)
+        for word in words:
+            yield _sse({"t": "tk", "v": word})
+        add_message(
+            context.db,
+            session=context.session,
+            sender=MessageSender.ASSISTANT,
+            content=full_text,
+            language=language,
+            metadata_json=boundary_reply.metadata_json or {},
+        )
+        yield _sse({"t": "done", "card": None})
+        return
+
+    outreach_reply = handle_company_outreach_request(context, user_message, language) if _external_outreach_allowed(context) else None
     if outreach_reply:
         full_text = outreach_reply.message
         words = re.findall(r"\S+\s*", full_text)
@@ -904,6 +1008,25 @@ def stream_openai_agent(
             metadata_json=outreach_reply.metadata_json or {},
         )
         yield _sse({"t": "done", "card": None})
+        return
+
+    if not openai_enabled():
+        reply = run_fallback_agent(context, user_message, language)
+        full_text = reply.message
+        words = re.findall(r"\S+\s*", full_text)
+        for word in words:
+            yield _sse({"t": "tk", "v": word})
+        metadata = reply.metadata_json or {}
+        card_meta = reply.confirmation_card.model_dump(mode="json") if reply.confirmation_card else {}
+        add_message(
+            context.db,
+            session=context.session,
+            sender=MessageSender.ASSISTANT,
+            content=full_text,
+            language=reply.language,
+            metadata_json={**metadata, **card_meta},
+        )
+        yield _sse({"t": "done", "card": card_meta if reply.confirmation_card else None})
         return
 
     client = OpenAI(api_key=settings.openai_api_key)
@@ -969,8 +1092,23 @@ def stream_openai_agent(
             "card": card_meta if confirmation_card else None,
         })
 
-    except Exception as exc:  # noqa: BLE001
-        yield _sse({"t": "err", "v": str(exc)})
+    except Exception:  # noqa: BLE001
+        reply = run_fallback_agent(context, user_message, language)
+        full_text = reply.message
+        words = re.findall(r"\S+\s*", full_text)
+        for word in words:
+            yield _sse({"t": "tk", "v": word})
+        metadata = reply.metadata_json or {}
+        card_meta = reply.confirmation_card.model_dump(mode="json") if reply.confirmation_card else {}
+        add_message(
+            context.db,
+            session=context.session,
+            sender=MessageSender.ASSISTANT,
+            content=full_text,
+            language=reply.language,
+            metadata_json={**metadata, **card_meta},
+        )
+        yield _sse({"t": "done", "card": card_meta if reply.confirmation_card else None})
 
 
 def run_fallback_agent(context: AgentContext, user_message: str, language: str) -> AgentReply:
@@ -1237,6 +1375,18 @@ def process_message(context: AgentContext, user_message: str) -> AgentReply:
     language  = detect_language(user_message, context.user.locale)
     sentiment = detect_sentiment(user_message)
 
+    boundary_reply = handle_customer_domain_boundary(context, user_message, language)
+    if boundary_reply:
+        add_message(
+            context.db,
+            session=context.session,
+            sender=MessageSender.ASSISTANT,
+            content=boundary_reply.message,
+            language=boundary_reply.language,
+            metadata_json={**(boundary_reply.metadata_json or {}), "sentiment": sentiment},
+        )
+        return boundary_reply
+
     # ── Tier 1: zero-cost canned replies ──────────────────────────────────────
     simple_intent = classify_simple_intent(user_message)
     if simple_intent and simple_intent != "affirmative":
@@ -1253,7 +1403,7 @@ def process_message(context: AgentContext, user_message: str) -> AgentReply:
             return AgentReply(message=canned, language=language, outcome="smalltalk")
 
     # ── Tier 2: outreach / intelligence ──────────────────────────────────────
-    outreach_reply = handle_company_outreach_request(context, user_message, language)
+    outreach_reply = handle_company_outreach_request(context, user_message, language) if _external_outreach_allowed(context) else None
     if outreach_reply:
         add_message(
             context.db,

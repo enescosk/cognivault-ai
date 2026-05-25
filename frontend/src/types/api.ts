@@ -288,6 +288,53 @@ export type ClinicalOverview = {
   doctor_inbox: ClinicalConversationSummary[];
   shadow_reviews: ShadowReview[];
 };
+export type ClinicalComplianceProfile = {
+  clinic_id: number;
+  clinic_name: string;
+  data_residency_default: string;
+  external_transfer_allowed: boolean;
+  processor_inventory: Array<Record<string, unknown>>;
+  production_modes: Array<Record<string, unknown>>;
+  mandatory_controls: string[];
+  blocked_by_default: string[];
+  operator_review_triggers: string[];
+};
+export type ClinicalPatentDossier = {
+  working_title: string;
+  technical_field: string;
+  problem: string;
+  solution_summary: string;
+  candidate_independent_claims: string[];
+  candidate_dependent_claims: string[];
+  figures_to_prepare: string[];
+  evidence_to_preserve: string[];
+  next_actions: string[];
+};
+export type ClinicalSlotItem = {
+  id: string;
+  department: string;
+  doctor: string;
+  date_label: string;
+  time_range: string;
+  capacity: number;
+  booked: number;
+  open: number;
+  status: "available" | "limited" | "full" | string;
+  next_available: string;
+  waitlist_count: number;
+};
+export type ClinicalSlotBoard = {
+  summary: {
+    clinic_mode: string;
+    occupancy_rate: number;
+    full_departments: number;
+    next_open_slot: string;
+    waitlist_total: number;
+  };
+  schedule: ClinicalSlotItem[];
+  acceptance_rules: Array<{ rule: string; result: string }>;
+  test_scenarios: Array<{ label: string; message: string; expected_action: string; expected_result: string }>;
+};
 export type WebhookIngestionResponse = {
   ok: boolean;
   clinic_id: number;

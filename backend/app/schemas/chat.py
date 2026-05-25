@@ -27,6 +27,7 @@ class ChatMessageResponse(BaseModel):
     language: str
     metadata_json: dict | None = None
     created_at: datetime
+    appointment: AppointmentConfirmationCard | None = None
 
 
 class ChatSessionDetail(BaseModel):

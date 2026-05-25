@@ -18,13 +18,16 @@ from app.models import ClinicChannel, ClinicConversation, ClinicalAppointment, S
 from app.schemas.clinical import (
     ClinicalAppointmentCreateRequest,
     ClinicalAppointmentResponse,
+    ClinicalComplianceProfileResponse,
     ClinicalConversationDetail,
     ClinicalConversationSummary,
     ClinicalMessageResponse,
     ClinicalMetricsResponse,
     ClinicalOverviewResponse,
+    ClinicalPatentDossierResponse,
     ClinicalPatientResponse,
     ClinicalPersonaResponse,
+    ClinicalSlotBoardResponse,
     PreIntakeCreateRequest,
     PreIntakeResponse,
     PreIntakeUpdateRequest,
@@ -34,6 +37,8 @@ from app.schemas.clinical import (
     VoiceCallSimulationRequest,
     WebhookIngestionResponse,
 )
+from app.services.clinical_compliance_service import build_compliance_profile, build_patent_dossier
+from app.services.clinical_slot_service import build_slot_board
 from app.services.clinical_service import (
     IncomingClinicalMessage,
     clinical_metrics,
@@ -184,6 +189,33 @@ def get_clinical_overview(
 @router.get("/clinical/personas", response_model=list[ClinicalPersonaResponse])
 def get_clinical_personas() -> list[ClinicalPersonaResponse]:
     return [ClinicalPersonaResponse(**persona.__dict__) for persona in list_personas()]
+
+
+@router.get("/clinical/compliance-profile", response_model=ClinicalComplianceProfileResponse)
+def get_clinical_compliance_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalComplianceProfileResponse:
+    clinic = ensure_clinic_access(db, current_user)
+    return ClinicalComplianceProfileResponse(**build_compliance_profile(clinic))
+
+
+@router.get("/clinical/patent-dossier", response_model=ClinicalPatentDossierResponse)
+def get_clinical_patent_dossier(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalPatentDossierResponse:
+    clinic = ensure_clinic_access(db, current_user)
+    return ClinicalPatentDossierResponse(**build_patent_dossier(clinic))
+
+
+@router.get("/clinical/slot-board", response_model=ClinicalSlotBoardResponse)
+def get_clinical_slot_board(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalSlotBoardResponse:
+    ensure_clinic_access(db, current_user)
+    return ClinicalSlotBoardResponse(**build_slot_board())
 
 
 @router.get("/clinical/doctor-inbox", response_model=list[ClinicalConversationSummary])

@@ -414,6 +414,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         metadata_json={
             "action": ai_result.action,
             "delivery": "simulated",
+            "data": ai_result.data or {},
             "persona_id": ai_result.persona_id,
             "persona_name": ai_result.persona_name,
             "voice": ai_result.voice,

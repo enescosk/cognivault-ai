@@ -53,6 +53,7 @@ function statusLabel(status: string) {
 export function Sidebar({ user, sessions, appointments, selectedSessionId, activeView, onSelectSession, onNewSession, onDeleteSession, onViewAppointments, onViewClinical, onLogout }: SidebarProps) {
   const initials = user.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   const roleName = user.role.name.toLowerCase();
+  const roleDisplay = roleName === "customer" ? "MÜŞTERİ" : roleName === "operator" ? "OPERATÖR" : "YÖNETİCİ";
   const [language, setLanguage] = useState(user.locale === "tr" ? "Türkçe" : "English");
   const [notifications, setNotifications] = useState(true);
   const [compact, setCompact] = useState(false);
@@ -68,7 +69,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
     .filter(isUpcomingAppointment)
     .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
   const operatorMenuAppointments = [...operatorActiveAppointments, ...operatorUpcomingAppointments].slice(0, 4);
-  const workspaceLabel = isClinicalStaff ? "Clinical Ops" : "Patient Workspace";
+  const workspaceLabel = isClinicalStaff ? "Klinik Operasyon" : "Kurumsal Randevu";
   const useClinicalSurface = isClinicalStaff && activeView === "clinical";
   const resizing = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -145,7 +146,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
           <div className="sidebar-profile-info">
             <div className="sidebar-name">{user.full_name}</div>
             <div className="sidebar-meta">
-              <span className={`role-badge ${roleName}`}>{roleName}</span>
+              <span className={`role-badge ${roleName}`}>{roleDisplay}</span>
               <span className="sidebar-dept">{user.locale.toUpperCase()}</span>
             </div>
             <div className="sidebar-email">{user.email}</div>
@@ -155,7 +156,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
 
       <div className="sidebar-body">
         <nav className="sidebar-nav">
-          <div className="nav-section-label">Workspace</div>
+          <div className="nav-section-label">Çalışma Alanı</div>
 
           {/* Randevularım nav item — sadece customer için */}
           {user.role.name === "customer" && (
@@ -184,7 +185,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                   <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0016.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 002 8.5c0 2.3 1.5 4.05 3 5.5l7 7z"/>
                   <path d="M12 5v16"/>
                 </svg>
-                Clinical Panel
+                Klinik Panel
               </button>
             </>
           )}
@@ -192,21 +193,21 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
           {isClinicalStaff ? (
             <div className="enterprise-nav-card">
               <span>Operator workspace</span>
-              <strong>Ozel klinik ve dis klinigi hasta aramalari, doktor onayi ve randevu uyarilari bu ekranda yonetilir.</strong>
+              <strong>Özel klinik ve diş kliniği hasta aramaları, doktor onayı ve randevu uyarıları bu ekranda yönetilir.</strong>
               <button type="button" onClick={onViewClinical}>Klinik paneline git</button>
             </div>
           ) : (
             <>
               <button className="nav-new-btn" onClick={() => { onNewSession(); }} type="button">
-                <span>New Session</span>
+                <span>Yeni Oturum</span>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"/>
                   <line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
               </button>
-              <div className="nav-section-label">Sessions</div>
+              <div className="nav-section-label">Oturumlar</div>
               {sessions.length === 0 ? (
-                <div style={{ padding: "10px 12px", fontSize: "0.82rem", color: "var(--text-3)" }}>No sessions yet</div>
+                <div style={{ padding: "10px 12px", fontSize: "0.82rem", color: "var(--text-3)" }}>Henüz oturum yok</div>
               ) : (
                 sessions.map((session) => (
                   <div
@@ -399,14 +400,14 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                 <strong>{user.full_name}</strong>
                 <span>{user.email}</span>
                 <div className="main-menu-badges">
-                  <span className={`role-badge ${roleName}`}>{roleName}</span>
+                  <span className={`role-badge ${roleName}`}>{roleDisplay}</span>
                   <span>{user.locale.toUpperCase()}</span>
                 </div>
               </div>
             </div>
 
             <div className="main-menu-section">
-              <div className="main-menu-label">Workspace</div>
+              <div className="main-menu-label">Çalışma Alanı</div>
               <button
                 className="main-menu-item"
                 type="button"

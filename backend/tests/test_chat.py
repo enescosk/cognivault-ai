@@ -49,3 +49,48 @@ def test_create_session_requires_auth(client):
 def test_list_sessions_requires_auth(client):
     res = client.get("/api/chat/sessions")
     assert res.status_code == 401
+
+
+def test_customer_medical_request_stays_in_enterprise_scope(client, customer_token, monkeypatch):
+    from app.agent import orchestrator
+
+    monkeypatch.setattr(orchestrator, "openai_enabled", lambda: False)
+    monkeypatch.setattr(orchestrator, "anthropic_enabled", lambda: False)
+
+    create = client.post("/api/chat/sessions", json={"title": "Boundary test"}, headers=_auth(customer_token))
+    session_id = create.json()["id"]
+
+    res = client.post(
+        f"/api/chat/sessions/{session_id}/messages",
+        json={"content": "Merhaba, diş ağrısı çekiyorum ve randevu almak istiyorum."},
+        headers=_auth(customer_token),
+    )
+
+    assert res.status_code == 200
+    reply = res.json()["assistant_reply"]
+    assert reply["outcome"] == "unsupported_domain"
+    assert "kurumsal destek randevuları" in reply["message"]
+    assert "Garanti" not in reply["message"]
+    assert "public kaynak" not in reply["message"]
+
+
+def test_customer_chat_does_not_run_external_outreach(client, customer_token, monkeypatch):
+    from app.agent import orchestrator
+
+    monkeypatch.setattr(orchestrator, "openai_enabled", lambda: False)
+    monkeypatch.setattr(orchestrator, "anthropic_enabled", lambda: False)
+
+    create = client.post("/api/chat/sessions", json={"title": "Outreach boundary"}, headers=_auth(customer_token))
+    session_id = create.json()["id"]
+
+    res = client.post(
+        f"/api/chat/sessions/{session_id}/messages",
+        json={"content": "Garanti BBVA müşteri hizmetlerini ara."},
+        headers=_auth(customer_token),
+    )
+
+    assert res.status_code == 200
+    reply = res.json()["assistant_reply"]
+    assert reply["outcome"] != "external_contact_prepared"
+    assert not (reply.get("metadata_json") or {}).get("intelligence_activity")
+    assert "public kaynak" not in reply["message"]

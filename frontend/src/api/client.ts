@@ -4,10 +4,13 @@ import type {
   AuthResponse,
   ChatSessionDetail,
   ChatSessionSummary,
+  ClinicalComplianceProfile,
   ClinicalConversationDetail,
   ClinicalOverview,
   ClinicalAppointment,
+  ClinicalPatentDossier,
   ClinicalPersona,
+  ClinicalSlotBoard,
   EnterpriseMessageResponse,
   EnterpriseOverview,
   EnterpriseSessionDetail,
@@ -170,6 +173,18 @@ export function updateEnterpriseTicketStatus(
 
 export function getClinicalOverview(token: string): Promise<ClinicalOverview> {
   return request<ClinicalOverview>("/clinical/overview", { method: "GET" }, token);
+}
+
+export function getClinicalComplianceProfile(token: string): Promise<ClinicalComplianceProfile> {
+  return request<ClinicalComplianceProfile>("/clinical/compliance-profile", { method: "GET" }, token);
+}
+
+export function getClinicalPatentDossier(token: string): Promise<ClinicalPatentDossier> {
+  return request<ClinicalPatentDossier>("/clinical/patent-dossier", { method: "GET" }, token);
+}
+
+export function getClinicalSlotBoard(token: string): Promise<ClinicalSlotBoard> {
+  return request<ClinicalSlotBoard>("/clinical/slot-board", { method: "GET" }, token);
 }
 
 export function getClinicalConversation(conversationId: number, token: string): Promise<ClinicalConversationDetail> {
