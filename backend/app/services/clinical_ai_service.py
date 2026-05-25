@@ -178,6 +178,146 @@ def detect_frustration(text: str) -> bool:
     return any(term in normalized for term in FRUSTRATION_TERMS)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Faz 2 — Research-driven AI signals (Gemini Deep Research 2026-05-25)
+# ConversationDetailPage.tsx'in beklediği metadata sinyallerini üretir.
+# Referans: docs/research/gemini-deep-research-2026-05-25.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Bölüm F#9 — sentiment trajectory. Hafif kural tabanlı lexicon; LLM ekleyince
+# bu fonksiyon yerine modelin döndüğü skor kullanılır.
+SENTIMENT_VERY_NEGATIVE_TERMS: set[str] = {
+    "tüküreyim", "tukureyim", "rezalet", "rezil", "berbat", "iğrenç", "igrenc",
+    "saçmalık", "sacmalik", "intihar", "öldüreceğim", "oldurecegim",
+    "şikayet edeceğim", "sikayet edecegim", "dava açacağım", "dava acacagim",
+}
+SENTIMENT_NEGATIVE_TERMS: set[str] = {
+    "kızgın", "kizgin", "sinir", "öfke", "ofke", "çok kötü", "cok kotu",
+    "memnun değilim", "memnun degilim", "yetersiz", "yavaş", "yavas",
+    "geç kaldınız", "gec kaldiniz", "cevap vermiyorsunuz", "bekliyorum",
+    "ilgilenmiyor", "ağrım", "agrim", "ağrıyor", "agriyor", "şikayet", "sikayet",
+    "üzgünüm", "uzgunum", "korkuyorum",
+}
+SENTIMENT_POSITIVE_TERMS: set[str] = {
+    "teşekkür", "tesekkur", "sağolun", "sagolun", "harika", "süper", "super",
+    "memnunum", "iyi", "güzel", "guzel", "anladım", "anladim", "tamam",
+    "olur", "uygun", "evet", "lütfen", "lutfen", "rica", "elinize sağlık",
+    "elinize saglik",
+}
+
+
+def analyze_sentiment(text: str) -> float:
+    """
+    Hasta mesajının duygu skorunu -1..1 aralığında döndürür.
+    Çok negatif kelimeler 2 katı ağırlık taşır. Lexicon temelli — LLM
+    eklendiğinde modelden gelen skorla değiştirilir.
+    """
+    if not text:
+        return 0.0
+    normalized = text.lower()
+    score = 0.0
+    weight_total = 0
+    for term in SENTIMENT_VERY_NEGATIVE_TERMS:
+        if term in normalized:
+            score -= 2.0
+            weight_total += 2
+    for term in SENTIMENT_NEGATIVE_TERMS:
+        if term in normalized:
+            score -= 1.0
+            weight_total += 1
+    for term in SENTIMENT_POSITIVE_TERMS:
+        if term in normalized:
+            score += 1.0
+            weight_total += 1
+    if weight_total == 0:
+        return 0.0
+    # Normalize ve clamp
+    normalized_score = score / max(weight_total, 1)
+    return max(-1.0, min(1.0, round(normalized_score, 2)))
+
+
+def detect_multi_intents(text: str, primary: ClinicIntent | None = None) -> list[str]:
+    """
+    Bölüm A8 — multi-intent yönetimi. Tek bir mesajda birden fazla niyet
+    olabilir ("randevuyu erteleyelim, fiyatı sorayım, sigorta geçer mi").
+    Primary haricinde tespit edilen ikincil niyetleri döndürür.
+    """
+    normalized = text.lower()
+    normalized_ascii = normalize_tr(text)
+    detected: list[str] = []
+    if any(normalize_tr(term) in normalized_ascii for term in EMERGENCY_TERMS):
+        detected.append(ClinicIntent.MEDICAL_EMERGENCY.value)
+    for intent, keywords in INTENT_KEYWORDS:
+        if any(keyword in normalized for keyword in keywords):
+            if intent.value not in detected:
+                detected.append(intent.value)
+    # primary intent zaten conversation/message üst seviyesinde gösteriliyor;
+    # ikincilleri ayrı alanda göstermek için ondan çıkar.
+    if primary is not None and primary.value in detected:
+        detected.remove(primary.value)
+    return detected
+
+
+def assess_hallucination_risk(
+    reply: str,
+    intent: ClinicIntent,
+    slot_decision: dict | None,
+) -> tuple[bool, str | None]:
+    """
+    Bölüm B#1 — hallucinated availability.
+    AI cevabı içerisinde net bir saat veya gün öneriyor mu? Eğer öneriyor ama
+    `slot_decision` `ok`/`offered` statüsünde değilse hayali slot riski var demektir.
+
+    Returns:
+        (risk, reason)
+    """
+    if not reply:
+        return False, None
+    if intent != ClinicIntent.BOOK_APPOINTMENT:
+        # Sadece randevu önerme akışında anlamlı bir risktir
+        return False, None
+
+    # Saat içerimi: "14:30", "saat 14", "yarın 11'de"
+    has_specific_time = bool(
+        re.search(r"\b\d{1,2}[:.]\d{2}\b", reply)
+        or re.search(r"\bsaat\s*\d{1,2}\b", reply.lower())
+        or re.search(r"\b\d{1,2}['’]?(de|da|te|ta)\b", reply.lower())
+    )
+    if not has_specific_time:
+        return False, None
+
+    status = (slot_decision or {}).get("status")
+    # ok / offered / suggested → slot service gerçek bir teklif üretti.
+    # full / waitlist / doctor_review / fallback → gerçek müsait slot yok ama AI saat verdi.
+    if status in {"ok", "offered", "suggested"}:
+        return False, None
+    return True, f"specific_time_without_real_slot:{status or 'unknown'}"
+
+
+def derive_consent_signal(governance: dict) -> dict[str, str | bool]:
+    """
+    Bölüm C — KVKK consent ispatlanabilirliği.
+    Şu an gerçek bir consent flow yok (Faz 3 işi); ama compliance katmanından
+    "yurt dışı aktarım kapalı mı, hangi processor'lar açık mı" sinyalini
+    UI için yapılandırılmış bir nesneye çeviriyoruz. Gerçek IVR/buton onayı
+    geldiğinde bu fonksiyon onu birlikte ele alacak.
+    """
+    auto_send_allowed = bool(governance.get("auto_send_allowed"))
+    residency = governance.get("data_residency_mode") or "unknown"
+    # Onay henüz alınmadı → pending. Local-first mode + auto_send_allowed → "pending"
+    # External processor aktif ve auto_send değil → "rejected" benzeri yüksek risk
+    if not auto_send_allowed:
+        status: str = "rejected"
+    else:
+        status = "pending"
+    return {
+        "status": status,
+        "residency": residency,
+        "granted_via": "implicit_local_first" if status == "pending" else "blocked_by_compliance",
+        "version": "v0-implicit",
+    }
+
+
 def extract_clinical_intake(text: str) -> dict:
     normalized = normalize_tr(text)
     specialty = "Genel Diş Hekimliği"

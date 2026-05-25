@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from urllib.parse import parse_qs
@@ -16,6 +17,7 @@ from app.models import (
     ClinicChannel,
     ClinicConversation,
     ClinicConversationStatus,
+    ClinicIntent,
     ClinicMembership,
     ClinicMessage,
     ClinicMessageSender,
@@ -34,7 +36,15 @@ from app.models import (
     User,
 )
 from app.services.agents import AgentType, DecisionRisk, build_decision, record_agent_decision
-from app.services.clinical_ai_service import detect_frustration, detect_language, generate_clinical_reply
+from app.services.clinical_ai_service import (
+    analyze_sentiment,
+    assess_hallucination_risk,
+    derive_consent_signal,
+    detect_frustration,
+    detect_language,
+    detect_multi_intents,
+    generate_clinical_reply,
+)
 
 
 # KVKK Md. 10 — Aydınlatma metni sürümü. Metin değişirse versiyon yükseltilmeli.
@@ -400,6 +410,12 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
     db.add(conversation)
     db.commit()
 
+    # Faz 2 — Hasta mesajı için research-driven sinyaller (sentiment, multi-intent).
+    # Bunlar AI cevabından önce hesaplanır ki frustrated patient akışını AI'a beslemeden
+    # de loglayabilelim ve hasta mesajının kendi metadata'sında saklayabilelim.
+    patient_sentiment = analyze_sentiment(incoming.body)
+    patient_is_frustrated = detect_frustration(incoming.body)
+
     message = ClinicMessage(
         clinic_id=clinic.id,
         conversation_id=conversation.id,
@@ -407,13 +423,36 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         content=incoming.body,
         language=language,
         external_message_id=incoming.external_message_id,
-        metadata_json={"raw_payload": incoming.raw_payload or {}, "source": incoming.channel.value},
+        metadata_json={
+            "raw_payload": incoming.raw_payload or {},
+            "source": incoming.channel.value,
+            # UI'da SentimentStrip'in beslendiği alan (Bölüm F#9)
+            "sentiment_score": patient_sentiment,
+            "is_frustrated": patient_is_frustrated,
+        },
     )
     db.add(message)
     db.commit()
     db.refresh(message)
 
     ai_result = generate_clinical_reply(clinic, incoming.body, language, incoming.requested_persona_id)
+
+    # Multi-intent ve consent sinyallerini AI çıktısı sonrası hesapla.
+    # Primary intent ai_result.intent'ten geliyor; secondary'leri ondan çıkarıyoruz.
+    secondary_intents = detect_multi_intents(incoming.body, ai_result.intent)
+    governance_dict = (ai_result.data or {}).get("privacy_guardrail") or {}
+    consent_signal = derive_consent_signal(governance_dict)
+
+    # Patient message metadata'sını intent listesi ve consent ile zenginleştir.
+    # JSON mutation: SQLAlchemy MutableDict bunu izler ama emin olmak için explicit set.
+    enriched_patient_metadata = {
+        **(message.metadata_json or {}),
+        "intents": [ai_result.intent.value, *secondary_intents] if secondary_intents else [ai_result.intent.value],
+        "kvkk_consent": consent_signal,
+    }
+    message.metadata_json = enriched_patient_metadata
+    db.add(message)
+
     conversation.intent = ai_result.intent
     conversation.confidence_score = ai_result.confidence
     conversation.metadata_json = {
@@ -422,6 +461,10 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         "last_persona_name": ai_result.persona_name,
         "last_voice": ai_result.voice,
         "last_channel": incoming.channel.value,
+        # Bölüm C — KVKK consent durumu sohbet seviyesinde
+        "kvkk_consent": consent_signal,
+        # Son sentiment skoru — trajectory ileri analiz için
+        "last_patient_sentiment": patient_sentiment,
     }
 
     if detect_frustration(incoming.body):
@@ -491,6 +534,16 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
             shadow_review=review,
         )
 
+    # Faz 2 — Asistan mesajı için research-driven sinyaller.
+    # hallucination_risk: AI cevabında somut saat var ama slot service müsait slot dönmediyse.
+    # emergency_routed: medical_emergency intent'inde AI cevabı 112'ye yönlendirdiyse.
+    slot_decision = (ai_result.data or {}).get("slot_decision") or {}
+    hallucination_risk, hallucination_reason = assess_hallucination_risk(
+        ai_result.reply, ai_result.intent, slot_decision
+    )
+    is_emergency_intent = ai_result.intent == ClinicIntent.MEDICAL_EMERGENCY
+    routed_to_112 = is_emergency_intent and bool(re.search(r"\b112\b|acil servis", ai_result.reply.lower()))
+
     assistant_message = ClinicMessage(
         clinic_id=clinic.id,
         conversation_id=conversation.id,
@@ -507,6 +560,14 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
             "persona_name": ai_result.persona_name,
             "voice": ai_result.voice,
             "channel": incoming.channel.value,
+            # Bölüm B#1 — UI'da kırmızı kenar + ⚠ tetikleyen alan
+            "hallucination_risk": hallucination_risk,
+            "hallucination_reason": hallucination_reason,
+            # Bölüm A6 — EmergencyBanner'ın "112 yönlendirildi mi" rozetinin beslendiği alan
+            "emergency_intent": is_emergency_intent,
+            "emergency_routed": routed_to_112,
+            # Patient message ile aynı consent imzası — audit/forensic için kopyalı
+            "kvkk_consent": consent_signal,
         },
     )
     db.add(assistant_message)
