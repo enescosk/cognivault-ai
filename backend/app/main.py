@@ -77,22 +77,41 @@ class MetricsMiddleware(BaseHTTPMiddleware):
     Uses `request.scope["route"].path` when FastAPI resolves a matching route, so
     `/api/users/42` is bucketed as `/api/users/{user_id}` instead of producing a
     new label per ID — keeps cardinality under control.
+
+    Side-effect: her tamamlanmış request için JSON log satırı düşer (method,
+    path, status, duration_ms, request_id). Bu satır admin-side log query'leri
+    için temel kayıt.
     """
 
     async def dispatch(self, request: Request, call_next):
+        import time as _time
         route_obj = request.scope.get("route")
         route_path = getattr(route_obj, "path", request.url.path)
         timer = MetricsTimer(request.method, route_path)
-        with timer:
-            try:
+        started = _time.perf_counter()
+        status_code = "500"
+        try:
+            with timer:
                 response = await call_next(request)
                 timer.status = str(response.status_code)
+                status_code = str(response.status_code)
                 return response
-            except Exception:
-                timer.status = "500"
-                # Count the failure even when we re-raise.
-                http_requests_total.labels(request.method, route_path, "500").inc()
-                raise
+        except Exception:
+            timer.status = "500"
+            http_requests_total.labels(request.method, route_path, "500").inc()
+            raise
+        finally:
+            duration_ms = round((_time.perf_counter() - started) * 1000.0, 2)
+            logger.info(
+                "http.request",
+                extra={
+                    "method": request.method,
+                    "path": route_path,
+                    "status": status_code,
+                    "duration_ms": duration_ms,
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+            )
 
 
 @asynccontextmanager

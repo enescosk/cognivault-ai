@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
 from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.core.webhook_security import (
     signature_required,
     verify_meta_signature,
@@ -302,7 +303,9 @@ def patch_shadow_review(
 
 
 @router.post("/clinical/simulate-whatsapp", response_model=WebhookIngestionResponse)
+@limiter.limit("30/minute")
 def simulate_whatsapp(
+    request: Request,
     payload: SimulateWhatsAppRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

@@ -17,6 +17,7 @@ from app.schemas.chat import AgentReply
 from app.schemas.appointment import AppointmentConfirmationCard
 from app.services.appointment_service import format_slot_label
 from app.services.chat_service import add_message, update_workflow_state
+from app.schemas.validation import safe_outreach_terms
 from app.services.external_intent_service import extract_external_request_terms
 from app.services.intelligence_service import discover_company_contact_for_agent
 from app.services.llm_usage import extract_openai_usage, record_llm_usage
@@ -400,7 +401,9 @@ def _clean_term(value: str) -> str:
 def extract_outreach_terms(text: str) -> dict | None:
     structured_terms = extract_external_request_terms(text)
     if structured_terms:
-        return structured_terms
+        # Outbound çağrılara gitmeden önce sertleştirme: < > " ' ; ( ) gibi
+        # injection karakterleri reddedilir, max uzunluk uygulanır.
+        return safe_outreach_terms(structured_terms)
 
     lower = text.lower()
     if not any(keyword in lower for keyword in _OUTREACH_KEYWORDS):
@@ -483,14 +486,19 @@ def extract_outreach_terms(text: str) -> dict | None:
 
     if not company:
         return None
-    search_query = f"{company} {location or ''}".strip()
-    return {
+    raw = {
         "company": company,
         "category": category,
         "location": location,
         "purpose": purpose or "görüşme talebi",
-        "search_query": search_query,
     }
+    # Çıktıyı sertleştir — injection karakterleri reddedilirse None döner.
+    sanitized = safe_outreach_terms(raw)
+    if sanitized is None:
+        return None
+    sanitized["category"] = category   # category outreach validation'da yer almıyor, koru
+    sanitized["search_query"] = f"{sanitized.get('company','')} {sanitized.get('location') or ''}".strip()
+    return sanitized
 
 
 def parse_company_outreach_request(text: str) -> str | None:
