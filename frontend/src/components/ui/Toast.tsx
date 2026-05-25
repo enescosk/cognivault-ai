@@ -35,28 +35,26 @@ export function ToastContainer() {
     }
   }, [removeToast])
 
-  const colors: Record<ToastType, string> = {
-    success: "bg-green-600",
-    error: "bg-red-600",
-    info: "bg-blue-600",
-  }
-
   const icons: Record<ToastType, string> = {
     success: "✓",
     error: "✕",
     info: "ℹ",
   }
 
+  if (toasts.length === 0) return null
+
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div className="toast-container">
       {toasts.map((toast) => (
-        <div
-          key={toast.id}
-          className={`flex items-center gap-3 px-4 py-3 rounded-lg text-white text-sm shadow-lg ${colors[toast.type]} animate-fade-in`}
-        >
-          <span className="font-bold">{icons[toast.type]}</span>
-          <span>{toast.message}</span>
-          <button onClick={() => removeToast(toast.id)} className="ml-2 opacity-70 hover:opacity-100">
+        <div key={toast.id} className={`toast toast-${toast.type}`} role="status">
+          <span className="toast-icon">{icons[toast.type]}</span>
+          <span className="toast-message">{toast.message}</span>
+          <button
+            type="button"
+            className="toast-close"
+            onClick={() => removeToast(toast.id)}
+            aria-label="Bildirimi kapat"
+          >
             ✕
           </button>
         </div>

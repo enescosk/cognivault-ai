@@ -19,10 +19,22 @@ import { AppointmentsPage } from "./AppointmentsPage";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
+import { DecisionLogView } from "./DecisionLogView";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
+import { showToast } from "./ui/Toast";
 
-export function Dashboard() {
+interface DashboardProps {
+  /**
+   * Audience hint coming from the router (`/customer/*` vs `/operator/*`).
+   * Used only as metadata today — actual rendering still branches on the
+   * authenticated user's role so backend RBAC remains the source of truth.
+   */
+  audience?: "customer" | "operator";
+}
+
+export function Dashboard({ audience }: DashboardProps = {}) {
   const { token, user, logout } = useAuth();
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState<ChatSessionDetail | null>(null);
@@ -187,13 +199,21 @@ export function Dashboard() {
     }
   }
 
+  // Surface dashboard-level errors via toast — fires once per distinct error message.
+  useEffect(() => {
+    if (error) showToast(error, "error");
+  }, [error]);
+
   if (!user) return null;
   if (loading && !selectedSession) return <div className="loading-shell">Loading workspace...</div>;
 
   const isClinicalView = view === "clinical" && (isOperator || isAdmin);
 
   return (
-    <div className={`dashboard-shell ${isOperator ? "operator-view" : ""} ${isClinicalView ? "clinical-view" : ""}`}>
+    <div
+      className={`dashboard-shell ${isOperator ? "operator-view" : ""} ${isClinicalView ? "clinical-view" : ""}`}
+      data-audience={audience ?? (isCustomer ? "customer" : "operator")}
+    >
       <Sidebar
         user={user}
         sessions={sessions}
@@ -208,18 +228,41 @@ export function Dashboard() {
         onLogout={logout}
       />
       <main className="main-panel">
-        {!isClinicalView ? <MetricsBar metrics={metrics} appointments={appointments} role={role} /> : null}
+        {!isClinicalView ? (
+          <ErrorBoundary scope="Metrics"><MetricsBar metrics={metrics} appointments={appointments} role={role} /></ErrorBoundary>
+        ) : null}
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
         {isClinicalView ? (
-          <ClinicalPanel token={token ?? ""} />
+          <ErrorBoundary scope="Clinical">
+            <ClinicalPanel token={token ?? ""} />
+          </ErrorBoundary>
         ) : view === "appointments" && isCustomer ? (
-          <AppointmentsPage appointments={appointments} />
+          <ErrorBoundary scope="Randevular">
+            <AppointmentsPage appointments={appointments} />
+          </ErrorBoundary>
         ) : (
-          <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
+          <ErrorBoundary scope="Sohbet">
+            <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
+          </ErrorBoundary>
         )}
       </main>
-      {isCustomer && <AppointmentPanel appointments={appointments} />}
-      {isAdmin && !isClinicalView && <AdminPanel users={users} appointments={appointments} logs={logs} />}
+      {isCustomer && (
+        <ErrorBoundary scope="Randevu paneli">
+          <AppointmentPanel appointments={appointments} />
+        </ErrorBoundary>
+      )}
+      {isAdmin && !isClinicalView && (
+        <ErrorBoundary scope="Yönetim paneli">
+          <AdminPanel users={users} appointments={appointments} logs={logs} />
+        </ErrorBoundary>
+      )}
+      {(isOperator || isAdmin) && isClinicalView && (
+        <ErrorBoundary scope="Ajan kararları">
+          <aside className="audit-panel">
+            <DecisionLogView />
+          </aside>
+        </ErrorBoundary>
+      )}
     </div>
   );
 }

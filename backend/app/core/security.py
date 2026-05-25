@@ -14,10 +14,12 @@ def verify_password(password: str, hashed_password: str) -> bool:
     return hash_password(password) == hashed_password
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, *, organization_id: int | None = None) -> str:
     settings = get_settings()
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    payload = {"sub": subject, "exp": expires_at}
+    payload: dict[str, object] = {"sub": subject, "exp": expires_at}
+    if organization_id is not None:
+        payload["org_id"] = organization_id
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

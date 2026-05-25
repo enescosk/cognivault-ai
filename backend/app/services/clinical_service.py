@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
+from app.core.observability import webhook_inbound_total
 from app.models import (
     Clinic,
     ClinicBranch,
@@ -23,11 +24,14 @@ from app.models import (
     ClinicalAppointment,
     ClinicalAppointmentStatus,
     FrustrationLog,
+    InboundEvent,
+    PreIntake,
     RoleName,
     ShadowReview,
     ShadowReviewStatus,
     User,
 )
+from app.services.agents import AgentType, DecisionRisk, build_decision, record_agent_decision
 from app.services.clinical_ai_service import detect_frustration, detect_language, generate_clinical_reply
 
 
@@ -144,7 +148,18 @@ def ensure_clinic_access(db: Session, current_user: User) -> Clinic:
     if current_user.role.name not in {RoleName.OPERATOR, RoleName.ADMIN}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clinical dashboard requires operator access")
 
-    clinic = ensure_default_clinic(db)
+    clinic: Clinic | None = None
+    if current_user.organization_id is not None:
+        # Tenant-aware path: scope the visible clinic to the user's organisation.
+        clinic = db.scalars(
+            select(Clinic)
+            .where(Clinic.organization_id == current_user.organization_id)
+            .order_by(Clinic.id)
+        ).first()
+    if clinic is None:
+        # Legacy single-tenant fallback for users that pre-date the org backfill.
+        clinic = ensure_default_clinic(db)
+
     membership = db.scalars(
         select(ClinicMembership).where(
             ClinicMembership.clinic_id == clinic.id,
@@ -224,8 +239,67 @@ def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPat
     return conversation
 
 
+def _provider_from_channel(channel: ClinicChannel) -> str:
+    if channel == ClinicChannel.WHATSAPP:
+        return "whatsapp"
+    if channel == ClinicChannel.PHONE:
+        return "voice"
+    return channel.value
+
+
+def _existing_inbound_message(
+    db: Session, clinic: Clinic, provider: str, external_id: str
+) -> ClinicMessage | None:
+    return db.scalars(
+        select(ClinicMessage)
+        .where(
+            ClinicMessage.clinic_id == clinic.id,
+            ClinicMessage.external_message_id == external_id,
+        )
+        .order_by(ClinicMessage.created_at.desc())
+    ).first()
+
+
 def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None) -> IngestionResult:
     clinic = clinic or ensure_default_clinic(db)
+
+    if incoming.external_message_id:
+        provider = _provider_from_channel(incoming.channel)
+        existing_event = db.scalars(
+            select(InboundEvent).where(
+                InboundEvent.provider == provider,
+                InboundEvent.external_id == incoming.external_message_id,
+            )
+        ).first()
+        if existing_event is not None:
+            existing_message = _existing_inbound_message(
+                db, clinic, provider, incoming.external_message_id
+            )
+            if existing_message is not None:
+                conversation = db.get(ClinicConversation, existing_message.conversation_id)
+                patient = db.get(ClinicPatient, conversation.patient_id) if conversation else None
+                if conversation is not None and patient is not None:
+                    webhook_inbound_total.labels(provider, "duplicate").inc()
+                    return IngestionResult(
+                        clinic=clinic,
+                        patient=patient,
+                        conversation=conversation,
+                        message=existing_message,
+                        action="duplicate_ignored",
+                        reply=None,
+                        shadow_review=None,
+                    )
+        db.add(
+            InboundEvent(
+                clinic_id=clinic.id,
+                provider=provider,
+                external_id=incoming.external_message_id,
+                payload_json={"channel": incoming.channel.value, "from_phone": incoming.from_phone},
+            )
+        )
+        db.commit()
+        webhook_inbound_total.labels(provider, "accepted").inc()
+
     patient = _find_or_create_patient(db, clinic, incoming)
     conversation = _find_or_create_conversation(db, clinic, patient, incoming)
     language = detect_language(incoming.body, patient.language or clinic.default_language)
@@ -300,6 +374,26 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         db.commit()
         db.refresh(conversation)
         db.refresh(review)
+        record_agent_decision(
+            db,
+            build_decision(
+                agent_type=AgentType.ROUTING,
+                intent=ai_result.intent.value if hasattr(ai_result.intent, "value") else str(ai_result.intent),
+                confidence=ai_result.confidence,
+                risk=DecisionRisk.HIGH,
+                requires_human=True,
+                action="shadow_review",
+                reason=ai_result.risk_reason or "requires_human_review",
+                organization_id=clinic.organization_id,
+                payload={
+                    "channel": incoming.channel.value,
+                    "shadow_review_id": review.id,
+                    "persona_id": ai_result.persona_id,
+                },
+            ),
+            clinic_id=clinic.id,
+            conversation_id=conversation.id,
+        )
         return IngestionResult(
             clinic=clinic,
             patient=patient,
@@ -331,6 +425,26 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
+    record_agent_decision(
+        db,
+        build_decision(
+            agent_type=AgentType.SUPPORT,
+            intent=ai_result.intent.value if hasattr(ai_result.intent, "value") else str(ai_result.intent),
+            confidence=ai_result.confidence,
+            risk=DecisionRisk.LOW,
+            requires_human=False,
+            action=ai_result.action or "auto_reply",
+            reason="confidence_above_threshold",
+            organization_id=clinic.organization_id,
+            payload={
+                "channel": incoming.channel.value,
+                "assistant_message_id": assistant_message.id,
+                "persona_id": ai_result.persona_id,
+            },
+        ),
+        clinic_id=clinic.id,
+        conversation_id=conversation.id,
+    )
     return IngestionResult(
         clinic=clinic,
         patient=patient,
@@ -478,6 +592,30 @@ def update_shadow_review(
     db.add(conversation)
     db.commit()
     db.refresh(review)
+
+    # Log the human-in-the-loop decision so it shows up alongside AI decisions.
+    decision_intent = review.intent.value if hasattr(review.intent, "value") else str(review.intent)
+    record_agent_decision(
+        db,
+        build_decision(
+            agent_type=AgentType.ROUTING,
+            intent=decision_intent,
+            confidence=review.confidence_score,
+            risk=DecisionRisk.HIGH if next_status == ShadowReviewStatus.REJECTED else DecisionRisk.MEDIUM,
+            requires_human=True,
+            action=f"shadow_review.{next_status.value}",
+            reason="operator_review",
+            organization_id=clinic.organization_id,
+            payload={
+                "review_id": review.id,
+                "operator_user_id": current_user.id,
+                "final_reply_used": review.final_reply,
+            },
+        ),
+        clinic_id=clinic.id,
+        conversation_id=conversation.id,
+        user_id=current_user.id,
+    )
     return review
 
 
@@ -564,3 +702,114 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
         "reminders_due": reminders_due,
         "frustration_events": frustration_events,
     }
+
+
+def _get_clinic_patient(db: Session, clinic: Clinic, patient_id: int) -> ClinicPatient:
+    patient = db.scalars(
+        select(ClinicPatient).where(ClinicPatient.id == patient_id, ClinicPatient.clinic_id == clinic.id)
+    ).first()
+    if patient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+    return patient
+
+
+def create_pre_intake(
+    db: Session,
+    clinic: Clinic,
+    patient_id: int,
+    conversation_id: int | None = None,
+    answers: dict | None = None,
+    is_complete: bool = False,
+) -> PreIntake:
+    patient = _get_clinic_patient(db, clinic, patient_id)
+    if conversation_id is not None:
+        get_clinical_conversation(db, clinic, conversation_id)
+
+    pre_intake = PreIntake(
+        clinic_id=clinic.id,
+        patient_id=patient.id,
+        conversation_id=conversation_id,
+        answers_json=dict(answers or {}),
+        is_complete=is_complete,
+    )
+    db.add(pre_intake)
+    db.commit()
+    db.refresh(pre_intake)
+    return pre_intake
+
+
+def get_pre_intake(db: Session, clinic: Clinic, pre_intake_id: int) -> PreIntake:
+    pre_intake = db.scalars(
+        select(PreIntake).where(PreIntake.id == pre_intake_id, PreIntake.clinic_id == clinic.id)
+    ).first()
+    if pre_intake is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pre-intake not found")
+    return pre_intake
+
+
+def list_pre_intakes(
+    db: Session,
+    clinic: Clinic,
+    patient_id: int | None = None,
+    conversation_id: int | None = None,
+    is_complete: bool | None = None,
+    limit: int = 50,
+) -> list[PreIntake]:
+    stmt = select(PreIntake).where(PreIntake.clinic_id == clinic.id)
+    if patient_id is not None:
+        stmt = stmt.where(PreIntake.patient_id == patient_id)
+    if conversation_id is not None:
+        stmt = stmt.where(PreIntake.conversation_id == conversation_id)
+    if is_complete is not None:
+        stmt = stmt.where(PreIntake.is_complete == is_complete)
+    stmt = stmt.order_by(PreIntake.updated_at.desc()).limit(limit)
+    return list(db.scalars(stmt))
+
+
+def update_pre_intake(
+    db: Session,
+    clinic: Clinic,
+    pre_intake_id: int,
+    answers: dict | None = None,
+    is_complete: bool | None = None,
+    replace: bool = False,
+) -> PreIntake:
+    pre_intake = get_pre_intake(db, clinic, pre_intake_id)
+
+    if answers is not None:
+        if replace:
+            pre_intake.answers_json = dict(answers)
+        else:
+            merged = dict(pre_intake.answers_json or {})
+            merged.update(answers)
+            pre_intake.answers_json = merged
+    if is_complete is not None:
+        pre_intake.is_complete = is_complete
+
+    db.add(pre_intake)
+    db.commit()
+    db.refresh(pre_intake)
+
+    answer_count = len(pre_intake.answers_json or {})
+    record_agent_decision(
+        db,
+        build_decision(
+            agent_type=AgentType.FORM,
+            intent="pre_intake_progress",
+            confidence=1.0 if pre_intake.is_complete else 0.5,
+            risk=DecisionRisk.LOW,
+            requires_human=False,
+            action="persist_pre_intake" if pre_intake.is_complete else "ask_next_question",
+            reason="form_complete" if pre_intake.is_complete else "form_in_progress",
+            organization_id=clinic.organization_id,
+            payload={
+                "pre_intake_id": pre_intake.id,
+                "answer_count": answer_count,
+                "is_complete": pre_intake.is_complete,
+                "replace_mode": replace,
+            },
+        ),
+        clinic_id=clinic.id,
+        conversation_id=pre_intake.conversation_id,
+    )
+    return pre_intake

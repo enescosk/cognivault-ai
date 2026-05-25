@@ -57,6 +57,28 @@ def get_default_organization(db: Session) -> Organization:
     return organization
 
 
+def resolve_user_organization(db: Session, user: User) -> Organization:
+    """Returns the organization that scopes a user's enterprise actions.
+
+    Tenant-aware: if the user has an `organization_id`, only their organization
+    is returned. For legacy users (created before the Phase 1 migration)
+    `organization_id` may be NULL — in that case the default organization is
+    returned and used as the implicit single tenant.
+    """
+
+    if user.organization_id is not None:
+        organization = db.scalars(
+            select(Organization).where(Organization.id == user.organization_id)
+        ).first()
+        if organization is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User's organization no longer exists",
+            )
+        return organization
+    return get_default_organization(db)
+
+
 def _department_by_name(db: Session, organization_id: int, name: str) -> Department | None:
     return db.scalars(
         select(Department).where(
@@ -174,7 +196,7 @@ def create_enterprise_session(
     channel: str,
 ) -> EnterpriseSession:
     ensure_enterprise_access(current_user)
-    organization = get_default_organization(db)
+    organization = resolve_user_organization(db, current_user)
     customer = EnterpriseCustomer(
         organization_id=organization.id,
         full_name=customer_name.strip(),
@@ -219,6 +241,7 @@ def create_enterprise_session(
 
 def list_enterprise_sessions(db: Session, current_user: User) -> list[EnterpriseSession]:
     ensure_enterprise_access(current_user)
+    organization = resolve_user_organization(db, current_user)
     return list(
         db.scalars(
             select(EnterpriseSession)
@@ -227,6 +250,7 @@ def list_enterprise_sessions(db: Session, current_user: User) -> list[Enterprise
                 selectinload(EnterpriseSession.department),
                 selectinload(EnterpriseSession.chat_session).selectinload(ChatSession.messages),
             )
+            .where(EnterpriseSession.organization_id == organization.id)
             .order_by(EnterpriseSession.updated_at.desc())
         )
     )
@@ -234,6 +258,7 @@ def list_enterprise_sessions(db: Session, current_user: User) -> list[Enterprise
 
 def get_enterprise_session(db: Session, current_user: User, session_id: int) -> EnterpriseSession:
     ensure_enterprise_access(current_user)
+    organization = resolve_user_organization(db, current_user)
     session = db.scalars(
         select(EnterpriseSession)
         .options(
@@ -241,7 +266,10 @@ def get_enterprise_session(db: Session, current_user: User, session_id: int) -> 
             selectinload(EnterpriseSession.department),
             selectinload(EnterpriseSession.chat_session).selectinload(ChatSession.messages),
         )
-        .where(EnterpriseSession.id == session_id)
+        .where(
+            EnterpriseSession.id == session_id,
+            EnterpriseSession.organization_id == organization.id,
+        )
     ).first()
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enterprise session not found")
@@ -250,12 +278,13 @@ def get_enterprise_session(db: Session, current_user: User, session_id: int) -> 
 
 def list_departments(db: Session, current_user: User) -> list[Department]:
     ensure_enterprise_access(current_user)
-    organization = get_default_organization(db)
+    organization = resolve_user_organization(db, current_user)
     return list(db.scalars(select(Department).where(Department.organization_id == organization.id).order_by(Department.name)))
 
 
 def list_enterprise_tickets(db: Session, current_user: User) -> list[EnterpriseTicket]:
     ensure_enterprise_access(current_user)
+    organization = resolve_user_organization(db, current_user)
     return list(
         db.scalars(
             select(EnterpriseTicket)
@@ -263,6 +292,7 @@ def list_enterprise_tickets(db: Session, current_user: User) -> list[EnterpriseT
                 selectinload(EnterpriseTicket.customer),
                 selectinload(EnterpriseTicket.department),
             )
+            .where(EnterpriseTicket.organization_id == organization.id)
             .order_by(EnterpriseTicket.created_at.desc())
         )
     )
@@ -277,6 +307,7 @@ def update_enterprise_ticket_status(
     resolution_note: str | None = None,
 ) -> EnterpriseTicket:
     ensure_enterprise_access(current_user)
+    organization = resolve_user_organization(db, current_user)
     ticket = db.scalars(
         select(EnterpriseTicket)
         .options(
@@ -284,7 +315,10 @@ def update_enterprise_ticket_status(
             selectinload(EnterpriseTicket.department),
             selectinload(EnterpriseTicket.session),
         )
-        .where(EnterpriseTicket.id == ticket_id)
+        .where(
+            EnterpriseTicket.id == ticket_id,
+            EnterpriseTicket.organization_id == organization.id,
+        )
     ).first()
     if ticket is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enterprise ticket not found")
@@ -405,7 +439,7 @@ def process_enterprise_message(
     content: str,
 ) -> tuple[EnterpriseSession, str, RoutingDecision, EnterpriseTicket | None, Appointment | None]:
     session = get_enterprise_session(db, current_user, session_id)
-    organization = get_default_organization(db)
+    organization = resolve_user_organization(db, current_user)
 
     add_message(
         db,
@@ -518,7 +552,7 @@ def process_enterprise_message(
 
 def enterprise_metrics(db: Session, current_user: User) -> dict:
     ensure_enterprise_access(current_user)
-    organization = get_default_organization(db)
+    organization = resolve_user_organization(db, current_user)
     total_tickets = db.scalar(select(func.count(EnterpriseTicket.id)).where(EnterpriseTicket.organization_id == organization.id)) or 0
     active_sessions = (
         db.scalar(

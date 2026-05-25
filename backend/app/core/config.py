@@ -10,9 +10,13 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SQLITE_DB = PROJECT_ROOT / "backend" / "data" / "cognivault.db"
 
 
+WEAK_JWT_SECRETS = frozenset({"change-me-in-production", "replace-me", "secret", "secret-key", "jwt-secret"})
+
+
 class Settings(BaseSettings):
     app_name: str = "Cognivault AI API"
     api_prefix: str = "/api"
+    environment: str = "development"
     database_url: str = f"sqlite:///{DEFAULT_SQLITE_DB.as_posix()}"
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
@@ -48,6 +52,12 @@ class Settings(BaseSettings):
     smtp_from: str = "noreply@cognivault.local"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     seed_demo_data: bool = True
+    # When true, inbound provider webhooks (Twilio, Meta) must carry a valid
+    # signature header — required for production.
+    clinical_webhook_signature_required: bool = False
+    # Public URL used as the canonical base when verifying Twilio request signatures.
+    # If empty, the request URL as received by FastAPI is used.
+    clinical_webhook_base_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=(str(PROJECT_ROOT / ".env"), str(BACKEND_ROOT / ".env"), ".env"),
@@ -59,6 +69,20 @@ class Settings(BaseSettings):
     @classmethod
     def clean_origins(cls, value: str) -> str:
         return ",".join(origin.strip() for origin in value.split(",") if origin.strip())
+
+    @field_validator("environment")
+    @classmethod
+    def normalize_environment(cls, value: str) -> str:
+        return value.strip().lower() or "development"
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment in {"production", "prod", "staging"}
+
+    @property
+    def has_weak_jwt_secret(self) -> bool:
+        secret = self.jwt_secret.strip()
+        return secret in WEAK_JWT_SECRETS or len(secret) < 16
 
     @property
     def cors_origin_list(self) -> list[str]:

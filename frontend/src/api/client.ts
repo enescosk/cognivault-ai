@@ -364,3 +364,44 @@ export async function synthesizeSpeech(
 
   return res.arrayBuffer();
 }
+
+export interface AgentDecisionLog {
+  id: number;
+  agent_type: string;
+  intent: string;
+  confidence: number;
+  risk: "low" | "medium" | "high" | string;
+  requires_human: boolean;
+  action: string | null;
+  reason: string | null;
+  organization_id: number | null;
+  clinic_id: number | null;
+  conversation_id: number | null;
+  chat_session_id: number | null;
+  user_id: number | null;
+  request_id: string | null;
+  payload_json: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AgentDecisionFilters {
+  agent_type?: string;
+  requires_human?: boolean;
+  risk?: "low" | "medium" | "high";
+  conversation_id?: number;
+  limit?: number;
+}
+
+export function listAgentDecisions(
+  token: string,
+  filters: AgentDecisionFilters = {},
+): Promise<AgentDecisionLog[]> {
+  const params = new URLSearchParams();
+  if (filters.agent_type) params.set("agent_type", filters.agent_type);
+  if (filters.requires_human !== undefined) params.set("requires_human", String(filters.requires_human));
+  if (filters.risk) params.set("risk", filters.risk);
+  if (filters.conversation_id !== undefined) params.set("conversation_id", String(filters.conversation_id));
+  if (filters.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return request<AgentDecisionLog[]>(`/agents/decisions${qs ? `?${qs}` : ""}`, {}, token);
+}

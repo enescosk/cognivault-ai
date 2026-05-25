@@ -1,30 +1,43 @@
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import appointments, audit, auth, chat, clinical, enterprise, intelligence, users, voice
+from app.api.routes import agents, appointments, audit, auth, chat, clinical, enterprise, intelligence, users, voice
 from app.core.config import get_settings
+from app.core.observability import (
+    MetricsTimer,
+    configure_logging,
+    http_requests_total,
+    render_metrics,
+)
 from app.core.rate_limit import limiter
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.seed.data import seed_database
+from app.services.agents import bootstrap_agent_registry
 
+configure_logging()
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-if settings.jwt_secret in ("change-me-in-production", "replace-me", "secret"):
-    logger.warning(
-        "SECURITY WARNING: JWT_SECRET is set to a default/weak value. "
-        "Set a strong random secret in production."
+if settings.has_weak_jwt_secret:
+    message = (
+        "JWT_SECRET is missing or uses a known-weak default. "
+        "Set a strong random JWT_SECRET (>=16 chars) in the environment."
     )
+    if settings.is_production:
+        raise RuntimeError(f"Refusing to start in {settings.environment!r}: {message}")
+    logger.warning("SECURITY WARNING: %s", message)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -37,6 +50,47 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Attaches an `X-Request-ID` header to every response and exposes it on `request.state`.
+
+    The client may pass its own ID to correlate logs across services; otherwise a UUID4 is
+    generated. Useful for audit trails and agent decision logging.
+    """
+
+    HEADER = "X-Request-ID"
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get(self.HEADER) or uuid.uuid4().hex
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers[self.HEADER] = request_id
+        return response
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Records HTTP latency + counts per (method, route, status).
+
+    Uses `request.scope["route"].path` when FastAPI resolves a matching route, so
+    `/api/users/42` is bucketed as `/api/users/{user_id}` instead of producing a
+    new label per ID — keeps cardinality under control.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        route_obj = request.scope.get("route")
+        route_path = getattr(route_obj, "path", request.url.path)
+        timer = MetricsTimer(request.method, route_path)
+        with timer:
+            try:
+                response = await call_next(request)
+                timer.status = str(response.status_code)
+                return response
+            except Exception:
+                timer.status = "500"
+                # Count the failure even when we re-raise.
+                http_requests_total.labels(request.method, route_path, "500").inc()
+                raise
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -46,6 +100,7 @@ async def lifespan(_: FastAPI):
             seed_database(db)
         finally:
             db.close()
+    bootstrap_agent_registry()
     yield
 
 
@@ -55,6 +110,8 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(MetricsMiddleware)
+app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -87,11 +144,53 @@ app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(enterprise.router, prefix=settings.api_prefix)
 app.include_router(intelligence.router, prefix=settings.api_prefix)
 app.include_router(clinical.router, prefix=settings.api_prefix)
+app.include_router(agents.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")
 def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/healthz")
+def liveness_probe() -> dict[str, str]:
+    """Kubernetes-style liveness probe — only fails if the process is broken."""
+
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readiness_probe() -> JSONResponse:
+    """Readiness probe — verifies the database is reachable.
+
+    Returns 200 with the dependency status JSON when everything is up; 503 if
+    the DB check fails. Useful for load-balancer or k8s readiness gating.
+    """
+
+    checks: dict[str, str] = {}
+    overall_ok = True
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as exc:  # noqa: BLE001
+        overall_ok = False
+        checks["database"] = f"failed: {exc.__class__.__name__}"
+        logger.error("readyz database check failed", extra={"error": str(exc)})
+    finally:
+        db.close()
+
+    body = {"status": "ok" if overall_ok else "degraded", "checks": checks}
+    return JSONResponse(content=body, status_code=200 if overall_ok else 503)
+
+
+@app.get("/metrics")
+def prometheus_metrics() -> Response:
+    """Prometheus scrape endpoint. No auth (standard for /metrics) — scope it to
+    the metrics network or behind an ingress allowlist in production."""
+
+    body, content_type = render_metrics()
+    return Response(content=body, media_type=content_type)
 
 
 @app.get("/")
