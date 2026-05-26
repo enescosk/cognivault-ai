@@ -118,11 +118,10 @@ export function PatientPage() {
     setBootstrapping(true);
     setBootstrapError(null);
     try {
-      const res = await startConversation(slug, consentToken, {
-        full_name: null,
-        phone: null,
-        initial_message: null,
-      });
+      // Body'de field'ları null göndermek yerine atlıyoruz (omit). Yeni
+      // backend zaten Optional kabul ediyor; eski backend versiyonu hâlâ
+      // çalışıyorsa `null` yerine field hiç gelmediği için 422 atmıyor.
+      const res = await startConversation(slug, consentToken, {});
       setSession((s) => ({
         ...s,
         consent_token: consentToken,

@@ -111,6 +111,36 @@ export type SlotHoldResponse = {
   slot_offer: PublicSlotOfferView;
 };
 
+/**
+ * FastAPI 422 hatalarında detail bir array of {loc, msg, type} olarak
+ * dönüyor; düz string'e çevirince "[object Object],[object Object]"
+ * çıkıyor. Bu helper hem array hem object hem string detail formatlarını
+ * insan-okur bir mesaja indirger.
+ */
+function formatBackendDetail(detail: unknown, status: number): string {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((d) => {
+        if (typeof d === "string") return d;
+        if (d && typeof d === "object") {
+          const msg = (d as { msg?: string }).msg ?? "";
+          const loc = (d as { loc?: (string | number)[] }).loc ?? [];
+          const locStr = loc.length ? ` (${loc.join(".")})` : "";
+          return `${msg}${locStr}`.trim();
+        }
+        return String(d);
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join(" · ");
+  }
+  if (detail && typeof detail === "object") {
+    const obj = detail as Record<string, unknown>;
+    if (typeof obj.msg === "string") return obj.msg;
+  }
+  return `request_failed:${status}`;
+}
+
 async function jsonFetch<T>(
   path: string,
   options: RequestInit = {},
@@ -125,8 +155,8 @@ async function jsonFetch<T>(
     },
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "request_failed" }));
-    throw new Error(error.detail ?? `request_failed:${res.status}`);
+    const body = await res.json().catch(() => null);
+    throw new Error(formatBackendDetail(body?.detail, res.status));
   }
   return res.json() as Promise<T>;
 }
