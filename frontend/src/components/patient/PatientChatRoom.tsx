@@ -4,6 +4,7 @@ import {
   confirmAppointment,
   holdSlotOffer,
   sendPatientMessage,
+  updatePatientIdentity,
   type PublicClinicView,
   type PublicMessageView,
   type PublicSlotOfferView,
@@ -93,6 +94,17 @@ export function PatientChatRoom({
   const [selectedSlot, setSelectedSlot] = useState<PublicSlotOfferView | null>(null);
   const [confirming, setConfirming] = useState(false);
 
+  // Kimlik toplama gate'i: AI henüz LLM tool calling yapamadığı için
+  // hasta randevu onayına basmadan ÖNCE kimliğini soruyoruz. Backend'de
+  // şu an placeholder ("Misafir Hasta" + sahte telefon) var; gerçek
+  // randevu için PATCH /patient ile günceller, sonra confirm akışına geçer.
+  const [identityCollected, setIdentityCollected] = useState(false);
+  const [identityFormOpen, setIdentityFormOpen] = useState(false);
+  const [identityName, setIdentityName] = useState("");
+  const [identityPhone, setIdentityPhone] = useState("");
+  const [identityError, setIdentityError] = useState<string | null>(null);
+  const [savingIdentity, setSavingIdentity] = useState(false);
+
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -166,12 +178,34 @@ export function PatientChatRoom({
     }
   }
 
-  async function handleConfirmAppointment() {
+  function normalizePhone(raw: string): string | null {
+    const cleaned = raw.replace(/[\s\-()]/g, "");
+    const match = cleaned.match(/^(?:\+90|90|0)?(5\d{9})$/);
+    return match ? `+90${match[1]}` : null;
+  }
+
+  /**
+   * Kullanıcı "Randevu talebimi gönder" butonuna basınca burası çalışır.
+   * Kimlik henüz toplanmamışsa form'u açar ve dönmez; toplanmışsa direkt
+   * confirm endpoint'ine gider.
+   */
+  function handleConfirmAppointment() {
     if (!bookingDepartment || !selectedSlot) {
       setError("Lütfen önce klinik takviminden gelen uygun saatlerden birini seçin.");
       return;
     }
+    if (!identityCollected) {
+      setError(null);
+      setIdentityFormOpen(true);
+      return;
+    }
+    void proceedWithAppointmentConfirm();
+  }
+
+  async function proceedWithAppointmentConfirm() {
+    if (!bookingDepartment || !selectedSlot) return;
     setConfirming(true);
+    setError(null);
     try {
       const held = selectedSlot.status === "held"
         ? { slot_offer: selectedSlot }
@@ -186,6 +220,49 @@ export function PatientChatRoom({
       setError(err instanceof Error ? err.message : "appointment_failed");
     } finally {
       setConfirming(false);
+    }
+  }
+
+  /**
+   * Kimlik form'undan submit edilince: PATCH /patient → identityCollected=true →
+   * randevu onay akışını başlat. Hata olursa form açık kalır, kullanıcı tekrar
+   * deneyebilir.
+   */
+  async function submitIdentityAndProceed(e?: React.FormEvent) {
+    e?.preventDefault();
+    setIdentityError(null);
+    if (identityName.trim().length < 2) {
+      setIdentityError("Lütfen adınızı ve soyadınızı girin.");
+      return;
+    }
+    const normalized = normalizePhone(identityPhone);
+    if (!normalized) {
+      setIdentityError("Lütfen geçerli bir TR cep numarası girin (örn: 0532 123 45 67).");
+      return;
+    }
+    setSavingIdentity(true);
+    try {
+      await updatePatientIdentity(clinic.slug, conversationId, sessionToken, {
+        full_name: identityName.trim(),
+        phone: normalized,
+      });
+      setIdentityCollected(true);
+      setIdentityFormOpen(false);
+      // Chat'e bilgilendirme balonu — şeffaflık için kayda alındığını söyle.
+      setBubbles((prev) => [
+        ...prev,
+        {
+          id: `sys-id-${Date.now()}`,
+          sender: "system",
+          body: `✓ Kayıt: ${identityName.trim()} · ${normalized}. Randevu oluşturuluyor…`,
+          ts: new Date().toISOString(),
+        },
+      ]);
+      await proceedWithAppointmentConfirm();
+    } catch (err) {
+      setIdentityError(err instanceof Error ? err.message : "identity_update_failed");
+    } finally {
+      setSavingIdentity(false);
     }
   }
 
@@ -283,10 +360,78 @@ export function PatientChatRoom({
             type="button"
             className="patient-cta"
             onClick={handleConfirmAppointment}
-            disabled={confirming || !canConfirmAppointment}
+            disabled={confirming || savingIdentity || !canConfirmAppointment}
           >
-            {confirming ? "Onaylanıyor…" : "Seçili saati randevuya çevir"}
+            {confirming
+              ? "Onaylanıyor…"
+              : !identityCollected
+                ? "Devam et — Bilgilerinizi alalım"
+                : "Seçili saati randevuya çevir"}
           </button>
+
+          {/* Kimlik gate: hasta randevu onayına bastıysa ama hâlâ
+              placeholder ise inline mini form. Sadece bir kez doldurulur. */}
+          {identityFormOpen && !identityCollected ? (
+            <form className="patient-identity-form" onSubmit={submitIdentityAndProceed}>
+              <div className="patient-identity-header">
+                <strong>Son bir adım kaldı</strong>
+                <p>
+                  Randevu kaydınız ve SMS onayınız için sadece ad-soyad ve
+                  cep telefonunuz gerekli. Bu bilgiler yerel sunucularımızda
+                  KVKK uyumlu olarak saklanır.
+                </p>
+              </div>
+
+              <label className="patient-field">
+                <span>Ad-soyad</span>
+                <input
+                  type="text"
+                  autoComplete="name"
+                  required
+                  value={identityName}
+                  onChange={(e) => setIdentityName(e.target.value)}
+                  placeholder="Ahmet Yılmaz"
+                  disabled={savingIdentity}
+                />
+              </label>
+
+              <label className="patient-field">
+                <span>Cep telefonu</span>
+                <input
+                  type="tel"
+                  autoComplete="tel"
+                  inputMode="numeric"
+                  required
+                  value={identityPhone}
+                  onChange={(e) => setIdentityPhone(e.target.value)}
+                  placeholder="0532 123 45 67"
+                  disabled={savingIdentity}
+                />
+              </label>
+
+              {identityError ? (
+                <div className="patient-error-line">{identityError}</div>
+              ) : null}
+
+              <div className="patient-consent-actions">
+                <button
+                  type="submit"
+                  className="patient-cta"
+                  disabled={savingIdentity}
+                >
+                  {savingIdentity ? "Kaydediliyor…" : "Randevuyu oluştur"}
+                </button>
+                <button
+                  type="button"
+                  className="patient-cta-ghost"
+                  onClick={() => setIdentityFormOpen(false)}
+                  disabled={savingIdentity}
+                >
+                  Vazgeç
+                </button>
+              </div>
+            </form>
+          ) : null}
         </div>
       ) : null}
 

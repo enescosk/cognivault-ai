@@ -6623,3 +6623,27 @@ body:has(.login-shell) {
   .patient-consent-actions { flex-direction: column; }
   .patient-cta, .patient-cta-secondary, .patient-cta-ghost { width: 100%; text-align: center; }
 }
+
+/* === Patient identity gate inline form ==================================== */
+.patient-identity-form {
+  margin-top: 14px;
+  padding: 16px;
+  background: var(--patient-bg);
+  border: 1px solid var(--patient-border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.patient-identity-header strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--patient-primary);
+  font-size: 0.96rem;
+}
+.patient-identity-header p {
+  margin: 0;
+  color: var(--patient-text-2);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
