@@ -496,6 +496,116 @@ def _attach_governance(result: ClinicalAIResult, governance: dict) -> ClinicalAI
     )
 
 
+def _try_openai_reply(
+    clinic: Clinic,
+    text: str,
+    language: str,
+    intent: ClinicIntent,
+    persona: ClinicalPersona,
+    governance: dict,
+) -> ClinicalAIResult | None:
+    """
+    OpenAI Chat Completions ile yapılandırılmış JSON cevap üretir.
+    settings.openai_api_key yoksa veya compliance katmanı yurt dışı
+    aktarıma izin vermiyorsa None döner → orchestrator bir sonraki
+    sağlayıcıya (Anthropic) ya da safe template fallback'e geçer.
+
+    KVKK NOTU: OpenAI = ABD = yurt dışı aktarım. Pilot/demo için açık,
+    prod KVKK uyumlu çıkış için Local AI (Qwen2.5) faz 1'de değişecek.
+    """
+    settings = get_settings()
+    if not settings.clinical_ai_enabled or not settings.openai_api_key:
+        return None
+    if not settings.clinical_external_ai_allowed:
+        return None
+    if not governance.get("external_transfer_allowed", False):
+        return None
+    if "special_category_health_data" in governance.get("data_classes", []):
+        return None
+    if "financial_or_insurance_data" in governance.get("data_classes", []):
+        return None
+
+    from openai import OpenAI
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    try:
+        response = client.chat.completions.create(
+            model=settings.openai_model,
+            temperature=0.2,
+            max_tokens=600,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a JSON-only clinical receptionist API. "
+                        "Always return valid JSON with keys: reply (string, Turkish unless lang says otherwise), "
+                        "confidence (0-1 float), intent (one of: "
+                        "book_appointment, reschedule_appointment, cancel_appointment, ask_price, "
+                        "ask_insurance, ask_location, ask_working_hours, medical_emergency, "
+                        "general_question, unknown), action (snake_case string), "
+                        "requires_human_review (bool), risk_reason (string|null), data (object)."
+                    ),
+                },
+                {"role": "user", "content": _structured_prompt(clinic, text, language, intent, persona)},
+            ],
+        )
+    except Exception:  # noqa: BLE001 — sağlayıcı çöktüyse fallback'e düş
+        return None
+
+    # Usage telemetrisi
+    try:
+        from app.db.session import SessionLocal
+        from app.services.llm_usage import record_llm_usage
+        usage = getattr(response, "usage", None)
+        prompt_t = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_t = int(getattr(usage, "completion_tokens", 0) or 0)
+        telemetry_db = SessionLocal()
+        try:
+            record_llm_usage(
+                telemetry_db,
+                model=settings.openai_model,
+                prompt_tokens=prompt_t,
+                completion_tokens=completion_t,
+                agent_type="clinical_triage",
+                organization_id=getattr(clinic, "organization_id", None),
+            )
+        finally:
+            telemetry_db.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+    raw = (response.choices[0].message.content or "").strip() if response.choices else ""
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+    try:
+        parsed_intent = ClinicIntent(payload.get("intent", intent.value))
+    except ValueError:
+        parsed_intent = intent
+
+    reply = str(payload.get("reply") or _safe_reply(parsed_intent, language, clinic, persona))
+    if _looks_like_planning_reply(reply):
+        return None
+
+    return ClinicalAIResult(
+        reply=reply,
+        confidence=float(payload.get("confidence") or 0.0),
+        intent=parsed_intent,
+        action=str(payload.get("action") or "collect_info"),
+        persona_id=persona.id,
+        persona_name=persona.display_name,
+        voice=persona.voice,
+        requires_human_review=bool(payload.get("requires_human_review", False)),
+        risk_reason=payload.get("risk_reason"),
+        data=payload.get("data") if isinstance(payload.get("data"), dict) else {},
+    )
+
+
 def _try_anthropic_reply(
     clinic: Clinic,
     text: str,
@@ -584,6 +694,14 @@ def generate_clinical_reply(
     slot_decision = build_slot_decision(intake)
     persona = choose_persona(intent, requested_persona_id)
     governance = build_governance_context(clinic, text, intent, resolved_language).as_dict()
+
+    # Provider sırası: OpenAI → Anthropic → safe template fallback.
+    # İlk dolu cevap döndüğünde diğerleri denenmez. Her ikisi de
+    # compliance kontrollerini kendi içinde uyguluyor; yasak veri
+    # sınıfında otomatik None dönüp fallback'e geçiyor.
+    openai_reply = _try_openai_reply(clinic, text, resolved_language, intent, persona, governance)
+    if openai_reply is not None:
+        return _attach_governance(openai_reply, governance)
     anthropic_reply = _try_anthropic_reply(clinic, text, resolved_language, intent, persona, governance)
     if anthropic_reply is not None:
         return _attach_governance(anthropic_reply, governance)
