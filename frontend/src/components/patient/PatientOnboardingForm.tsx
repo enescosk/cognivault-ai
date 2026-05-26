@@ -25,9 +25,20 @@ export function PatientOnboardingForm({ clinic, consentToken, onStarted, onCance
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function isValidPhone(p: string): boolean {
-    const trimmed = p.replace(/\s|-/g, "");
-    return /^(\+?90)?5\d{9}$/.test(trimmed);
+  /**
+   * TR cep numarasını normalize edip E.164 formatına çevirir.
+   * Geçerli ise `+90` prefix'li 13 haneli string döner; değilse `null`.
+   *
+   * Kabul edilen girdiler:
+   *   "0532 123 45 67"   "0537 033 47 21"   "0537-033-4721"
+   *   "0537 0334721"     "5370334721"
+   *   "+905370334721"    "905370334721"
+   *   "+90 537 033 47 21"
+   */
+  function normalizePhone(raw: string): string | null {
+    const cleaned = raw.replace(/[\s\-()]/g, "");
+    const match = cleaned.match(/^(?:\+90|90|0)?(5\d{9})$/);
+    return match ? `+90${match[1]}` : null;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -38,14 +49,15 @@ export function PatientOnboardingForm({ clinic, consentToken, onStarted, onCance
       setError("Lütfen adınızı ve soyadınızı girin.");
       return;
     }
-    if (!isValidPhone(phone)) {
+
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) {
       setError("Lütfen geçerli bir TR cep numarası girin (örn: 0532 123 45 67).");
       return;
     }
 
     setSubmitting(true);
     try {
-      const normalizedPhone = phone.replace(/\s|-/g, "").replace(/^0/, "+90").replace(/^(?!\+90)5/, "+905");
       const res = await startConversation(clinic.slug, consentToken, {
         full_name: fullName.trim(),
         phone: normalizedPhone,
