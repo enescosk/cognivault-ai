@@ -61,6 +61,9 @@ from app.models.entities import (
     ShadowReviewStatus,
     User,
     FrustrationLog,
+    Doctor,
+    ClinicService,
+    KVKKDisclosureVersion,
 )
 
 __all__ = [
@@ -126,4 +129,8 @@ __all__ = [
     "ShadowReviewStatus",
     "User",
     "FrustrationLog",
+    "Doctor",
+    "ClinicService",
+    "KVKKDisclosureVersion",
 ]
+

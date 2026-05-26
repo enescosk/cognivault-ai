@@ -186,6 +186,9 @@ class Clinic(Base):
     memberships: Mapped[list["ClinicMembership"]] = relationship(back_populates="clinic")
     patients: Mapped[list["ClinicPatient"]] = relationship(back_populates="clinic")
     conversations: Mapped[list["ClinicConversation"]] = relationship(back_populates="clinic")
+    doctors: Mapped[list["Doctor"]] = relationship(back_populates="clinic", cascade="all, delete-orphan")
+    services: Mapped[list["ClinicService"]] = relationship(back_populates="clinic", cascade="all, delete-orphan")
+    disclosures: Mapped[list["KVKKDisclosureVersion"]] = relationship(back_populates="clinic", cascade="all, delete-orphan")
 
 
 class ClinicBranch(Base):
@@ -997,3 +1000,42 @@ class OutreachDraft(Base):
 
     lead: Mapped["Lead"] = relationship(back_populates="outreach_drafts")
     created_by: Mapped["User"] = relationship()
+
+
+class Doctor(Base):
+    __tablename__ = "doctors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    full_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    specialty: Mapped[str] = mapped_column(String(160), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    clinic: Mapped["Clinic"] = relationship(back_populates="doctors")
+
+
+class ClinicService(Base):
+    __tablename__ = "clinic_services"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    clinic: Mapped["Clinic"] = relationship(back_populates="services")
+
+
+class KVKKDisclosureVersion(Base):
+    __tablename__ = "kvkk_disclosures"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(32), nullable=False)
+    disclosure_text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    clinic: Mapped["Clinic"] = relationship(back_populates="disclosures")

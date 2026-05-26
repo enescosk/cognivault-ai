@@ -264,3 +264,106 @@ def build_patent_dossier(clinic: Clinic) -> dict:
             "Avoid publishing enabling implementation details before filing if the team wants maximum novelty protection.",
         ],
     }
+
+
+def run_retention_cleanup(db: Session) -> dict[str, int]:
+    """
+    Executes the KVKK retention cleanup.
+    - Anonymizes ClinicMessage rows older than 90 days.
+    - Anonymizes ClinicPatient & ClinicConversation rows whose data_expires_at has passed.
+    """
+    from datetime import datetime, timezone, timedelta
+    import hashlib
+    from sqlalchemy import select
+    from app.models import ClinicPatient, ClinicConversation, ClinicMessage, ShadowReview, AuditResultStatus
+    from app.services.audit_service import log_action
+    from app.core.config import get_settings
+
+    now = datetime.now(timezone.utc)
+    settings = get_settings()
+
+    # 1. Anonymize ClinicMessage rows older than 90 days
+    cutoff_90_days = now - timedelta(days=90)
+    messages_to_clean = list(db.scalars(
+        select(ClinicMessage).where(
+            ClinicMessage.created_at <= cutoff_90_days,
+            ClinicMessage.content != "[İçerik KVKK gereği otomatik silindi]"
+        )
+    ).all())
+
+    erased_message_count = 0
+    for msg in messages_to_clean:
+        msg.content = "[İçerik KVKK gereği otomatik silindi]"
+        msg.metadata_json = {**(msg.metadata_json or {}), "auto_erased": True}
+        db.add(msg)
+        erased_message_count += 1
+
+    # 2. Anonymize expired ClinicPatient rows
+    expired_patients = list(db.scalars(
+        select(ClinicPatient).where(
+            ClinicPatient.data_expires_at.is_not(None),
+            ClinicPatient.data_expires_at <= now,
+            ClinicPatient.full_name != "[SİLİNDİ]"
+        )
+    ).all())
+
+    erased_patient_count = 0
+    for patient in expired_patients:
+        pepper = f"{settings.jwt_secret}:{patient.clinic_id}".encode()
+        hashed_phone = hashlib.sha256(patient.phone.encode() + pepper).hexdigest()[:32]
+        patient.full_name = "[SİLİNDİ]"
+        patient.phone = f"erased:{hashed_phone}"
+        patient.metadata_json = {}
+        patient.external_ref = None
+        db.add(patient)
+        erased_patient_count += 1
+
+    # 3. Anonymize expired ClinicConversation rows
+    expired_convs = list(db.scalars(
+        select(ClinicConversation).where(
+            ClinicConversation.data_expires_at.is_not(None),
+            ClinicConversation.data_expires_at <= now,
+            ClinicConversation.status != "closed"
+        )
+    ).all())
+
+    erased_conv_count = 0
+    for conv in expired_convs:
+        conv.metadata_json = {**(conv.metadata_json or {}), "auto_erased": True}
+        # Also clean up shadow reviews associated with this conversation
+        reviews = list(db.scalars(
+            select(ShadowReview).where(ShadowReview.conversation_id == conv.id)
+        ).all())
+        for review in reviews:
+            review.draft_reply = "[Silindi]"
+            if review.final_reply:
+                review.final_reply = "[Silindi]"
+            db.add(review)
+        db.add(conv)
+        erased_conv_count += 1
+
+    if erased_message_count > 0 or erased_patient_count > 0 or erased_conv_count > 0:
+        db.commit()
+        log_action(
+            db,
+            user_id=None,
+            action_type="retention_cleanup",
+            explanation=(
+                f"KVKK otomatik veri saklama temizliği çalıştı: "
+                f"{erased_message_count} mesaj, {erased_patient_count} hasta, "
+                f"{erased_conv_count} konuşma temizlendi."
+            ),
+            result_status=AuditResultStatus.SUCCESS,
+            details={
+                "messages_erased": erased_message_count,
+                "patients_erased": erased_patient_count,
+                "conversations_erased": erased_conv_count,
+            }
+        )
+
+    return {
+        "messages_erased": erased_message_count,
+        "patients_erased": erased_patient_count,
+        "conversations_erased": erased_conv_count,
+    }
+

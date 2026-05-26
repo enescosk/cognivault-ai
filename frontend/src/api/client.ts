@@ -446,3 +446,98 @@ export interface UsageSummary {
 export function getUsageSummary(token: string, days: number = 7): Promise<UsageSummary> {
   return request<UsageSummary>(`/agents/usage/summary?days=${days}`, {}, token);
 }
+
+// ─── Clinic Admin API ───────────────────────────────────────────────────────
+export interface Doctor {
+  id: number;
+  clinic_id: number;
+  full_name: string;
+  specialty: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ClinicService {
+  id: number;
+  clinic_id: number;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface KVKKDisclosure {
+  id: number;
+  clinic_id: number;
+  version: string;
+  disclosure_text: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export function getBranding(token: string): Promise<{ branding: Record<string, any> }> {
+  return request<{ branding: Record<string, any> }>("/clinic/admin/branding", {}, token);
+}
+
+export function updateBranding(token: string, payload: Record<string, any>): Promise<{ branding: Record<string, any> }> {
+  return request<{ branding: Record<string, any> }>("/clinic/admin/branding", {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  }, token);
+}
+
+export function getDoctors(token: string): Promise<Doctor[]> {
+  return request<Doctor[]>("/clinic/admin/doctors", {}, token);
+}
+
+export function createDoctor(token: string, payload: { full_name: string; specialty: string; is_active?: boolean }): Promise<Doctor> {
+  return request<Doctor>("/clinic/admin/doctors", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }, token);
+}
+
+export function updateDoctor(token: string, id: number, payload: { full_name: string; specialty: string; is_active?: boolean }): Promise<Doctor> {
+  return request<Doctor>(`/clinic/admin/doctors/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  }, token);
+}
+
+export function deleteDoctor(token: string, id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/clinic/admin/doctors/${id}`, { method: "DELETE" }, token);
+}
+
+export function getServices(token: string): Promise<ClinicService[]> {
+  return request<ClinicService[]>("/clinic/admin/services", {}, token);
+}
+
+export function createService(token: string, payload: { name: string; description?: string; is_active?: boolean }): Promise<ClinicService> {
+  return request<ClinicService>("/clinic/admin/services", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }, token);
+}
+
+export function updateService(token: string, id: number, payload: { name: string; description?: string; is_active?: boolean }): Promise<ClinicService> {
+  return request<ClinicService>(`/clinic/admin/services/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  }, token);
+}
+
+export function deleteService(token: string, id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/clinic/admin/services/${id}`, { method: "DELETE" }, token);
+}
+
+export function getDisclosures(token: string): Promise<KVKKDisclosure[]> {
+  return request<KVKKDisclosure[]>("/clinic/admin/disclosures", {}, token);
+}
+
+export function createDisclosure(token: string, payload: { version: string; disclosure_text: string; is_active?: boolean }): Promise<KVKKDisclosure> {
+  return request<KVKKDisclosure>("/clinic/admin/disclosures", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }, token);
+}
+

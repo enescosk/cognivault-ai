@@ -12,6 +12,7 @@ import {
   streamMessage,
 } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 import type { Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, User } from "../types/api";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { AppointmentPanel } from "./AppointmentPanel";
@@ -19,6 +20,7 @@ import { AppointmentsPage } from "./AppointmentsPage";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
+import { ClinicAdminPanel } from "./ClinicAdminPanel";
 import { ClinicalPlayground } from "./ClinicalPlayground";
 import { DecisionLogView } from "./DecisionLogView";
 import { UsageCostCard } from "./UsageCostCard";
@@ -34,10 +36,12 @@ interface DashboardProps {
    * authenticated user's role so backend RBAC remains the source of truth.
    */
   audience?: "customer" | "operator";
+  defaultView?: "chat" | "appointments" | "clinical" | "clinic-admin";
 }
 
-export function Dashboard({ audience }: DashboardProps = {}) {
+export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
   const { token, user, logout } = useAuth();
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState<ChatSessionDetail | null>(null);
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -51,7 +55,7 @@ export function Dashboard({ audience }: DashboardProps = {}) {
   const [activeTools, setActiveTools] = useState<string[]>([]);  // şu an çalışan tool'lar
   const [isThinking, setIsThinking] = useState(false);            // LLM düşünüyor mu
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "appointments" | "clinical">("chat");
+  const [view, setView] = useState<"chat" | "appointments" | "clinical" | "clinic-admin">(defaultView ?? "chat");
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
@@ -60,11 +64,13 @@ export function Dashboard({ audience }: DashboardProps = {}) {
 
   useEffect(() => {
     if (!token || !user) return;
-    if (user.role.name === "operator" || user.role.name === "admin") {
+    if (defaultView) {
+      setView(defaultView);
+    } else if (user.role.name === "operator" || user.role.name === "admin") {
       setView("clinical");
     }
     void loadDashboard();
-  }, [token, user]);
+  }, [token, user, defaultView]);
 
   async function loadDashboard(nextSessionId?: number) {
     if (!token) return;
@@ -247,7 +253,8 @@ export function Dashboard({ audience }: DashboardProps = {}) {
         onNewSession={() => { if (isCustomer) { setView("chat"); handleNewSession(); } else { setView("clinical"); } }}
         onDeleteSession={handleDeleteSession}
         onViewAppointments={() => setView("appointments")}
-        onViewClinical={() => setView("clinical")}
+        onViewClinical={() => { setView("clinical"); navigate("/operator"); }}
+        onViewClinicAdmin={() => { setView("clinic-admin"); navigate("/operator/admin"); }}
         onLogout={logout}
       />
       <main className="main-panel">
@@ -255,7 +262,11 @@ export function Dashboard({ audience }: DashboardProps = {}) {
           <ErrorBoundary scope="Metrics"><MetricsBar metrics={metrics} appointments={appointments} role={role} /></ErrorBoundary>
         ) : null}
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        {isClinicalView ? (
+        {view === "clinic-admin" && isAdmin ? (
+          <ErrorBoundary scope="Clinic Admin">
+            <ClinicAdminPanel token={token ?? ""} />
+          </ErrorBoundary>
+        ) : isClinicalView ? (
           <ErrorBoundary scope="Clinical">
             <ClinicalPanel token={token ?? ""} />
           </ErrorBoundary>

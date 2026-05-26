@@ -76,6 +76,18 @@ function AppRoutes() {
         }
       />
 
+      {/* Klinik yönetim paneli — /operator/admin */}
+      <Route
+        path="/operator/admin"
+        element={
+          <RequireRole roles={["admin"]}>
+            <ErrorBoundary scope="Clinic admin">
+              <Dashboard audience="operator" defaultView="clinic-admin" />
+            </ErrorBoundary>
+          </RequireRole>
+        }
+      />
+
       {/* Operator / admin (kurumsal) paneli — /operator/* */}
       <Route
         path="/operator/*"

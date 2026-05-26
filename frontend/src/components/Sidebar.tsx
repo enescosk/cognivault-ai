@@ -7,12 +7,13 @@ type SidebarProps = {
   sessions: ChatSessionSummary[];
   appointments: Appointment[];
   selectedSessionId?: number;
-  activeView: "chat" | "appointments" | "clinical";
+  activeView: "chat" | "appointments" | "clinical" | "clinic-admin";
   onSelectSession: (sessionId: number) => void;
   onNewSession: () => void;
   onDeleteSession: (sessionId: number) => void;
   onViewAppointments: () => void;
   onViewClinical: () => void;
+  onViewClinicAdmin: () => void;
   onLogout: () => void;
 };
 
@@ -50,7 +51,7 @@ function statusLabel(status: string) {
   return labels[status] ?? status;
 }
 
-export function Sidebar({ user, sessions, appointments, selectedSessionId, activeView, onSelectSession, onNewSession, onDeleteSession, onViewAppointments, onViewClinical, onLogout }: SidebarProps) {
+export function Sidebar({ user, sessions, appointments, selectedSessionId, activeView, onSelectSession, onNewSession, onDeleteSession, onViewAppointments, onViewClinical, onViewClinicAdmin, onLogout }: SidebarProps) {
   const initials = user.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   const roleName = user.role.name.toLowerCase();
   const roleDisplay = roleName === "customer" ? "MÜŞTERİ" : roleName === "operator" ? "OPERATÖR" : "YÖNETİCİ";
@@ -70,7 +71,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
     .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
   const operatorMenuAppointments = [...operatorActiveAppointments, ...operatorUpcomingAppointments].slice(0, 4);
   const workspaceLabel = isClinicalStaff ? "Klinik Operasyon" : "Kurumsal Randevu";
-  const useClinicalSurface = isClinicalStaff && activeView === "clinical";
+  const useClinicalSurface = isClinicalStaff && (activeView === "clinical" || activeView === "clinic-admin");
   const resizing = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -187,6 +188,21 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                 </svg>
                 Klinik Panel
               </button>
+              {user.role.name === "admin" && (
+                <button
+                  className={`sidebar-nav-item ${activeView === "clinic-admin" ? "sidebar-nav-item--active" : ""}`}
+                  type="button"
+                  onClick={onViewClinicAdmin}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="9" y1="3" x2="9" y2="21"/>
+                    <line x1="9" y1="9" x2="21" y2="9"/>
+                    <line x1="9" y1="15" x2="21" y2="15"/>
+                  </svg>
+                  Klinik Yönetimi
+                </button>
+              )}
             </>
           )}
 
@@ -434,6 +450,16 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
                 >
                   <span>Medikal Klinik Paneli</span>
                   <small>Doktor inbox, AI ses personasi ve kanal ayarlari</small>
+                </button>
+              )}
+              {user.role.name === "admin" && (
+                <button
+                  className="main-menu-item"
+                  type="button"
+                  onClick={() => { setShowMainMenu(false); onViewClinicAdmin(); }}
+                >
+                  <span>Klinik Yönetim Paneli</span>
+                  <small>Hekimler, hizmetler, branding ve KVKK ayarları</small>
                 </button>
               )}
             </div>
