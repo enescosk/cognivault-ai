@@ -380,22 +380,34 @@ def submit_patient_consent(
 
 
 def _resolve_or_create_patient(
-    db: Session, clinic: Clinic, full_name: str, phone: str
+    db: Session, clinic: Clinic, full_name: str | None, phone: str | None
 ) -> ClinicPatient:
-    """Var olan hastayı bul, yoksa yarat. Ad-soyad bilgisini eksikse doldur."""
-    normalized = normalize_phone(phone)
-    patient = db.scalars(
-        select(ClinicPatient).where(
-            ClinicPatient.clinic_id == clinic.id, ClinicPatient.phone == normalized
-        )
-    ).first()
-    if patient is not None:
-        if full_name and not patient.full_name:
-            patient.full_name = full_name
-            db.add(patient)
-            db.commit()
-            db.refresh(patient)
-        return patient
+    """Var olan hastayı bul, yoksa yarat. Kimlik eksikse anonim placeholder yarat.
+
+    Yeni akışta hastalar onboarding form'undan değil, doğrudan chat'ten geliyor.
+    Identity AI ile sohbet sırasında toplanacak (set_patient_identity tool'u).
+    Bu yüzden anonim placeholder telefon `anon-<uuid>` formatında.
+    """
+    import uuid as _uuid
+
+    if phone:
+        normalized = normalize_phone(phone)
+        patient = db.scalars(
+            select(ClinicPatient).where(
+                ClinicPatient.clinic_id == clinic.id, ClinicPatient.phone == normalized
+            )
+        ).first()
+        if patient is not None:
+            if full_name and not patient.full_name:
+                patient.full_name = full_name
+                db.add(patient)
+                db.commit()
+                db.refresh(patient)
+            return patient
+    else:
+        # Anonim hasta: AI tool sonradan set_patient_identity ile doldurur.
+        normalized = f"anon-{_uuid.uuid4().hex[:12]}"
+
     patient = ClinicPatient(
         clinic_id=clinic.id,
         full_name=full_name,
@@ -403,7 +415,7 @@ def _resolve_or_create_patient(
         language=clinic.default_language or "tr",
         source=ClinicChannel.WEB_CHAT,
         external_ref=normalized,
-        metadata_json={"source": "patient_page"},
+        metadata_json={"source": "patient_page", "anonymous": not bool(phone)},
     )
     db.add(patient)
     db.commit()
@@ -412,8 +424,12 @@ def _resolve_or_create_patient(
 
 
 class PatientIdentityRequest(BaseModel):
-    full_name: str = Field(min_length=2, max_length=160)
-    phone: str = Field(min_length=6, max_length=40)
+    """Conversation başlatmak için body. Yeni akışta tüm alanlar opsiyonel —
+    kimlik AI ile sohbet sırasında set_patient_identity tool'uyla toplanacak.
+    Geri uyumluluk: legacy clientlar full_name+phone gönderebiliyor."""
+
+    full_name: str | None = Field(default=None, max_length=160)
+    phone: str | None = Field(default=None, max_length=40)
     initial_message: str | None = Field(default=None, max_length=2000)
 
 
@@ -453,18 +469,50 @@ def start_patient_conversation(
         db.add(row)
     db.commit()
 
-    # İlk mesaj varsa onu işle (ingest), yoksa boş conversation yarat
-    initial = payload.initial_message or "Merhaba"
-    incoming = IncomingClinicalMessage(
-        channel=ClinicChannel.WEB_CHAT,
-        from_phone=patient.phone,
-        body=initial,
-        patient_name=patient.full_name,
-        external_message_id=None,
-        external_thread_id=patient.phone,
-        raw_payload={"source": "patient_page", "consent_version": consent.disclosure_version},
-    )
-    result = ingest_clinical_message(db, incoming, clinic=clinic)
+    # Yeni akış: hasta initial_message vermezse boş bir conversation yarat
+    # + proactive AI greeting'i system mesajı olarak göster.
+    # Initial message varsa eski akış gibi ingest et.
+    if payload.initial_message and payload.initial_message.strip():
+        incoming = IncomingClinicalMessage(
+            channel=ClinicChannel.WEB_CHAT,
+            from_phone=patient.phone,
+            body=payload.initial_message.strip(),
+            patient_name=patient.full_name,
+            external_message_id=None,
+            external_thread_id=patient.phone,
+            raw_payload={"source": "patient_page", "consent_version": consent.disclosure_version},
+        )
+        result = ingest_clinical_message(db, incoming, clinic=clinic)
+        conversation = result.conversation
+        welcome = result.reply
+    else:
+        # Boş conversation + proactive welcome.
+        conversation = ClinicConversation(
+            clinic_id=clinic.id,
+            patient_id=patient.id,
+            channel=ClinicChannel.WEB_CHAT,
+            language=clinic.default_language or "tr",
+            metadata_json={"source": "patient_page", "consent_version": consent.disclosure_version},
+        )
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+        # AI'dan proactive karşılama mesajı (assistant olarak yaz)
+        welcome = _build_proactive_welcome(clinic, patient)
+        greeting = ClinicMessage(
+            clinic_id=clinic.id,
+            conversation_id=conversation.id,
+            sender=ClinicMessageSender.ASSISTANT,
+            content=welcome,
+            language=clinic.default_language or "tr",
+            metadata_json={
+                "action": "proactive_welcome",
+                "channel": ClinicChannel.WEB_CHAT.value,
+                "anonymous_patient": not bool(payload.phone),
+            },
+        )
+        db.add(greeting)
+        db.commit()
 
     # Anonim consent'leri conversation'a da bağla
     for row in db.scalars(
@@ -474,7 +522,7 @@ def start_patient_conversation(
             ConsentRecord.conversation_id.is_(None),
         )
     ).all():
-        row.conversation_id = result.conversation.id
+        row.conversation_id = conversation.id
         db.add(row)
     db.commit()
 
@@ -482,16 +530,33 @@ def start_patient_conversation(
         clinic_id=clinic.id,
         clinic_slug=clinic.slug,
         patient_id=patient.id,
-        conversation_id=result.conversation.id,
+        conversation_id=conversation.id,
         disclosure_version=consent.disclosure_version,
     )
 
-    welcome = result.reply
     return StartConversationResponse(
         session_token=session_token,
-        conversation_id=result.conversation.id,
+        conversation_id=conversation.id,
         patient_id=patient.id,
         welcome_message=welcome,
+    )
+
+
+def _build_proactive_welcome(clinic: Clinic, patient: ClinicPatient) -> str:
+    """AI'ın chat'i açan ilk mesajı.
+
+    Bölüm A1 referansı: hasta sayfayı açar açmaz "ne yapacağımı biliyorum"
+    hissi alır; AI önce kendini tanıtır, sonra hastayı serbest bırakır.
+    """
+    persona_name = "Selin"  # Faz 3.5'te clinical_persona_service'ten seçilecek
+    name_addr = f"{patient.full_name}, " if patient.full_name else ""
+    return (
+        f"Merhaba {name_addr}ben {persona_name}, {clinic.name} AI asistanı. "
+        "Size nasıl yardımcı olabilirim?\n\n"
+        "• Randevu almak istiyorsanız şikayetinizi ve tercih ettiğiniz "
+        "gün/saati yazabilirsiniz.\n"
+        "• Acil bir sağlık sorununuz varsa lütfen vakit kaybetmeden "
+        "112'yi arayın."
     )
 
 
@@ -736,6 +801,51 @@ def confirm_patient_appointment(
     db.commit()
     db.refresh(appointment)
 
+    # ──── Bildirim gönderimi: hasta + doktor SMS'leri ─────────────────────
+    # Mock mode (NOTIFICATION_PROVIDER yok) → konsola + log'a basar; gerçek
+    # sağlayıcı geldiğinde adapter notification_service içinde değişir.
+    from app.services.notification_service import (
+        send_appointment_sms_to_doctor,
+        send_appointment_sms_to_patient,
+    )
+
+    patient_full = db.get(ClinicPatient, session.patient_id)
+    branding = (clinic.settings_json or {}).get("branding") or {}
+    clinic_phone = branding.get("contact_phone")
+    # Doktor telefonu admin paneli kurulana kadar klinik genel hattına düşer
+    doctor_phone = branding.get("doctor_notification_phone") or clinic_phone
+    complaint_summary = (conversation.metadata_json or {}).get("complaint_summary") if conversation else None
+
+    if patient_full and not (patient_full.phone or "").startswith("anon-"):
+        send_appointment_sms_to_patient(
+            patient_phone=patient_full.phone,
+            patient_name=patient_full.full_name,
+            clinic_name=clinic.name,
+            clinic_phone=clinic_phone,
+            department=offer.department,
+            physician_name=offer.physician_name,
+            starts_at=offer.starts_at,
+            confirmation_code=f"CV{appointment.id:06d}",
+        )
+    else:
+        # Anonim hasta — AI kimliği toplayamamış, klinik ekibi takip etsin.
+        import logging as _log
+        _log.getLogger(__name__).info(
+            "📱 [SMS-PATIENT] anonim hasta — SMS atlandı, klinik ekibi takipte | appointment=%s",
+            appointment.id,
+        )
+
+    send_appointment_sms_to_doctor(
+        doctor_phone=doctor_phone,
+        doctor_name=offer.physician_name,
+        clinic_name=clinic.name,
+        patient_name=patient_full.full_name if patient_full else None,
+        patient_phone=(patient_full.phone if patient_full else "anonim"),
+        department=offer.department,
+        starts_at=offer.starts_at,
+        patient_complaint_summary=complaint_summary,
+    )
+
     return PublicAppointmentConfirmResponse(
         appointment_id=appointment.id,
         status=appointment.status.value
@@ -744,9 +854,92 @@ def confirm_patient_appointment(
         starts_at=appointment.starts_at,
         department=appointment.department,
         summary=(
-            f"{payload.department} randevunuz {appointment.starts_at.strftime('%d %B %Y, %H:%M')} "
-            "için oluşturuldu. Onayınız klinik ekibine iletilmiştir."
+            f"{offer.department} randevunuz {appointment.starts_at.strftime('%d.%m.%Y %H:%M')} "
+            "için oluşturuldu. Onay SMS'i gönderildi; klinik personeli de bilgilendirildi."
         )
         if appointment.starts_at
-        else f"{payload.department} randevu talebiniz oluşturuldu, klinik ekibimiz en kısa sürede sizinle iletişime geçecek.",
+        else f"{offer.department} randevu talebiniz oluşturuldu, klinik ekibimiz en kısa sürede sizinle iletişime geçecek.",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint 7 — Patient identity update (AI tool veya UI kullanabilir)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class PatientIdentityUpdateRequest(BaseModel):
+    """AI sohbet içinde hastanın adını/telefonunu çıkardığında çağırılır.
+    UI'dan da yedek input olarak kullanılabilir.
+    """
+
+    full_name: str | None = Field(default=None, min_length=2, max_length=160)
+    phone: str | None = Field(default=None, min_length=6, max_length=40)
+
+
+class PatientIdentityResponse(BaseModel):
+    patient_id: int
+    full_name: str | None
+    phone: str
+    is_anonymous: bool
+
+
+@router.patch(
+    "/clinics/{slug}/conversations/{conversation_id}/patient",
+    response_model=PatientIdentityResponse,
+)
+def update_patient_identity(
+    slug: str,
+    conversation_id: int,
+    payload: PatientIdentityUpdateRequest,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+) -> PatientIdentityResponse:
+    """Sohbet içinde hasta kimliğini günceller.
+
+    Yeni akışta hasta chat ekranına anonim olarak başlıyor; ismini ve
+    telefonunu AI sohbet sırasında topluyor. Bu endpoint AI tool çağrısının
+    (set_patient_identity) veya UI bypass formunun yazdığı noktadır.
+
+    Telefon güncellenirken aynı klinikte mevcut bir patient row'u varsa
+    iki kayıt birleşmez (sadece anonim placeholder güncellenir).
+    """
+    clinic, session, patient, _conversation = _get_scoped_patient_and_conversation(
+        db, slug=slug, conversation_id=conversation_id, authorization=authorization
+    )
+
+    changed = False
+    if payload.full_name and not patient.full_name:
+        patient.full_name = payload.full_name
+        changed = True
+    if payload.phone:
+        normalized = normalize_phone(payload.phone)
+        # Çakışmayı önle: aynı klinikte bu telefonla başka hasta var mı?
+        clash = db.scalars(
+            select(ClinicPatient).where(
+                ClinicPatient.clinic_id == clinic.id,
+                ClinicPatient.phone == normalized,
+                ClinicPatient.id != patient.id,
+            )
+        ).first()
+        if clash is None:
+            patient.phone = normalized
+            patient.external_ref = normalized
+            meta = dict(patient.metadata_json or {})
+            meta["anonymous"] = False
+            patient.metadata_json = meta
+            changed = True
+        # Çakışma varsa sessiz geç — gerçek hayatta bunu chat üzerinden
+        # operatöre haber vermek lazım; MVP'de placeholder kayda devam.
+
+    if changed:
+        db.add(patient)
+        db.commit()
+        db.refresh(patient)
+
+    is_anonymous = (patient.phone or "").startswith("anon-")
+    return PatientIdentityResponse(
+        patient_id=patient.id,
+        full_name=patient.full_name,
+        phone=patient.phone,
+        is_anonymous=is_anonymous,
     )

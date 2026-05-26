@@ -115,3 +115,107 @@ Cognivault — Enterprise Workflow Platform
     except Exception as exc:
         logger.warning("📧 Mail gönderilemedi: %s", exc)
         return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SMS notifications — patient page randevu akışı için
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# MVP: SMS sağlayıcı entegre edilmedi; mesajlar log'a + audit'e yazılır.
+# L2 fazında Netgsm/Verimor/Turkcell adapter buraya eklenecek.
+#
+# Tasarım kararı: iki ayrı fonksiyon (patient + doctor) çünkü:
+#   • Şablon farklı (hastaya kibar onay; doktora kısa özet + hasta adı)
+#   • Doktor numarası klinik tarafından konfigüre edilir, hastaya görünmez
+#   • Audit log'da iki ayrı kanal — denetlenebilirlik için kritik
+
+
+def _format_dt_tr(dt: datetime) -> str:
+    """TR zaman formatı: '28 Mayıs Çarşamba, 14:30'."""
+    months = {
+        1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan", 5: "Mayıs", 6: "Haziran",
+        7: "Temmuz", 8: "Ağustos", 9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık",
+    }
+    weekdays = {
+        0: "Pazartesi", 1: "Salı", 2: "Çarşamba", 3: "Perşembe",
+        4: "Cuma", 5: "Cumartesi", 6: "Pazar",
+    }
+    return f"{dt.day} {months[dt.month]} {weekdays[dt.weekday()]}, {dt.strftime('%H:%M')}"
+
+
+def send_appointment_sms_to_patient(
+    *,
+    patient_phone: str,
+    patient_name: str | None,
+    clinic_name: str,
+    clinic_phone: str | None,
+    department: str,
+    physician_name: str | None,
+    starts_at: datetime,
+    confirmation_code: str | None = None,
+) -> bool:
+    """Hastaya randevu onay SMS'i.
+
+    Mock mode (varsayılan): konsola + log'a yazar, audit izi düşer.
+    Gerçek sağlayıcı eklendiğinde bu fonksiyonun gövdesi değişir, imza sabit kalır.
+    """
+    name = patient_name or "Sayın Hastamız"
+    dr = f" Dr. {physician_name} ile" if physician_name else ""
+    when = _format_dt_tr(starts_at)
+    code = f" Kod: {confirmation_code}." if confirmation_code else ""
+    contact = f" Sorularınız için: {clinic_phone}" if clinic_phone else ""
+
+    body = (
+        f"Sayın {name}, {clinic_name} {department} randevunuz{dr} "
+        f"{when} olarak oluşturuldu.{code}{contact}"
+    )
+
+    logger.info("📱 [SMS-PATIENT] → %s · %s", patient_phone, body)
+    print(f"\n{'='*60}")
+    print(f"📱 HASTA SMS BİLDİRİMİ (SİMÜLASYON)")
+    print(f"   Alıcı : {patient_phone}")
+    print(f"   Mesaj : {body}")
+    print(f"{'='*60}")
+    return True
+
+
+def send_appointment_sms_to_doctor(
+    *,
+    doctor_phone: str | None,
+    doctor_name: str | None,
+    clinic_name: str,
+    patient_name: str | None,
+    patient_phone: str,
+    department: str,
+    starts_at: datetime,
+    patient_complaint_summary: str | None = None,
+) -> bool:
+    """Doktora (veya klinik genel hattına) yeni randevu uyarısı.
+
+    `doctor_phone` None ise klinik admin telefonuna düşmesi için fallback
+    çağıran tarafça yapılır. Burada None gelirse SMS atılmaz, log'a düşer.
+    """
+    if not doctor_phone:
+        logger.warning(
+            "📱 [SMS-DOCTOR] Doktor telefonu yok — bildirim atlandı | clinic=%s patient=%s",
+            clinic_name, patient_name or "anonim"
+        )
+        return False
+
+    name = doctor_name or "Doktorum"
+    pt = patient_name or "Anonim Hasta"
+    when = _format_dt_tr(starts_at)
+    complaint = f" Şikayet özeti: {patient_complaint_summary}" if patient_complaint_summary else ""
+
+    body = (
+        f"Sayın {name}, yeni randevu: {pt} ({patient_phone}) "
+        f"{department}, {when}.{complaint}"
+    )
+
+    logger.info("📱 [SMS-DOCTOR] → %s · %s", doctor_phone, body)
+    print(f"\n{'='*60}")
+    print(f"📱 DOKTOR SMS BİLDİRİMİ (SİMÜLASYON)")
+    print(f"   Alıcı : {doctor_phone}")
+    print(f"   Mesaj : {body}")
+    print(f"{'='*60}")
+    return True
