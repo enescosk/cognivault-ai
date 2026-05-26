@@ -46,11 +46,6 @@ export function PatientConsentModal({ clinic, onAccepted, onCancel }: Props) {
     setError(null);
     try {
       const res = await submitConsent(clinic.slug, {
-        // İsim/telefon onboarding adımında alınacak; consent katmanında
-        // sadece KVKK kabul iznini imzalıyoruz. Backend bu alanları
-        // varsayılan değerle kabul edebilsin diye placeholder gönderiyoruz.
-        full_name: "(onboarding-pending)",
-        phone: "(onboarding-pending)",
         disclosure_version: disclosure.version,
         disclosure_hash: disclosure.body_hash,
         accepted_cross_border: includeCrossBorder,

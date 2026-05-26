@@ -6484,15 +6484,60 @@ body:has(.login-shell) {
 
 .patient-booking-card {
   display: flex;
+  flex-direction: column;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+  align-items: stretch;
+  justify-content: flex-start;
   gap: 12px;
   background: rgba(40, 200, 166, 0.10);
   border: 1px solid rgba(40, 200, 166, 0.35);
   padding: 14px 16px;
   border-radius: 12px;
   font-size: 0.9rem;
+}
+
+.patient-slot-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.patient-slot-card {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(27, 59, 75, 0.14);
+  color: var(--patient-text);
+  border-radius: 10px;
+  padding: 12px;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.patient-slot-card:hover,
+.patient-slot-card.is-selected {
+  border-color: var(--patient-primary);
+  box-shadow: 0 10px 24px rgba(31, 59, 115, 0.12);
+  transform: translateY(-1px);
+}
+
+.patient-slot-time {
+  font-weight: 760;
+}
+
+.patient-slot-doctor {
+  color: var(--patient-text-2);
+  font-size: 0.86rem;
+}
+
+.patient-slot-status {
+  color: var(--patient-primary);
+  font-size: 0.74rem;
+  font-weight: 780;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .patient-banner-soft {

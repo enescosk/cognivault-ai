@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   confirmAppointment,
+  holdSlotOffer,
   sendPatientMessage,
   type PublicClinicView,
   type PublicMessageView,
+  type PublicSlotOfferView,
 } from "../../api/patientClient";
 
 interface Props {
@@ -58,6 +60,8 @@ export function PatientChatRoom({
   const [requiresReview, setRequiresReview] = useState(false);
   const [emergencyDetected, setEmergencyDetected] = useState(false);
   const [bookingDepartment, setBookingDepartment] = useState<string | null>(null);
+  const [slotOffers, setSlotOffers] = useState<PublicSlotOfferView[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<PublicSlotOfferView | null>(null);
   const [confirming, setConfirming] = useState(false);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -119,6 +123,11 @@ export function PatientChatRoom({
           },
         ]);
       }
+      if (res.slot_offers.length > 0) {
+        setSlotOffers(res.slot_offers);
+        setSelectedSlot(null);
+        setBookingDepartment(res.slot_offers[0].department);
+      }
       setRequiresReview(res.requires_human_review);
       setConversationStatus(res.conversation_status);
     } catch (err) {
@@ -129,12 +138,18 @@ export function PatientChatRoom({
   }
 
   async function handleConfirmAppointment() {
-    if (!bookingDepartment) return;
+    if (!bookingDepartment || !selectedSlot) {
+      setError("Lütfen önce klinik takviminden gelen uygun saatlerden birini seçin.");
+      return;
+    }
     setConfirming(true);
     try {
+      const held = selectedSlot.status === "held"
+        ? { slot_offer: selectedSlot }
+        : await holdSlotOffer(clinic.slug, conversationId, sessionToken, selectedSlot.id);
       await confirmAppointment(clinic.slug, conversationId, sessionToken, {
-        department: bookingDepartment,
-        starts_at: null,
+        department: held.slot_offer.department,
+        slot_offer_id: held.slot_offer.id,
         notes: "Hasta web chat üzerinden onayladı.",
       });
       onAppointmentConfirmed();
@@ -146,6 +161,18 @@ export function PatientChatRoom({
   }
 
   const chatLocked = emergencyDetected || conversationStatus === "closed";
+  const canConfirmAppointment = Boolean(selectedSlot && bookingDepartment);
+
+  function slotTimeLabel(offer: PublicSlotOfferView): string {
+    const formatter = new Intl.DateTimeFormat("tr-TR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return formatter.format(new Date(offer.starts_at));
+  }
 
   return (
     <div className="patient-card patient-chat-card">
@@ -192,16 +219,44 @@ export function PatientChatRoom({
       {bookingDepartment && !chatLocked ? (
         <div className="patient-booking-card">
           <div>
-            <strong>{bookingDepartment}</strong> için randevu talebinizi
-            onaylayalım mı?
+            <strong>{bookingDepartment}</strong> için gerçek klinik takviminden
+            üretilen uygun saatler:
           </div>
+          {slotOffers.length > 0 ? (
+            <div className="patient-slot-list" role="listbox" aria-label="Uygun randevu saatleri">
+              {slotOffers.map((offer) => (
+                <button
+                  key={offer.id}
+                  type="button"
+                  className={`patient-slot-card ${selectedSlot?.id === offer.id ? "is-selected" : ""}`}
+                  onClick={() => {
+                    setSelectedSlot(offer);
+                    setError(null);
+                  }}
+                >
+                  <span className="patient-slot-time">{slotTimeLabel(offer)}</span>
+                  <span className="patient-slot-doctor">
+                    {offer.physician_name ?? "Klinik ekibi"}
+                  </span>
+                  <span className="patient-slot-status">
+                    {offer.status === "held" ? "Tutuldu" : "15 dk geçerli teklif"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="patient-banner-soft">
+              Uygun saat için klinik ekibi takvimi kontrol ediyor. Net slot gelmeden
+              randevu oluşturulmaz.
+            </div>
+          )}
           <button
             type="button"
             className="patient-cta"
             onClick={handleConfirmAppointment}
-            disabled={confirming}
+            disabled={confirming || !canConfirmAppointment}
           >
-            {confirming ? "Onaylanıyor…" : "Randevu talebimi gönder"}
+            {confirming ? "Onaylanıyor…" : "Seçili saati randevuya çevir"}
           </button>
         </div>
       ) : null}

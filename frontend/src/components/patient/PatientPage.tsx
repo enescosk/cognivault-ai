@@ -43,7 +43,17 @@ export function PatientPage() {
   const [step, setStep] = useState<Step>("landing");
   const [session, setSession] = useState<PatientSessionState>(() => {
     if (!slug) return { slug: "" };
-    return loadPatientSession(slug) ?? { slug };
+    const saved = loadPatientSession(slug);
+    const now = Date.now();
+    if (
+      saved &&
+      ((saved.session_expires_at && saved.session_expires_at <= now) ||
+        (saved.consent_expires_at && !saved.session_token && saved.consent_expires_at <= now))
+    ) {
+      clearPatientSession();
+      return { slug };
+    }
+    return saved ?? { slug };
   });
 
   // Returning sessions: hangi adımda devam etsin?

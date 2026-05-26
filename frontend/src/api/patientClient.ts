@@ -9,7 +9,7 @@
  * sessionStorage üzerinden token yönetir.
  */
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
+const API_URL = import.meta.env.VITE_API_URL ?? "/api";
 
 export type DisclosureSummary = {
   version: string;
@@ -42,8 +42,8 @@ export type PublicClinicView = {
 export type DisclosureFull = DisclosureSummary & { body: string };
 
 export type ConsentRequestBody = {
-  full_name: string;
-  phone: string;
+  full_name?: string | null;
+  phone?: string | null;
   disclosure_version: string;
   disclosure_hash: string;
   accepted_cross_border: boolean;
@@ -77,11 +77,24 @@ export type PublicMessageView = {
   created_at: string;
 };
 
+export type PublicSlotOfferView = {
+  id: number;
+  department: string;
+  physician_name?: string | null;
+  starts_at: string;
+  ends_at?: string | null;
+  status: string;
+  expires_at: string;
+  label: string;
+  metadata_json: Record<string, unknown> | null;
+};
+
 export type PublicMessageResponse = {
   patient_message: PublicMessageView;
   assistant_message: PublicMessageView | null;
   requires_human_review: boolean;
   conversation_status: string;
+  slot_offers: PublicSlotOfferView[];
 };
 
 export type AppointmentConfirmResponse = {
@@ -90,6 +103,10 @@ export type AppointmentConfirmResponse = {
   starts_at: string | null;
   department: string;
   summary: string;
+};
+
+export type SlotHoldResponse = {
+  slot_offer: PublicSlotOfferView;
 };
 
 async function jsonFetch<T>(
@@ -172,9 +189,8 @@ export function confirmAppointment(
   sessionToken: string,
   payload: {
     department: string;
-    starts_at?: string | null;
     notes?: string | null;
-    slot_offer_id?: string | null;
+    slot_offer_id: number;
   },
 ): Promise<AppointmentConfirmResponse> {
   return jsonFetch<AppointmentConfirmResponse>(
@@ -182,6 +198,22 @@ export function confirmAppointment(
     {
       method: "POST",
       body: JSON.stringify(payload),
+    },
+    sessionToken,
+  );
+}
+
+export function holdSlotOffer(
+  slug: string,
+  conversationId: number,
+  sessionToken: string,
+  offerId: number,
+): Promise<SlotHoldResponse> {
+  return jsonFetch<SlotHoldResponse>(
+    `/public/clinics/${encodeURIComponent(slug)}/conversations/${conversationId}/slot-offers/${offerId}/hold`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
     },
     sessionToken,
   );
