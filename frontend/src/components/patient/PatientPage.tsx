@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import {
@@ -7,8 +7,8 @@ import {
   getPublicClinic,
   loadPatientSession,
   savePatientSession,
+  startConversation,
   type PatientSessionState,
-  type PublicClinicView,
 } from "../../api/patientClient";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { SkeletonBlock } from "../ui/Skeleton";
@@ -16,7 +16,6 @@ import { PatientChatRoom } from "./PatientChatRoom";
 import { PatientConfirmation } from "./PatientConfirmation";
 import { PatientConsentModal } from "./PatientConsentModal";
 import { PatientLanding } from "./PatientLanding";
-import { PatientOnboardingForm } from "./PatientOnboardingForm";
 
 /**
  * Patient page orchestrator.
@@ -34,7 +33,17 @@ import { PatientOnboardingForm } from "./PatientOnboardingForm";
  * yenilerse hangi adımda kaldığı oradan resume edilir.
  */
 
-type Step = "landing" | "consent" | "onboarding" | "chat" | "confirm";
+/**
+ * Yeni akış (2026-05-26): onboarding adımı kaldırıldı.
+ *
+ *   landing → consent → chat → confirm
+ *
+ * Kimlik (ad-soyad + telefon) artık form'da değil, AI sohbet sırasında
+ * inline toplanıyor (PATCH /patient endpoint'iyle güncellenir). Bu, hasta
+ * dropout'unu azaltır: form sürüyle alan görmek yerine doğrudan AI'la
+ * konuşmaya başlıyor.
+ */
+type Step = "landing" | "consent" | "chat" | "confirm";
 
 export function PatientPage() {
   const params = useParams<{ slug: string }>();
@@ -61,9 +70,9 @@ export function PatientPage() {
     if (!slug) return;
     if (session.session_token && session.conversation_id) {
       setStep("chat");
-    } else if (session.consent_token) {
-      setStep("onboarding");
     }
+    // Onboarding step kaldırıldı; sadece consent kalmış session
+    // yeniden landing'den başlasın (kullanıcı modal kapattı, devam etmek istemedi).
   }, []); // ilk yüklemede bir kez
 
   const clinicQuery = useQuery({
@@ -94,29 +103,50 @@ export function PatientPage() {
 
   const branding = clinicQuery.data;
 
-  const onConsentGranted = (consentToken: string, disclosureVersion: string) => {
-    setSession((s) => ({
-      ...s,
-      consent_token: consentToken,
-      disclosure_version: disclosureVersion,
-      consent_expires_at: Date.now() + 15 * 60_000,
-    }));
-    setStep("onboarding");
-  };
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const [initialWelcome, setInitialWelcome] = useState<string | null>(null);
 
-  const onConversationStarted = (data: {
-    session_token: string;
-    conversation_id: number;
-    patient_id: number;
-  }) => {
-    setSession((s) => ({
-      ...s,
-      session_token: data.session_token,
-      conversation_id: data.conversation_id,
-      patient_id: data.patient_id,
-      session_expires_at: Date.now() + 60 * 60_000,
-    }));
-    setStep("chat");
+  /**
+   * Consent kabul edilince hemen anonim conversation aç.
+   *
+   * Yeni akışta hasta name/phone vermeden direkt chat'e geçiyor; backend
+   * placeholder bir ClinicPatient (`anon-<uuid>`) yaratıyor, AI sohbet
+   * sırasında set_patient_identity ile bu placeholder'ı güncelliyor.
+   */
+  const onConsentGranted = async (consentToken: string, disclosureVersion: string) => {
+    setBootstrapping(true);
+    setBootstrapError(null);
+    try {
+      const res = await startConversation(slug, consentToken, {
+        full_name: null,
+        phone: null,
+        initial_message: null,
+      });
+      setSession((s) => ({
+        ...s,
+        consent_token: consentToken,
+        disclosure_version: disclosureVersion,
+        consent_expires_at: Date.now() + 15 * 60_000,
+        session_token: res.session_token,
+        conversation_id: res.conversation_id,
+        patient_id: res.patient_id,
+        session_expires_at: Date.now() + 60 * 60_000,
+      }));
+      setInitialWelcome(res.welcome_message ?? null);
+      setStep("chat");
+    } catch (err) {
+      setBootstrapError(err instanceof Error ? err.message : "conversation_start_failed");
+      // Modal'da kalalım; kullanıcı tekrar deneyebilsin.
+      setSession((s) => ({
+        ...s,
+        consent_token: consentToken,
+        disclosure_version: disclosureVersion,
+        consent_expires_at: Date.now() + 15 * 60_000,
+      }));
+    } finally {
+      setBootstrapping(false);
+    }
   };
 
   const onAppointmentConfirmed = () => {
@@ -164,21 +194,8 @@ export function PatientPage() {
             clinic={branding}
             onAccepted={onConsentGranted}
             onCancel={() => setStep("landing")}
-          />
-        </ErrorBoundary>
-      )}
-
-      {step === "onboarding" && session.consent_token && (
-        <ErrorBoundary scope="Patient onboarding">
-          <PatientOnboardingForm
-            clinic={branding}
-            consentToken={session.consent_token}
-            onStarted={onConversationStarted}
-            onCancel={() => {
-              clearPatientSession();
-              setSession({ slug });
-              setStep("landing");
-            }}
+            bootstrapping={bootstrapping}
+            bootstrapError={bootstrapError}
           />
         </ErrorBoundary>
       )}
@@ -189,6 +206,7 @@ export function PatientPage() {
             clinic={branding}
             sessionToken={session.session_token}
             conversationId={session.conversation_id}
+            initialWelcome={initialWelcome}
             onAppointmentConfirmed={onAppointmentConfirmed}
             onStartOver={onStartOver}
           />

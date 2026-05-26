@@ -10,8 +10,13 @@ import { SkeletonBlock } from "../ui/Skeleton";
 
 interface Props {
   clinic: PublicClinicView;
-  onAccepted: (consentToken: string, disclosureVersion: string) => void;
+  /** Async — kabul edilince orchestrator hemen startConversation çağırır. */
+  onAccepted: (consentToken: string, disclosureVersion: string) => void | Promise<void>;
   onCancel: () => void;
+  /** True ise "Sohbet açılıyor…" durumu gösterir (orchestrator startConversation çalışıyor). */
+  bootstrapping?: boolean;
+  /** Orchestrator startConversation hata verdiyse buraya düşer. */
+  bootstrapError?: string | null;
 }
 
 /**
@@ -23,7 +28,13 @@ interface Props {
  * Kabul → POST /consent → consent_token döner → orchestrator'a iletir.
  * Vazgeç → landing'e dönülür, alternatif iletişim kanalları gösterilir.
  */
-export function PatientConsentModal({ clinic, onAccepted, onCancel }: Props) {
+export function PatientConsentModal({
+  clinic,
+  onAccepted,
+  onCancel,
+  bootstrapping = false,
+  bootstrapError = null,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,18 +116,29 @@ export function PatientConsentModal({ clinic, onAccepted, onCancel }: Props) {
         </div>
       ) : null}
 
-      {error ? <div className="patient-error-line">{error}</div> : null}
+      {(error || bootstrapError) ? (
+        <div className="patient-error-line">{error || bootstrapError}</div>
+      ) : null}
 
       <div className="patient-consent-actions">
         <button
           type="button"
           className="patient-cta"
           onClick={handleAccept}
-          disabled={submitting || !disclosureQuery.data}
+          disabled={submitting || bootstrapping || !disclosureQuery.data}
         >
-          {submitting ? "Onaylanıyor…" : "Kabul ediyorum, devam et"}
+          {bootstrapping
+            ? "Sohbet açılıyor…"
+            : submitting
+              ? "Onaylanıyor…"
+              : "Kabul ediyorum, sohbete başla"}
         </button>
-        <button type="button" className="patient-cta-ghost" onClick={onCancel}>
+        <button
+          type="button"
+          className="patient-cta-ghost"
+          onClick={onCancel}
+          disabled={bootstrapping}
+        >
           Vazgeç
         </button>
       </div>

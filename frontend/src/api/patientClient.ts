@@ -55,8 +55,10 @@ export type ConsentResponse = {
 };
 
 export type StartConversationBody = {
-  full_name: string;
-  phone: string;
+  // Yeni akışta her ikisi de opsiyonel — kimlik AI sohbet sırasında toplanır.
+  // Legacy clientlar full_name+phone gönderiyorsa backend hâlâ kabul ediyor.
+  full_name?: string | null;
+  phone?: string | null;
   initial_message?: string | null;
 };
 
@@ -164,6 +166,33 @@ export function startConversation(
       body: JSON.stringify(body),
     },
     consentToken,
+  );
+}
+
+export type PatientIdentityResponse = {
+  patient_id: number;
+  full_name: string | null;
+  phone: string;
+  is_anonymous: boolean;
+};
+
+/**
+ * Sohbet sırasında AI veya UI hastanın adını/telefonunu yazdığında bu
+ * endpoint'i çağırır. Anonim placeholder patient gerçek değerlere güncellenir.
+ */
+export function updatePatientIdentity(
+  slug: string,
+  conversationId: number,
+  sessionToken: string,
+  payload: { full_name?: string | null; phone?: string | null },
+): Promise<PatientIdentityResponse> {
+  return jsonFetch<PatientIdentityResponse>(
+    `/public/clinics/${encodeURIComponent(slug)}/conversations/${conversationId}/patient`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    sessionToken,
   );
 }
 

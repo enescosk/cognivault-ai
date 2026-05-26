@@ -13,6 +13,13 @@ interface Props {
   clinic: PublicClinicView;
   sessionToken: string;
   conversationId: number;
+  /**
+   * Backend `start_patient_conversation` döndüğünde proactive welcome
+   * mesajını verir. Chat ilk açılışında bu, assistant balonu olarak
+   * gösterilir. Sonraki yenileme döngülerinde session'dan kaybolur,
+   * o yüzden default static welcome'a fallback yapıyoruz.
+   */
+  initialWelcome?: string | null;
   onAppointmentConfirmed: () => void;
   onStartOver: () => void;
 }
@@ -40,19 +47,41 @@ export function PatientChatRoom({
   clinic,
   sessionToken,
   conversationId,
+  initialWelcome,
   onAppointmentConfirmed,
   onStartOver,
 }: Props) {
-  const [bubbles, setBubbles] = useState<Bubble[]>([
-    {
-      id: "system-welcome",
+  // Yeni akış: backend proactive welcome'ı assistant olarak basıyor.
+  // Bunu chat'in ilk balonu olarak göster; ek olarak küçük bir system
+  // mesajı KVKK / acil uyarısı ekliyor.
+  const [bubbles, setBubbles] = useState<Bubble[]>(() => {
+    const ts = new Date().toISOString();
+    const initial: Bubble[] = [];
+    if (initialWelcome) {
+      initial.push({
+        id: "assistant-welcome",
+        sender: "assistant",
+        body: initialWelcome,
+        ts,
+      });
+    } else {
+      initial.push({
+        id: "assistant-welcome-fallback",
+        sender: "assistant",
+        body: `Merhaba, ben ${clinic.name} AI asistanı. Size nasıl yardımcı olabilirim?`,
+        ts,
+      });
+    }
+    initial.push({
+      id: "system-emergency-hint",
       sender: "system",
       body:
-        "AI asistanı hazır. Şikayetinizi veya randevu talebinizi yazabilirsiniz. " +
+        "ℹ Şikayetinizi ve tercih ettiğiniz gün/saati yazarsanız randevu oluşturabilirim. " +
         "Acil semptomlarınız varsa lütfen 112'yi arayın.",
-      ts: new Date().toISOString(),
-    },
-  ]);
+      ts,
+    });
+    return initial;
+  });
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
