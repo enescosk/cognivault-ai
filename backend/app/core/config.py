@@ -65,7 +65,12 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_pass: str = ""
     smtp_from: str = "noreply@cognivault.local"
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:5174,http://127.0.0.1:5174,"
+        "http://localhost:5185,http://127.0.0.1:5185,"
+        "http://localhost:5195,http://127.0.0.1:5195"
+    )
     seed_demo_data: bool = True
     # When true, inbound provider webhooks (Twilio, Meta) must carry a valid
     # signature header — required for production.

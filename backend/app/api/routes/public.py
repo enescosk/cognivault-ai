@@ -27,6 +27,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.dependencies import get_db
 from app.models import (
+    ClinicalAppointment,
+    ClinicalAppointmentStatus,
+    ClinicalSlotOffer,
     Clinic,
     ClinicBranch,
     ClinicChannel,
@@ -42,6 +45,11 @@ from app.services.clinical_service import (
     IncomingClinicalMessage,
     ingest_clinical_message,
     normalize_phone,
+)
+from app.services.clinical_slot_service import (
+    build_public_slot_offers,
+    consume_held_slot_offer,
+    hold_slot_offer,
 )
 
 router = APIRouter(prefix="/public", tags=["public-patient"])
@@ -81,8 +89,8 @@ class PublicClinicView(BaseModel):
 
 
 class ConsentRequest(BaseModel):
-    full_name: str = Field(min_length=2, max_length=160)
-    phone: str = Field(min_length=6, max_length=40)
+    full_name: str | None = Field(default=None, min_length=2, max_length=160)
+    phone: str | None = Field(default=None, min_length=6, max_length=40)
     disclosure_version: str = Field(min_length=1, max_length=32)
     disclosure_hash: str = Field(min_length=8, max_length=128)
     accepted_cross_border: bool = Field(
@@ -121,17 +129,33 @@ class PublicMessageView(BaseModel):
     created_at: datetime
 
 
+class PublicSlotOfferView(BaseModel):
+    id: int
+    department: str
+    physician_name: str | None
+    starts_at: datetime
+    ends_at: datetime | None
+    status: str
+    expires_at: datetime
+    label: str
+    metadata_json: dict | None
+
+
 class PublicMessageResponse(BaseModel):
     patient_message: PublicMessageView
     assistant_message: PublicMessageView | None
     requires_human_review: bool
     conversation_status: str
+    slot_offers: list[PublicSlotOfferView] = []
+
+
+class PublicSlotHoldResponse(BaseModel):
+    slot_offer: PublicSlotOfferView
 
 
 class PublicAppointmentConfirmRequest(BaseModel):
     department: str = Field(min_length=2, max_length=140)
-    slot_offer_id: str | None = Field(default=None, max_length=80)
-    starts_at: datetime | None = None
+    slot_offer_id: int
     notes: str | None = Field(default=None, max_length=2000)
 
 
@@ -314,28 +338,32 @@ def submit_patient_consent(
         consent_text_version=disclosure["version"],
     )
     db.add(consent)
+    consent_records = [consent]
 
     # Cross-border ayrı tipte ayrı satır
     if payload.accepted_cross_border:
-        db.add(
-            ConsentRecord(
-                clinic_id=clinic.id,
-                patient_id=None,
-                conversation_id=None,
-                consent_type=ConsentType.CROSS_BORDER_TRANSFER,
-                granted=True,
-                channel=ClinicChannel.WEB_CHAT,
-                ip_or_device_hint=_ip_or_device_hint(request),
-                consent_text_version=disclosure["version"],
-            )
+        cross_border = ConsentRecord(
+            clinic_id=clinic.id,
+            patient_id=None,
+            conversation_id=None,
+            consent_type=ConsentType.CROSS_BORDER_TRANSFER,
+            granted=True,
+            channel=ClinicChannel.WEB_CHAT,
+            ip_or_device_hint=_ip_or_device_hint(request),
+            consent_text_version=disclosure["version"],
         )
+        db.add(cross_border)
+        consent_records.append(cross_border)
 
+    db.flush()
+    consent_record_ids = [row.id for row in consent_records]
     db.commit()
 
     token = patient_session.issue_consent_token(
         clinic_id=clinic.id,
         clinic_slug=clinic.slug,
         disclosure_version=disclosure["version"],
+        consent_record_ids=consent_record_ids,
     )
     # Body'deki name/phone şu an consent satırına yazılmıyor — patient
     # ConsentRecord değil ClinicPatient tablosunda yaşıyor; consent token
@@ -416,9 +444,8 @@ def start_patient_conversation(
     anon_rows = db.scalars(
         select(ConsentRecord).where(
             ConsentRecord.clinic_id == clinic.id,
+            ConsentRecord.id.in_(consent.consent_record_ids or (-1,)),
             ConsentRecord.patient_id.is_(None),
-            ConsentRecord.consent_text_version == consent.disclosure_version,
-            ConsentRecord.ip_or_device_hint == _ip_or_device_hint(request),
         )
     ).all()
     for row in anon_rows:
@@ -485,6 +512,57 @@ def _message_view(m: ClinicMessage) -> PublicMessageView:
     )
 
 
+def _slot_offer_view(offer: ClinicalSlotOffer) -> PublicSlotOfferView:
+    starts_at = offer.starts_at if offer.starts_at.tzinfo else offer.starts_at.replace(tzinfo=timezone.utc)
+    local_label = starts_at.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M")
+    doctor = f" · {offer.physician_name}" if offer.physician_name else ""
+    return PublicSlotOfferView(
+        id=offer.id,
+        department=offer.department,
+        physician_name=offer.physician_name,
+        starts_at=offer.starts_at,
+        ends_at=offer.ends_at,
+        status=offer.status.value if hasattr(offer.status, "value") else str(offer.status),
+        expires_at=offer.expires_at,
+        label=f"{local_label}{doctor}",
+        metadata_json=offer.metadata_json,
+    )
+
+
+def _get_scoped_patient_and_conversation(
+    db: Session,
+    *,
+    slug: str,
+    conversation_id: int,
+    authorization: str | None,
+) -> tuple[Clinic, patient_session.SessionPayload, ClinicPatient, ClinicConversation]:
+    token = _extract_bearer(authorization)
+    session = patient_session.decode_session_token(token)
+    if session.clinic_slug != slug or session.conversation_id != conversation_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="session_scope_mismatch"
+        )
+
+    clinic = _find_clinic_by_slug(db, slug)
+    if clinic.id != session.clinic_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="session_scope_mismatch"
+        )
+    patient = db.get(ClinicPatient, session.patient_id)
+    if patient is None or patient.clinic_id != clinic.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="patient_not_found")
+    conversation = db.get(ClinicConversation, session.conversation_id)
+    if (
+        conversation is None
+        or conversation.clinic_id != clinic.id
+        or conversation.patient_id != patient.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="conversation_not_found"
+        )
+    return clinic, session, patient, conversation
+
+
 @router.post(
     "/clinics/{slug}/conversations/{conversation_id}/messages",
     response_model=PublicMessageResponse,
@@ -496,23 +574,9 @@ def send_patient_message(
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
 ) -> PublicMessageResponse:
-    token = _extract_bearer(authorization)
-    session = patient_session.decode_session_token(token)
-    if session.clinic_slug != slug or session.conversation_id != conversation_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="session_scope_mismatch"
-        )
-
-    clinic = _find_clinic_by_slug(db, slug)
-    patient = db.get(ClinicPatient, session.patient_id)
-    if patient is None or patient.clinic_id != clinic.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="patient_not_found")
-
-    conversation = db.get(ClinicConversation, session.conversation_id)
-    if conversation is None or conversation.clinic_id != clinic.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="conversation_not_found"
-        )
+    clinic, session, patient, conversation = _get_scoped_patient_and_conversation(
+        db, slug=slug, conversation_id=conversation_id, authorization=authorization
+    )
 
     incoming = IncomingClinicalMessage(
         channel=ClinicChannel.WEB_CHAT,
@@ -521,6 +585,7 @@ def send_patient_message(
         patient_name=patient.full_name,
         external_message_id=None,
         external_thread_id=patient.phone,
+        conversation_id=conversation.id,
         raw_payload={"source": "patient_page"},
     )
     result = ingest_clinical_message(db, incoming, clinic=clinic)
@@ -531,6 +596,39 @@ def send_patient_message(
     last_assistant = next(
         (m for m in reversed(msgs) if m.sender == ClinicMessageSender.ASSISTANT), None
     )
+    slot_offers: list[ClinicalSlotOffer] = []
+    assistant_intent = (
+        getattr(last_assistant.intent, "value", str(last_assistant.intent))
+        if last_assistant is not None and last_assistant.intent
+        else None
+    )
+    shadow_intent = (
+        getattr(result.shadow_review.intent, "value", str(result.shadow_review.intent))
+        if result.shadow_review is not None
+        else None
+    )
+    if assistant_intent == "book_appointment":
+        data = (last_assistant.metadata_json or {}).get("data") or {}
+        slot_offers = build_public_slot_offers(
+            db,
+            clinic=clinic,
+            patient=patient,
+            conversation=result.conversation,
+            slot_decision=data.get("slot_decision") or {},
+        )
+    elif (
+        shadow_intent == "book_appointment"
+        and result.shadow_review is not None
+        and result.shadow_review.confidence_score >= 0.78
+    ):
+        data = (result.shadow_review.metadata_json or {}).get("data") or {}
+        slot_offers = build_public_slot_offers(
+            db,
+            clinic=clinic,
+            patient=patient,
+            conversation=result.conversation,
+            slot_decision=data.get("slot_decision") or {},
+        )
 
     return PublicMessageResponse(
         patient_message=_message_view(last_patient) if last_patient else _message_view(result.message),
@@ -539,11 +637,44 @@ def send_patient_message(
         conversation_status=result.conversation.status.value
         if hasattr(result.conversation.status, "value")
         else str(result.conversation.status),
+        slot_offers=[_slot_offer_view(offer) for offer in slot_offers],
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Endpoint 5 — Randevu oluştur (slot picker UI'dan tetiklenir)
+# Endpoint 5 — Slot tut (slot picker UI'dan tetiklenir)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/clinics/{slug}/conversations/{conversation_id}/slot-offers/{offer_id}/hold",
+    response_model=PublicSlotHoldResponse,
+)
+def hold_patient_slot_offer(
+    slug: str,
+    conversation_id: int,
+    offer_id: int,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+) -> PublicSlotHoldResponse:
+    clinic, session, _patient, _conversation = _get_scoped_patient_and_conversation(
+        db, slug=slug, conversation_id=conversation_id, authorization=authorization
+    )
+    try:
+        offer = hold_slot_offer(
+            db,
+            clinic_id=clinic.id,
+            patient_id=session.patient_id,
+            conversation_id=conversation_id,
+            offer_id=offer_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return PublicSlotHoldResponse(slot_offer=_slot_offer_view(offer))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint 6 — Randevu oluştur (sadece held slot ile)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -558,35 +689,40 @@ def confirm_patient_appointment(
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
 ) -> PublicAppointmentConfirmResponse:
-    token = _extract_bearer(authorization)
-    session = patient_session.decode_session_token(token)
-    if session.clinic_slug != slug or session.conversation_id != conversation_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="session_scope_mismatch"
+    clinic, session, _patient, conversation = _get_scoped_patient_and_conversation(
+        db, slug=slug, conversation_id=conversation_id, authorization=authorization
+    )
+    try:
+        offer = consume_held_slot_offer(
+            db,
+            clinic_id=clinic.id,
+            patient_id=session.patient_id,
+            conversation_id=conversation_id,
+            offer_id=payload.slot_offer_id,
         )
-
-    clinic = _find_clinic_by_slug(db, slug)
-    from app.models import ClinicalAppointment, ClinicalAppointmentStatus
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     appointment = ClinicalAppointment(
         clinic_id=clinic.id,
         patient_id=session.patient_id,
         conversation_id=conversation_id,
-        branch_id=None,
-        department=payload.department,
-        starts_at=payload.starts_at,
+        branch_id=offer.branch_id,
+        department=offer.department,
+        starts_at=offer.starts_at,
         status=ClinicalAppointmentStatus.PENDING,
         notes=payload.notes,
         metadata_json={
             "source": "patient_page",
-            "slot_offer_id": payload.slot_offer_id,
+            "slot_offer_id": offer.id,
+            "slot_offer_source": offer.source,
+            "physician_name": offer.physician_name,
             "confirmed_via": "web_chat",
         },
     )
     db.add(appointment)
 
     # Konuşmayı kapanışa al
-    conversation = db.get(ClinicConversation, conversation_id)
     if conversation is not None:
         from app.models import ClinicConversationStatus
 

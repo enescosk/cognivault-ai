@@ -87,6 +87,7 @@ class IncomingClinicalMessage:
     patient_name: str | None = None
     external_message_id: str | None = None
     external_thread_id: str | None = None
+    conversation_id: int | None = None
     requested_persona_id: str | None = None
     raw_payload: dict | None = None
 
@@ -301,6 +302,19 @@ def _find_or_create_patient(db: Session, clinic: Clinic, incoming: IncomingClini
 
 
 def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPatient, incoming: IncomingClinicalMessage) -> ClinicConversation:
+    if incoming.conversation_id is not None:
+        conversation = db.scalars(
+            select(ClinicConversation).where(
+                ClinicConversation.id == incoming.conversation_id,
+                ClinicConversation.clinic_id == clinic.id,
+                ClinicConversation.patient_id == patient.id,
+                ClinicConversation.channel == incoming.channel,
+            )
+        ).first()
+        if conversation is None:
+            raise ValidationError("Conversation scope mismatch")
+        return conversation
+
     conversation = db.scalars(
         select(ClinicConversation)
         .where(

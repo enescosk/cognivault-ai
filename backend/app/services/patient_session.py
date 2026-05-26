@@ -39,6 +39,7 @@ class ConsentPayload:
     clinic_id: int
     clinic_slug: str
     disclosure_version: str
+    consent_record_ids: tuple[int, ...]
     granted_at: int  # iat
     expires_at: int
 
@@ -76,7 +77,13 @@ def _decode(token: str) -> dict:
         ) from exc
 
 
-def issue_consent_token(*, clinic_id: int, clinic_slug: str, disclosure_version: str) -> str:
+def issue_consent_token(
+    *,
+    clinic_id: int,
+    clinic_slug: str,
+    disclosure_version: str,
+    consent_record_ids: list[int] | tuple[int, ...],
+) -> str:
     """KVKK onayı verilen anda üretilir, onboarding adımının kapısıdır."""
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=CONSENT_TOKEN_TTL_MIN)
@@ -85,6 +92,7 @@ def issue_consent_token(*, clinic_id: int, clinic_slug: str, disclosure_version:
         "clinic_id": clinic_id,
         "clinic_slug": clinic_slug,
         "disclosure_version": disclosure_version,
+        "consent_record_ids": list(consent_record_ids),
         "iat": int(now.timestamp()),
         "exp": expires_at,
     }
@@ -127,6 +135,7 @@ def decode_consent_token(token: str) -> ConsentPayload:
         clinic_id=int(data["clinic_id"]),
         clinic_slug=str(data["clinic_slug"]),
         disclosure_version=str(data["disclosure_version"]),
+        consent_record_ids=tuple(int(item) for item in data.get("consent_record_ids", [])),
         granted_at=int(data.get("iat", 0)),
         expires_at=int(data.get("exp", 0)),
     )

@@ -1,6 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, time, timedelta, timezone
+import re
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import (
+    Clinic,
+    ClinicConversation,
+    ClinicPatient,
+    ClinicalSlotOffer,
+    ClinicalSlotOfferStatus,
+)
 
 
 @dataclass(frozen=True)
@@ -58,6 +72,22 @@ SLOT_STATUS_LABELS = {
     "doctor_review": "Doktor onayı",
 }
 
+OFFER_TTL_MINUTES = 15
+HOLD_TTL_MINUTES = 5
+ISTANBUL = ZoneInfo("Europe/Istanbul")
+WEEKDAYS_TR = {
+    "pazartesi": 0,
+    "salı": 1,
+    "sali": 1,
+    "çarşamba": 2,
+    "carsamba": 2,
+    "perşembe": 3,
+    "persembe": 3,
+    "cuma": 4,
+    "cumartesi": 5,
+    "pazar": 6,
+}
+
 
 def _matching_slots(department: str, preferred_time: str | None = None) -> list[DemoSlot]:
     matches = [slot for slot in DEMO_SLOTS if slot.department == department]
@@ -113,6 +143,224 @@ def build_slot_decision(intake: dict) -> dict:
         "waitlist_count": best.waitlist_count,
         "matched_slot_id": best.id,
     }
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _is_before_now(value: datetime, now: datetime) -> bool:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value < now
+
+
+def _parse_next_available(value: str) -> datetime:
+    """Convert demo labels into concrete datetimes.
+
+    Demo labels stay human-friendly for operator panels, but public scheduling
+    must be concrete and auditable. We intentionally support a tiny grammar and
+    fail closed to tomorrow 10:00 if a demo label is malformed.
+    """
+    now_local = datetime.now(ISTANBUL)
+    text = value.lower()
+    match = re.search(r"(\d{1,2})[:.](\d{2})", text)
+    hour, minute = (10, 0)
+    if match:
+        hour, minute = int(match.group(1)), int(match.group(2))
+
+    target_date = now_local.date()
+    if "yarın" in text or "yarin" in text:
+        target_date = target_date + timedelta(days=1)
+    else:
+        weekday = next((idx for label, idx in WEEKDAYS_TR.items() if label in text), None)
+        if weekday is not None:
+            delta = (weekday - now_local.weekday()) % 7
+            if delta == 0:
+                delta = 7
+            target_date = target_date + timedelta(days=delta)
+        elif "bugün" in text or "bugun" in text:
+            target_date = target_date
+        else:
+            target_date = target_date + timedelta(days=1)
+
+    local_dt = datetime.combine(target_date, time(hour=hour, minute=minute), tzinfo=ISTANBUL)
+    if local_dt <= now_local:
+        local_dt = local_dt + timedelta(days=1)
+    return local_dt.astimezone(timezone.utc)
+
+
+def _active_offer_statuses() -> tuple[ClinicalSlotOfferStatus, ...]:
+    return (ClinicalSlotOfferStatus.OFFERED, ClinicalSlotOfferStatus.HELD)
+
+
+def expire_stale_slot_offers(db: Session) -> int:
+    now = _now_utc()
+    stale = list(
+        db.scalars(
+            select(ClinicalSlotOffer).where(
+                ClinicalSlotOffer.status.in_(_active_offer_statuses()),
+                ClinicalSlotOffer.expires_at < now,
+            )
+        )
+    )
+    for offer in stale:
+        offer.status = ClinicalSlotOfferStatus.EXPIRED
+        db.add(offer)
+    if stale:
+        db.commit()
+    return len(stale)
+
+
+def build_public_slot_offers(
+    db: Session,
+    *,
+    clinic: Clinic,
+    patient: ClinicPatient,
+    conversation: ClinicConversation,
+    slot_decision: dict | None,
+    limit: int = 3,
+) -> list[ClinicalSlotOffer]:
+    """Persist concrete offers for the public patient page.
+
+    The model may identify department and urgency, but this function is the only
+    place that turns that into a concrete appointment time. Existing unexpired
+    offers are reused to keep refreshes and repeated sends stable.
+    """
+    expire_stale_slot_offers(db)
+    now = _now_utc()
+    existing = list(
+        db.scalars(
+            select(ClinicalSlotOffer)
+            .where(
+                ClinicalSlotOffer.clinic_id == clinic.id,
+                ClinicalSlotOffer.patient_id == patient.id,
+                ClinicalSlotOffer.conversation_id == conversation.id,
+                ClinicalSlotOffer.status.in_(_active_offer_statuses()),
+                ClinicalSlotOffer.expires_at >= now,
+            )
+            .order_by(ClinicalSlotOffer.starts_at.asc())
+            .limit(limit)
+        )
+    )
+    if existing:
+        return existing
+
+    decision = slot_decision or {}
+    department = decision.get("department") or "Genel Diş Hekimliği"
+    matched_slot_id = decision.get("matched_slot_id")
+    primary = next((slot for slot in DEMO_SLOTS if slot.id == matched_slot_id), None)
+    candidates = [primary] if primary else []
+    candidates.extend(slot for slot in _matching_slots(department) if slot not in candidates)
+    if not candidates:
+        candidates = [slot for slot in DEMO_SLOTS if slot.status != "full"]
+
+    concrete: list[ClinicalSlotOffer] = []
+    for slot in candidates[: max(limit * 2, 1)]:
+        if slot is None:
+            continue
+        starts_at = _parse_next_available(slot.next_available)
+        if any(offer.starts_at == starts_at and offer.department == slot.department for offer in concrete):
+            continue
+        concrete.append(
+            ClinicalSlotOffer(
+                clinic_id=clinic.id,
+                patient_id=patient.id,
+                conversation_id=conversation.id,
+                branch_id=None,
+                department=slot.department,
+                physician_name=slot.doctor,
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(minutes=40),
+                status=ClinicalSlotOfferStatus.OFFERED,
+                source="demo_slot_engine",
+                expires_at=now + timedelta(minutes=OFFER_TTL_MINUTES),
+                metadata_json={
+                    "demo_slot_id": slot.id,
+                    "status_label": SLOT_STATUS_LABELS.get(slot.status, slot.status),
+                    "capacity": slot.capacity,
+                    "booked": slot.booked,
+                    "open": max(slot.capacity - slot.booked, 0),
+                    "next_available_label": slot.next_available,
+                    "waitlist_count": slot.waitlist_count,
+                },
+            )
+        )
+        if len(concrete) >= limit:
+            break
+
+    for offer in concrete:
+        db.add(offer)
+    if concrete:
+        db.commit()
+        for offer in concrete:
+            db.refresh(offer)
+    return concrete
+
+
+def hold_slot_offer(
+    db: Session,
+    *,
+    clinic_id: int,
+    patient_id: int,
+    conversation_id: int,
+    offer_id: int,
+) -> ClinicalSlotOffer:
+    expire_stale_slot_offers(db)
+    offer = db.get(ClinicalSlotOffer, offer_id)
+    now = _now_utc()
+    if (
+        offer is None
+        or offer.clinic_id != clinic_id
+        or offer.patient_id != patient_id
+        or offer.conversation_id != conversation_id
+    ):
+        raise ValueError("slot_offer_not_found")
+    if offer.status not in {ClinicalSlotOfferStatus.OFFERED, ClinicalSlotOfferStatus.HELD}:
+        raise ValueError("slot_offer_not_available")
+    if _is_before_now(offer.expires_at, now):
+        offer.status = ClinicalSlotOfferStatus.EXPIRED
+        db.add(offer)
+        db.commit()
+        raise ValueError("slot_offer_expired")
+    offer.status = ClinicalSlotOfferStatus.HELD
+    offer.expires_at = now + timedelta(minutes=HOLD_TTL_MINUTES)
+    db.add(offer)
+    db.commit()
+    db.refresh(offer)
+    return offer
+
+
+def consume_held_slot_offer(
+    db: Session,
+    *,
+    clinic_id: int,
+    patient_id: int,
+    conversation_id: int,
+    offer_id: int,
+) -> ClinicalSlotOffer:
+    expire_stale_slot_offers(db)
+    offer = db.get(ClinicalSlotOffer, offer_id)
+    now = _now_utc()
+    if (
+        offer is None
+        or offer.clinic_id != clinic_id
+        or offer.patient_id != patient_id
+        or offer.conversation_id != conversation_id
+    ):
+        raise ValueError("slot_offer_not_found")
+    if offer.status != ClinicalSlotOfferStatus.HELD:
+        raise ValueError("slot_offer_must_be_held")
+    if _is_before_now(offer.expires_at, now):
+        offer.status = ClinicalSlotOfferStatus.EXPIRED
+        db.add(offer)
+        db.commit()
+        raise ValueError("slot_offer_expired")
+    offer.status = ClinicalSlotOfferStatus.CONSUMED
+    db.add(offer)
+    db.commit()
+    db.refresh(offer)
+    return offer
 
 
 def build_slot_board() -> dict:

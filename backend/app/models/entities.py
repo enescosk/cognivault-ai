@@ -131,6 +131,14 @@ class ClinicalAppointmentStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ClinicalSlotOfferStatus(str, Enum):
+    OFFERED = "offered"
+    HELD = "held"
+    CONSUMED = "consumed"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+
+
 class ReminderStatus(str, Enum):
     SCHEDULED = "scheduled"
     SENT = "sent"
@@ -323,6 +331,38 @@ class ClinicalAppointment(Base):
     )
     external_ref: Mapped[str | None] = mapped_column(String(140))
     notes: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ClinicalSlotOffer(Base):
+    """Deterministic appointment slot offer shown to a public patient.
+
+    LLMs are allowed to ask for preferences, but never to invent concrete
+    appointment times. Concrete times must pass through this table: offered →
+    held → consumed. Demo data uses this same path so the demo behaves like the
+    production scheduling core.
+    """
+
+    __tablename__ = "clinical_slot_offers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_patients.id"), nullable=True, index=True)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_conversations.id"), nullable=True, index=True)
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_branches.id"), nullable=True)
+    department: Mapped[str] = mapped_column(String(140), nullable=False)
+    physician_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[ClinicalSlotOfferStatus] = mapped_column(
+        SqlEnum(ClinicalSlotOfferStatus), default=ClinicalSlotOfferStatus.OFFERED, nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(80), default="demo_slot_engine", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
