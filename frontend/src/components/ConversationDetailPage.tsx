@@ -111,6 +111,13 @@ export function ConversationDetailPage() {
               {user.full_name} · {user.role.name}
             </span>
           ) : null}
+          <button
+            type="button"
+            className="conv-detail-secondary"
+            onClick={() => navigate("/operator/appointments")}
+          >
+            📅 Randevular
+          </button>
           <button type="button" className="conv-detail-secondary" onClick={logout}>
             {t("auth.logout")}
           </button>

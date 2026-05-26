@@ -262,7 +262,10 @@ def get_doctor_inbox(
 
 @router.get("/clinical/appointments/upcoming", response_model=list[ClinicalAppointmentResponse])
 def get_upcoming_clinical_appointments(
-    within_minutes: int = Query(default=120, ge=5, le=1440),
+    # Max window 30 gün (43200 dk) — klinik takvim sayfası tüm haftayı +
+    # bir kaç haftayı bir bakışta görebilsin. Eski caller'lar (120 dk
+    # default) etkilenmez.
+    within_minutes: int = Query(default=120, ge=5, le=43200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ClinicalAppointmentResponse]:

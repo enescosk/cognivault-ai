@@ -6647,3 +6647,199 @@ body:has(.login-shell) {
   font-size: 0.82rem;
   line-height: 1.5;
 }
+
+/* === Patient chat header actions + TTS toggle =========================== */
+.patient-chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.patient-tts-toggle {
+  background: transparent;
+  border: 1px solid var(--patient-border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--patient-text-2);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.patient-tts-toggle:hover { background: var(--patient-bg); }
+.patient-tts-toggle.is-on {
+  background: color-mix(in srgb, var(--patient-accent) 18%, transparent);
+  border-color: var(--patient-accent);
+  color: var(--patient-primary);
+}
+
+/* === Clinic Appointments page (/operator/appointments) ================== */
+.appt-shell {
+  min-height: 100vh;
+  background: var(--patient-bg);
+  padding: 24px 16px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: center;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+.appt-header {
+  width: 100%;
+  max-width: 1080px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+.appt-header-left {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.appt-header-left h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  color: var(--patient-primary);
+}
+.appt-header-left p {
+  margin: 4px 0 0;
+  color: var(--patient-text-2);
+  font-size: 0.88rem;
+}
+.appt-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.appt-back {
+  background: var(--patient-card-bg);
+  border: 1px solid var(--patient-border);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 0.86rem;
+  text-decoration: none;
+  color: var(--patient-text-1);
+}
+.appt-meta { color: var(--patient-text-3); font-size: 0.78rem; }
+
+.appt-controls {
+  width: 100%;
+  max-width: 1080px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--patient-card-bg);
+  border-radius: 14px;
+  border: 1px solid var(--patient-border);
+}
+.appt-window-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--patient-bg);
+  border-radius: 999px;
+  padding: 4px;
+}
+.appt-tab {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--patient-text-2);
+  cursor: pointer;
+  font-family: inherit;
+}
+.appt-tab.is-active {
+  background: var(--patient-primary);
+  color: #fff;
+}
+.appt-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--patient-text-1);
+  font-size: 0.9rem;
+}
+
+.appt-list {
+  width: 100%;
+  max-width: 1080px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+.appt-empty {
+  grid-column: 1 / -1;
+  padding: 32px;
+  text-align: center;
+  color: var(--patient-text-3);
+  background: var(--patient-card-bg);
+  border-radius: 14px;
+  border: 1px dashed var(--patient-border);
+}
+.appt-card {
+  background: var(--patient-card-bg);
+  border: 1px solid var(--patient-border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.appt-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+.appt-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.appt-time {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--patient-primary);
+}
+.appt-dept {
+  font-size: 0.96rem;
+  font-weight: 600;
+}
+.appt-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--patient-text-3);
+  font-size: 0.78rem;
+}
+.appt-notes {
+  font-size: 0.84rem;
+  color: var(--patient-text-2);
+  background: var(--patient-bg);
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.appt-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.appt-badge-pending    { background: rgba(251, 191, 36, 0.18); color: #92400e; }
+.appt-badge-confirmed  { background: rgba(72, 187, 120, 0.18); color: #166534; }
+.appt-badge-cancelled  { background: rgba(220, 38, 38, 0.18); color: #991b1b; }
+.appt-badge-neutral    { background: rgba(148, 163, 184, 0.18); color: #475569; }
+
+@media (max-width: 720px) {
+  .appt-header { flex-direction: column; }
+  .appt-controls { padding: 12px; }
+}

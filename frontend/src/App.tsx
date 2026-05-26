@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
+import { ClinicAppointmentsPage } from "./components/ClinicAppointmentsPage";
 import { ConversationDetailPage } from "./components/ConversationDetailPage";
 import { Dashboard } from "./components/Dashboard";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -58,6 +59,18 @@ function AppRoutes() {
           <RequireRole roles={["operator", "admin"]}>
             <ErrorBoundary scope="Conversation detail">
               <ConversationDetailPage />
+            </ErrorBoundary>
+          </RequireRole>
+        }
+      />
+
+      {/* Klinik randevu paneli — /operator/appointments */}
+      <Route
+        path="/operator/appointments"
+        element={
+          <RequireRole roles={["operator", "admin"]}>
+            <ErrorBoundary scope="Clinic appointments">
+              <ClinicAppointmentsPage />
             </ErrorBoundary>
           </RequireRole>
         }

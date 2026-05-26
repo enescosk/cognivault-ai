@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   confirmAppointment,
@@ -9,6 +9,91 @@ import {
   type PublicMessageView,
   type PublicSlotOfferView,
 } from "../../api/patientClient";
+
+/**
+ * Browser Web Speech Synthesis adapter — AI cevap balonu eklendiğinde
+ * çağrılır, hasta TR sesle dinler. KVKK açısından nötr: tüm işlem
+ * tarayıcıda olur, hiçbir ses verisi sunucuya/3. partiye gitmez.
+ */
+const STORAGE_KEY_TTS = "cognivault.patient.tts_enabled";
+
+function useChatTts() {
+  const [enabled, setEnabled] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(STORAGE_KEY_TTS) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  // Web Speech: voice listesi async yüklenir
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    const refresh = () => setVoices(window.speechSynthesis.getVoices());
+    refresh();
+    window.speechSynthesis.addEventListener("voiceschanged", refresh);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", refresh);
+  }, []);
+
+  const trVoice = useMemo(() => {
+    return (
+      voices.find((v) => v.lang === "tr-TR") ??
+      voices.find((v) => v.lang.startsWith("tr")) ??
+      null
+    );
+  }, [voices]);
+
+  const speak = useCallback(
+    (text: string) => {
+      if (!enabled) return;
+      if (typeof window === "undefined" || !window.speechSynthesis) return;
+      if (!text || !text.trim()) return;
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = "tr-TR";
+      utter.rate = 1.0;
+      utter.pitch = 1.0;
+      if (trVoice) utter.voice = trVoice;
+      window.speechSynthesis.speak(utter);
+    },
+    [enabled, trVoice],
+  );
+
+  const stop = useCallback(() => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  }, []);
+
+  const toggle = useCallback(() => {
+    setEnabled((cur) => {
+      const next = !cur;
+      try {
+        sessionStorage.setItem(STORAGE_KEY_TTS, String(next));
+      } catch {
+        /* ignore */
+      }
+      if (!next) {
+        if (typeof window !== "undefined" && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  // Component unmount → konuşmayı kes ki diğer sayfaya geçince devam etmesin
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  return { enabled, toggle, speak, stop, hasTrVoice: trVoice !== null };
+}
 
 interface Props {
   clinic: PublicClinicView;
@@ -106,12 +191,21 @@ export function PatientChatRoom({
   const [savingIdentity, setSavingIdentity] = useState(false);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const lastSpokenIdRef = useRef<string | number | null>(null);
+  const tts = useChatTts();
 
   useEffect(() => {
     if (scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
-  }, [bubbles.length]);
+    // TTS: en son assistant balonunu yeni eklendiyse oku.
+    if (!tts.enabled) return;
+    const last = bubbles[bubbles.length - 1];
+    if (!last || last.sender !== "assistant") return;
+    if (lastSpokenIdRef.current === last.id) return;
+    lastSpokenIdRef.current = last.id;
+    tts.speak(last.body);
+  }, [bubbles, tts]);
 
   function appendFromView(view: PublicMessageView): void {
     setBubbles((prev) => [
@@ -301,9 +395,21 @@ export function PatientChatRoom({
           <h2>{clinic.name}</h2>
           <span className="patient-chat-sub">AI asistanı · #{conversationId}</span>
         </div>
-        <button type="button" className="patient-cta-ghost" onClick={onStartOver}>
-          Sohbeti kapat
-        </button>
+        <div className="patient-chat-actions">
+          {/* TTS toggle — browser Web Speech API; KVKK nötr (ses lokal) */}
+          <button
+            type="button"
+            className={`patient-tts-toggle ${tts.enabled ? "is-on" : ""}`}
+            onClick={tts.toggle}
+            title={tts.enabled ? "Sesi kapat" : "AI cevaplarını sesli dinle"}
+            aria-pressed={tts.enabled}
+          >
+            {tts.enabled ? "🔊 Sesli" : "🔇 Sessiz"}
+          </button>
+          <button type="button" className="patient-cta-ghost" onClick={onStartOver}>
+            Sohbeti kapat
+          </button>
+        </div>
       </header>
 
       <div className="patient-chat-scroller" ref={scrollerRef}>
