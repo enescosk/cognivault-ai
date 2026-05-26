@@ -118,10 +118,20 @@ export function PatientPage() {
     setBootstrapping(true);
     setBootstrapError(null);
     try {
-      // Body'de field'ları null göndermek yerine atlıyoruz (omit). Yeni
-      // backend zaten Optional kabul ediyor; eski backend versiyonu hâlâ
-      // çalışıyorsa `null` yerine field hiç gelmediği için 422 atmıyor.
-      const res = await startConversation(slug, consentToken, {});
+      // Backend compatibility shim: deployed backend'lerin bir kısmı hâlâ
+      // PatientIdentityRequest.full_name ve phone'u required `str` olarak
+      // istiyor (Optional refactor pick'lenmemiş olabilir). Bu yüzden
+      // her zaman placeholder kimlik gönderiyoruz; ClinicPatient row'unda
+      // `full_name="Misafir Hasta"` ve random TR cep placeholder'ı görünür.
+      // AI sohbet sırasında PATCH /patient ile bu placeholder gerçek
+      // değerlerle güncellenir (yeni anonimleştirme akışıyla aynı sonuç).
+      const placeholderPhone =
+        "+905" +
+        Math.floor(10_000_000 + Math.random() * 89_999_999).toString();
+      const res = await startConversation(slug, consentToken, {
+        full_name: "Misafir Hasta",
+        phone: placeholderPhone,
+      });
       setSession((s) => ({
         ...s,
         consent_token: consentToken,
