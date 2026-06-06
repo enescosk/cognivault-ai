@@ -54,11 +54,22 @@ class GovernanceContext:
         }
 
 
-def redact_sensitive_text(text: str) -> str:
-    redacted = text
+def mask_identifiers(text: str) -> str:
+    """Kimlik tanımlayıcılarını (TC, kart, e-posta, telefon) maskeler.
+
+    `redact_sensitive_text`'ten farkı: çıktı uzunluğunu kesmez. LLM'e gönderilecek
+    hasta mesajını maskelemek için kullanılır — ham PII hiçbir sağlayıcıya (lokal
+    dahil) ulaşmadan [REDACTED]'a çevrilir. Şikayet metni (semptom vb.) korunur,
+    sadece tanımlayıcılar maskelenir.
+    """
+    masked = text
     for pattern in IDENTIFIER_PATTERNS:
-        redacted = pattern.sub("[REDACTED]", redacted)
-    return redacted[:500]
+        masked = pattern.sub("[REDACTED]", masked)
+    return masked
+
+
+def redact_sensitive_text(text: str) -> str:
+    return mask_identifiers(text)[:500]
 
 
 def _detect_data_classes(text: str, intent: ClinicIntent) -> list[str]:

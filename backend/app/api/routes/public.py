@@ -18,12 +18,16 @@ Rate limit: IP başına saatlik 30 mesaj (Faz 1.5'te slowapi ile).
 from __future__ import annotations
 
 import hashlib
+import io
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+
+from app.core.config import get_settings
 
 from app.api.dependencies import get_db
 from app.models import (
@@ -942,4 +946,54 @@ def update_patient_identity(
         full_name=patient.full_name,
         phone=patient.phone,
         is_anonymous=is_anonymous,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public TTS — hasta sayfası sesli asistan (OpenAI nova). Anonim; sadece AI'ın
+# söyleyeceği kısa metni sese çevirir. voice_external_enabled ile kapatılabilir.
+# ─────────────────────────────────────────────────────────────────────────────
+class PublicSynthesizeRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=1200)
+    voice: str = "nova"   # nova | shimmer | alloy | onyx | echo | fable
+
+
+@router.post("/clinics/{slug}/voice/synthesize")
+def public_synthesize_speech(slug: str, body: PublicSynthesizeRequest) -> StreamingResponse:
+    """Hasta sayfası için metni doğal sese (OpenAI TTS nova) çevirir.
+
+    Auth gerekmez (anonim hasta akışı). Tarayıcının robotik Web Speech sesi
+    yerine kullanılır. Klinik veri içermez — yalnızca asistanın söylediği metin.
+    """
+    settings = get_settings()
+    if not settings.voice_external_enabled:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Sesli yanıt şu an kapalı (voice_external_enabled=false).",
+        )
+    if not settings.openai_api_key:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="OpenAI API key gerekli.")
+
+    text = body.text.strip()[:1200]
+    if not text:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Metin boş.")
+
+    from openai import OpenAI
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    try:
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice=body.voice,   # type: ignore[arg-type]
+            input=text,
+            response_format="mp3",
+        )
+        audio_bytes = response.content
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Ses sentezi hatası: {exc}") from exc
+
+    return StreamingResponse(
+        io.BytesIO(audio_bytes),
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": "inline; filename=speech.mp3"},
     )

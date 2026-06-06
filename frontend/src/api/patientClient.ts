@@ -278,6 +278,28 @@ export function holdSlotOffer(
   );
 }
 
+/**
+ * Hasta sayfası için doğal sesli yanıt (OpenAI nova). Tarayıcının robotik
+ * Web Speech sesi yerine kullanılır. MP3 ArrayBuffer döner; başarısız olursa
+ * çağıran taraf Web Speech'e fallback yapar.
+ */
+export async function synthesizePublicSpeech(
+  slug: string,
+  text: string,
+  voice = "nova",
+): Promise<ArrayBuffer> {
+  const res = await fetch(
+    `${API_URL}/public/clinics/${encodeURIComponent(slug)}/voice/synthesize`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice }),
+    },
+  );
+  if (!res.ok) throw new Error("tts_failed");
+  return res.arrayBuffer();
+}
+
 // ─── Local session helpers ─────────────────────────────────────────────────
 
 const STORAGE_KEY = "cognivault.patient.session";

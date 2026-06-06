@@ -5,12 +5,24 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.rate_limit import limiter
+from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import SessionLocal
 from app.main import app
 from app.api.dependencies import get_db
 from app.models import Role, RoleName, User
 from app.core.security import hash_password
+
+# Testler "güvenli varsayılan" davranışı (lokal LLM/dış ses KAPALI) doğrular.
+# Demo .env'i bu bayrakları açabilir (CLINICAL_AI_ENABLED, VOICE_EXTERNAL_ENABLED);
+# bu ayarların test sonuçlarına sızmaması için cached settings objesini test
+# koşumunda deterministik değerlere sabitle. get_settings() lru_cache'li tek bir
+# instance döndürdüğü için (voice.py'nin import anında yakaladığı obje ile aynı),
+# burada yapılan mutasyon tüm route'larda görünür.
+_test_settings = get_settings()
+_test_settings.clinical_ai_enabled = False
+_test_settings.clinical_external_ai_allowed = False
+_test_settings.voice_external_enabled = False
 
 # Test suite TestClient'ı tek IP üzerinden binlerce istek atar; login için
 # `@limiter.limit("10/minute")` testleri brute-force kabul edip 429 döner ve

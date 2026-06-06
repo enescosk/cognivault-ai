@@ -146,20 +146,20 @@ class LocalQwenProvider(LLMProvider):
         organization_id: int | None = None,
     ) -> dict[str, Any] | None:
         settings = get_settings()
-        url = "http://localhost:8001/v1/chat/completions"
+        url = settings.local_llm_base_url.rstrip("/") + "/chat/completions"
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
         payload = {
-            "model": "Qwen/Qwen2.5-7B-Instruct",
+            "model": settings.local_llm_model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         }
-        
+
         try:
             req = urllib.request.Request(
                 url,
@@ -167,7 +167,7 @@ class LocalQwenProvider(LLMProvider):
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=3.0) as response:
+            with urllib.request.urlopen(req, timeout=settings.local_llm_timeout) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
                 content = res_data["choices"][0]["message"]["content"]
                 return json.loads(content)

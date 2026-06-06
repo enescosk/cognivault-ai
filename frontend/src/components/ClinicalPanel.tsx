@@ -568,7 +568,7 @@ function SlotRow({ slot }: { slot: ClinicalSlotItem }) {
         <span>{slot.doctor} · {slot.date_label} · {slot.time_range}</span>
       </div>
       <div>
-        <b>{slot.open}/{slot.capacity}</b>
+        <b>{slot.booked}/{slot.capacity}</b>
         <small>{slot.status === "full" ? "Dolu" : slot.status === "limited" ? "Son slot" : "Uygun"}</small>
       </div>
     </article>

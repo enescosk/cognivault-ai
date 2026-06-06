@@ -8,7 +8,7 @@ from anthropic import Anthropic
 
 from app.core.config import get_settings
 from app.models import Clinic, ClinicIntent
-from app.services.clinical_compliance_service import build_governance_context
+from app.services.clinical_compliance_service import build_governance_context, mask_identifiers
 from app.services.clinical_persona_service import ClinicalPersona, choose_persona
 from app.services.clinical_slot_service import build_slot_decision
 from app.ai.ai_factory import get_llm_provider
@@ -452,6 +452,10 @@ def _appointment_reply(language: str, persona: ClinicalPersona, intake: dict, sl
 
 
 def _structured_prompt(clinic: Clinic, text: str, language: str, intent: ClinicIntent, persona: ClinicalPersona) -> str:
+    # KVKK veri minimizasyonu: hasta mesajındaki kimlik tanımlayıcıları (TC, kart,
+    # e-posta, telefon) LLM'e (lokal dahil) gönderilmeden önce maskelenir. Şikayet
+    # metni korunur, sadece tanımlayıcılar [REDACTED]'a çevrilir.
+    safe_text = mask_identifiers(text)
     return f"""
 You are CogniVault AI, a safe multilingual AI receptionist for a medical clinic.
 Clinic: {clinic.name}
@@ -473,7 +477,7 @@ Rules:
 - Return only valid JSON with keys: reply, confidence, intent, action, requires_human_review, risk_reason, data.
 
 Patient message:
-{text}
+{safe_text}
 """.strip()
 
 

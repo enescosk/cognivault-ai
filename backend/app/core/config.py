@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     clinical_ai_enabled: bool = False
     clinical_external_ai_allowed: bool = False
     voice_external_enabled: bool = False
+    # Lokal LLM (KVKK local-first) — Ollama/vLLM OpenAI-uyumlu endpoint.
+    # Ollama varsayılanı 11434; model demo için küçük tutuldu (M1/8GB).
+    local_llm_base_url: str = "http://localhost:11434/v1"
+    local_llm_model: str = "qwen2.5:3b-instruct"
+    local_llm_timeout: float = 30.0
+    # Klinik için varsayılan veri yerleşimi modu. tr_local_first => sağlık verisi
+    # lokal LLM'de işlenir, dış sağlayıcıya (OpenAI/Anthropic) gitmez.
+    clinical_data_residency_default: str = "tr_local_first"
     clinical_default_clinic_slug: str = "demo-klinik"
     clinical_auto_reply_threshold: float = 0.90
     clinical_shadow_threshold: float = 0.75

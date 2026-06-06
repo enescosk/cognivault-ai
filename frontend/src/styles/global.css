@@ -6673,6 +6673,54 @@ body:has(.login-shell) {
   color: var(--patient-primary);
 }
 
+/* === Patient sesli görüşme (çağrı) modu ================================= */
+.patient-call-btn {
+  background: color-mix(in srgb, var(--patient-accent) 16%, transparent);
+  border: 1px solid var(--patient-accent);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--patient-primary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+.patient-call-btn:hover { background: color-mix(in srgb, var(--patient-accent) 28%, transparent); }
+.patient-call-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.patient-call-btn.is-active {
+  background: #e5484d;
+  border-color: #e5484d;
+  color: #fff;
+}
+
+.patient-call-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--patient-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--patient-accent) 30%, transparent);
+}
+.patient-call-status-text { font-weight: 700; color: var(--patient-primary); font-size: 0.92rem; }
+.patient-call-hint { margin-left: auto; font-size: 0.72rem; color: var(--patient-text-2); }
+.patient-call-pulse {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--patient-accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--patient-accent) 60%, transparent);
+  animation: patient-call-pulse 1.4s infinite;
+}
+.patient-call-status.phase-listening .patient-call-pulse { background: #2e9b5b; box-shadow: 0 0 0 0 rgba(46,155,91,0.6); }
+.patient-call-status.phase-thinking .patient-call-pulse { background: #e0a219; animation-duration: 0.9s; }
+.patient-call-status.phase-speaking .patient-call-pulse { background: #3b7be0; animation-duration: 0.7s; }
+@keyframes patient-call-pulse {
+  0%   { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  70%  { box-shadow: 0 0 0 10px transparent; opacity: 0.75; }
+  100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+}
+
 /* === Clinic Appointments page (/operator/appointments) ================== */
 .appt-shell {
   min-height: 100vh;
