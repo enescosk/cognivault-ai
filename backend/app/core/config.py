@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     # Klinik için varsayılan veri yerleşimi modu. tr_local_first => sağlık verisi
     # lokal LLM'de işlenir, dış sağlayıcıya (OpenAI/Anthropic) gitmez.
     clinical_data_residency_default: str = "tr_local_first"
+    # ── Lokal ses (KVKK local-first): STT=faster-whisper, TTS=Piper TR ──────
+    # "local" => ses verisi yurt dışına çıkmaz; "openai" sadece voice_external_enabled
+    # true iken ve açıkça seçilirse kullanılır. Varsayılan tamamen lokaldir.
+    voice_stt_provider: str = "local"   # local | openai
+    voice_tts_provider: str = "local"   # local | openai
+    local_whisper_model: str = "small"  # tiny|base|small|medium — small TR için iyi denge
+    local_whisper_compute: str = "int8"
+    local_whisper_language: str = "tr"
+    piper_voice_path: str = str(BACKEND_ROOT / "data" / "piper" / "tr_TR-dfki-medium.onnx")
     clinical_default_clinic_slug: str = "demo-klinik"
     clinical_auto_reply_threshold: float = 0.90
     clinical_shadow_threshold: float = 0.75

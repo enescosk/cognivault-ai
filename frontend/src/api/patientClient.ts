@@ -290,7 +290,7 @@ export async function synthesizePublicSpeech(
   slug: string,
   text: string,
   voice = "nova",
-): Promise<ArrayBuffer> {
+): Promise<Blob> {
   const res = await fetch(
     `${API_URL}/public/clinics/${encodeURIComponent(slug)}/voice/synthesize`,
     {
@@ -300,7 +300,28 @@ export async function synthesizePublicSpeech(
     },
   );
   if (!res.ok) throw new Error("tts_failed");
-  return res.arrayBuffer();
+  // Blob döndürüyoruz ki içerik tipi (lokal=wav / openai=mp3) korunsun.
+  return res.blob();
+}
+
+/**
+ * Hasta sesli görüşmesi için konuşmayı metne çevirir — varsayılan lokal
+ * faster-whisper (ses yurt içinde işlenir, dışarı çıkmaz).
+ */
+export async function transcribePublicSpeech(
+  slug: string,
+  audio: Blob,
+  language = "tr",
+): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", audio, "speech.webm");
+  const res = await fetch(
+    `${API_URL}/public/clinics/${encodeURIComponent(slug)}/voice/transcribe?language=${encodeURIComponent(language)}`,
+    { method: "POST", body: fd },
+  );
+  if (!res.ok) throw new Error("stt_failed");
+  const data = (await res.json()) as { text?: string };
+  return data.text ?? "";
 }
 
 // ─── Local session helpers ─────────────────────────────────────────────────

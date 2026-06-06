@@ -20,3 +20,6 @@ references/
 tmp/
 ~$*
 backend/venv/
+
+# Lokal ses modeli (büyük, repoya girmez — run_demo.sh indirir)
+backend/data/piper/

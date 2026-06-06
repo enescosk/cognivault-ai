@@ -380,19 +380,43 @@ def test_dermatology_message_gets_safe_appointment_routing(client, operator_toke
         assert review["metadata_json"]["data"]["intake"]["specialty"] == "Dermatoloji"
 
 
-def test_external_voice_processing_is_blocked_by_default(client, operator_token):
-    transcribe = client.post(
-        "/api/voice/transcribe",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        files={"file": ("recording.webm", b"not-real-audio", "audio/webm")},
-    )
-    assert transcribe.status_code == 403
-    assert "local-first" in transcribe.json()["detail"]
+def test_voice_is_local_first_never_cloud_by_default():
+    """KVKK local-first: dış aktarım kapalıyken ses sağlayıcıları ASLA buluta
+    (OpenAI) gitmez — STT lokal Whisper, TTS lokal (Piper/say) olur.
 
+    Ağır modelleri yüklemeden, yalnızca seçim mantığını (factory) doğrular.
+    """
+    from app.ai.voice_factory import (
+        LocalWhisperSTT,
+        OpenAITTS,
+        OpenAIWhisperSTT,
+        get_stt_provider,
+        get_tts_provider,
+    )
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    settings.voice_external_enabled = False  # conftest zaten False yapıyor; açıkça garanti
+
+    stt = get_stt_provider()
+    tts = get_tts_provider()
+    assert isinstance(stt, LocalWhisperSTT)
+    assert not isinstance(stt, OpenAIWhisperSTT)
+    assert not isinstance(tts, OpenAITTS)  # lokal: Piper veya macOS say
+
+
+def test_voice_endpoints_validate_empty_input(client, operator_token):
+    """Boş metin/ses ağır modelleri tetiklemeden 400 döner (uçtan uca güvenlik)."""
     synthesize = client.post(
         "/api/voice/synthesize",
         headers={"Authorization": f"Bearer {operator_token}"},
-        json={"text": "Merhaba"},
+        json={"text": "   "},
     )
-    assert synthesize.status_code == 403
-    assert "local-first" in synthesize.json()["detail"]
+    assert synthesize.status_code == 400
+
+    transcribe = client.post(
+        "/api/voice/transcribe",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        files={"file": ("recording.webm", b"", "audio/webm")},
+    )
+    assert transcribe.status_code == 400

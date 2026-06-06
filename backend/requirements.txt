@@ -17,3 +17,7 @@ slowapi==0.1.9
 limits==3.14.0
 alembic==1.14.1
 prometheus-client==0.21.1
+
+# Lokal ses (KVKK local-first) — STT + TTS yurt içinde
+faster-whisper==1.2.1
+piper-tts==1.4.2

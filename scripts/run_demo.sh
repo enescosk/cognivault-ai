@@ -28,6 +28,16 @@ curl -s -m 60 http://localhost:11434/v1/chat/completions \
   -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"merhaba\"}],\"max_tokens\":5}" \
   >/dev/null 2>&1 && echo "   ✓ Model yüklü ve ısındı"
 
+# Lokal Türkçe TTS sesi (Piper) — yoksa indir (~63MB). Yoksa macOS 'say'e düşer.
+PIPER_DIR="$ROOT_DIR/backend/data/piper"
+if [[ ! -f "$PIPER_DIR/tr_TR-dfki-medium.onnx" ]]; then
+  echo "   Lokal TTS sesi indiriliyor (Piper tr_TR, ~63MB)…"
+  mkdir -p "$PIPER_DIR"
+  PV="https://huggingface.co/rhasspy/piper-voices/resolve/main/tr/tr_TR/dfki/medium"
+  curl -sL -o "$PIPER_DIR/tr_TR-dfki-medium.onnx" "$PV/tr_TR-dfki-medium.onnx"
+  curl -sL -o "$PIPER_DIR/tr_TR-dfki-medium.onnx.json" "$PV/tr_TR-dfki-medium.onnx.json"
+fi
+
 echo "▶ 3/4  Backend başlatılıyor (http://localhost:8000)…"
 pkill -f "uvicorn app.main" 2>/dev/null; sleep 1
 if [[ -d "$ROOT_DIR/backend/venv" ]]; then source "$ROOT_DIR/backend/venv/bin/activate";

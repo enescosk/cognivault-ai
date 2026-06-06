@@ -14,11 +14,11 @@ import io
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from openai import OpenAI
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.voice_factory import get_stt_provider, get_tts_provider
 from app.api.dependencies import get_current_user, get_db
 from app.core.config import get_settings
 from app.models import ConsentRecord, ConsentType, User
@@ -50,16 +50,10 @@ async def transcribe_audio(
 
     KVKK Md. 6: `clinic_id` verilirse (klinik modu), o klinik için aktif bir
     `voice_recording` rızası aranır. Yoksa 403 döner.
-    """
-    if not settings.voice_external_enabled:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail="KVKK local-first mode: external voice transcription is disabled.",
-        )
-    if not settings.openai_api_key:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="OpenAI API key gerekli.")
 
+    Ses, varsayılan olarak lokal faster-whisper ile yurt içinde çözülür; OpenAI
+    yalnızca `voice_stt_provider=openai` + `voice_external_enabled` ile devreye girer.
+    """
     # KVKK Md. 6 — Klinik bağlamında ses kaydı için hasta açık rızası şart.
     if clinic_id is not None:
         consent_row = db.scalars(
@@ -83,18 +77,9 @@ async def transcribe_audio(
     if not audio_bytes:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Ses dosyası boş.")
 
-    filename = file.filename or "audio.webm"
-    client = OpenAI(api_key=settings.openai_api_key)
-
     try:
-        result = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=(filename, io.BytesIO(audio_bytes), file.content_type or "audio/webm"),
-            language=language,
-            response_format="text",
-        )
-        transcript = result.strip() if isinstance(result, str) else str(result).strip()
-    except Exception as exc:
+        transcript = get_stt_provider().transcribe(audio_bytes, language=language)
+    except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY,
                             detail=f"Ses tanıma hatası: {exc}") from exc
 
@@ -116,47 +101,24 @@ async def synthesize_speech(
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     """
-    Metni OpenAI TTS ile mp3 sesine çevirir.
-    Tarayıcı doğrudan mp3 stream'i alır ve Audio API ile çalar.
-
-    Neden Web Speech Synthesis değil?
-    - Web Speech: her tarayıcı/OS'ta farklı, çoğunda robotik, Türkçe sesi yetersiz.
-    - OpenAI TTS: gerçek sinir ağı sesi, Türkçe'yi iyi telaffuz eder, her platformda aynı.
+    Metni sese çevirir — varsayılan lokal Piper (tr_TR, nöral); ses yurt içinde
+    üretilir. OpenAI yalnızca voice_tts_provider=openai + voice_external_enabled
+    ile devreye girer. WAV (lokal) veya MP3 (OpenAI) döner; tarayıcı her ikisini
+    de Audio API ile çalar.
     """
-    if not settings.voice_external_enabled:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail="KVKK local-first mode: external text-to-speech is disabled.",
-        )
-    if not settings.openai_api_key:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="OpenAI API key gerekli.")
-
     text = body.text.strip()
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Metin boş.")
 
-    # 4096 karakter limiti — uzun metinleri kırp
-    text = text[:4096]
-
-    client = OpenAI(api_key=settings.openai_api_key)
-
     try:
-        # stream=True ile byte'ları akış olarak al → belleği verimli kullan
-        response = client.audio.speech.create(
-            model=TTS_MODEL,
-            voice=body.voice,       # type: ignore[arg-type]
-            input=text,
-            response_format="mp3",
-            speed=max(0.25, min(4.0, body.speed)),
-        )
-        audio_bytes = response.content   # tüm mp3 bytes
-    except Exception as exc:
+        audio_bytes, mime = get_tts_provider().synthesize(text[:4096], voice=body.voice)
+    except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY,
                             detail=f"Ses sentezi hatası: {exc}") from exc
 
+    ext = "wav" if mime == "audio/wav" else "mp3"
     return StreamingResponse(
         io.BytesIO(audio_bytes),
-        media_type="audio/mpeg",
-        headers={"Content-Disposition": "inline; filename=speech.mp3"},
+        media_type=mime,
+        headers={"Content-Disposition": f"inline; filename=speech.{ext}"},
     )

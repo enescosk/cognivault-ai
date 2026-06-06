@@ -5,6 +5,7 @@ import {
   holdSlotOffer,
   sendPatientMessage,
   synthesizePublicSpeech,
+  transcribePublicSpeech,
   updatePatientIdentity,
   type PublicClinicView,
   type PublicSlotOfferView,
@@ -50,8 +51,8 @@ function useVoice(slug: string, langRef: React.MutableRefObject<Lang>) {
       if (!enabledRef.current || !text || !text.trim()) { onEnd?.(); return; }
       stop();
       try {
-        const buf = await synthesizePublicSpeech(slug, text);
-        const url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
+        const blob = await synthesizePublicSpeech(slug, text);
+        const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
         audioRef.current = audio;
         audio.onended = () => { URL.revokeObjectURL(url); onEnd?.(); };
@@ -70,42 +71,111 @@ function useVoice(slug: string, langRef: React.MutableRefObject<Lang>) {
   return { enabled, toggle, enable, speak, stop };
 }
 
-/** Tarayıcı Web Speech Recognition (STT). Dil her turda dinamik verilir. */
-const SpeechRecognitionImpl: any =
-  typeof window !== "undefined"
-    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    : null;
+/**
+ * Lokal mikrofon STT — KVKK local-first. Mikrofonu kaydeder, sessizlik
+ * algılayınca durur ve sesi backend'deki lokal faster-whisper'a gönderir
+ * (ses yurt dışına ÇIKMAZ; tarayıcının bulut SpeechRecognition'ı kullanılmaz).
+ */
+function useMicRecorder(slug: string) {
+  const supported =
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    typeof MediaRecorder !== "undefined";
+  const stopFnRef = useRef<() => void>(() => {});
+  const cancelledRef = useRef(false);
 
-function useSpeechRecognition() {
-  const supported = Boolean(SpeechRecognitionImpl);
-  const recRef = useRef<any>(null);
-
-  const stop = useCallback(() => { try { recRef.current?.abort?.(); } catch { /* ignore */ } }, []);
+  const stop = useCallback(() => {
+    cancelledRef.current = true;
+    try { stopFnRef.current?.(); } catch { /* ignore */ }
+  }, []);
 
   const start = useCallback(
-    (onResult: (t: string) => void, onNoResult: () => void, bcp = "tr-TR") => {
-      if (!SpeechRecognitionImpl) return;
-      try { recRef.current?.abort?.(); } catch { /* ignore */ }
-      const rec = new SpeechRecognitionImpl();
-      rec.lang = bcp;
-      rec.interimResults = false;
-      rec.maxAlternatives = 1;
-      rec.continuous = false;
-      let got = false;
-      rec.onresult = (e: any) => {
-        const t = e?.results?.[0]?.[0]?.transcript ?? "";
-        if (t && t.trim()) { got = true; onResult(t.trim()); }
+    async (onResult: (t: string) => void, onNoResult: () => void, language = "tr") => {
+      if (!supported) { onNoResult(); return; }
+      cancelledRef.current = false;
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        onNoResult();
+        return;
+      }
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "";
+      const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+
+      // Sessizlik algılama (Web Audio RMS)
+      const AC: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext;
+      const ac = new AC();
+      try { await ac.resume(); } catch { /* ignore */ }
+      const srcNode = ac.createMediaStreamSource(stream);
+      const analyser = ac.createAnalyser();
+      analyser.fftSize = 512;
+      srcNode.connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
+      let speaking = false;
+      let silenceStart = 0;
+      let raf = 0;
+      const startedAt = Date.now();
+      const SILENCE_MS = 1200; // konuşma sonrası bu kadar sessizlik → bitir
+      const MAX_MS = 15000;
+      const THRESHOLD = 0.018;
+
+      const cleanup = () => {
+        cancelAnimationFrame(raf);
+        try { stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+        try { void ac.close(); } catch { /* ignore */ }
       };
-      // Sonuç gelmeden biterse (sessizlik/hata) → çağıran tarafı bilgilendir.
-      rec.onend = () => { if (!got) onNoResult(); };
-      rec.onerror = () => { /* onend zaten tetiklenecek */ };
-      recRef.current = rec;
-      try { rec.start(); } catch { /* ignore */ }
+      const finish = () => {
+        cancelAnimationFrame(raf);
+        try { if (mr.state !== "inactive") mr.stop(); } catch { /* ignore */ }
+      };
+      stopFnRef.current = finish;
+
+      const tick = () => {
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+        const rms = Math.sqrt(sum / buf.length);
+        const now = Date.now();
+        if (rms > THRESHOLD) { speaking = true; silenceStart = 0; }
+        else if (speaking) {
+          if (!silenceStart) silenceStart = now;
+          else if (now - silenceStart > SILENCE_MS) { finish(); return; }
+        }
+        if (now - startedAt > MAX_MS) { finish(); return; }
+        raf = requestAnimationFrame(tick);
+      };
+
+      mr.onstop = async () => {
+        cleanup();
+        if (cancelledRef.current) return;
+        const blob = new Blob(chunks, { type: mime || "audio/webm" });
+        if (blob.size < 1500) { onNoResult(); return; } // çok kısa / sessiz
+        try {
+          const text = await transcribePublicSpeech(slug, blob, language);
+          if (text && text.trim()) onResult(text.trim());
+          else onNoResult();
+        } catch { onNoResult(); }
+      };
+
+      try {
+        mr.start();
+        raf = requestAnimationFrame(tick);
+      } catch {
+        cleanup();
+        onNoResult();
+      }
     },
-    [],
+    [slug, supported],
   );
 
-  useEffect(() => () => { try { recRef.current?.abort?.(); } catch { /* ignore */ } }, []);
+  useEffect(() => () => { try { stopFnRef.current?.(); } catch { /* ignore */ } }, []);
   return { supported, start, stop };
 }
 
@@ -270,7 +340,7 @@ export function PatientChatRoom({
   useEffect(() => { stepRef.current = step; }, [step]);
 
   const voice = useVoice(clinic.slug, langRef);
-  const rec = useSpeechRecognition();
+  const rec = useMicRecorder(clinic.slug);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const noResultRef = useRef(0);
 
@@ -311,7 +381,7 @@ export function PatientChatRoom({
         if (noResultRef.current >= 3) { noResultRef.current = 0; setCallPhase("idle"); return; }
         void say(t().didntCatch).then(() => { if (callActiveRef.current) listen(); });
       },
-      t().bcp,
+      langRef.current,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rec, say]);

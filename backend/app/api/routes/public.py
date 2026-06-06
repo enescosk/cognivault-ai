@@ -21,12 +21,13 @@ import hashlib
 import io
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.ai.voice_factory import get_stt_provider, get_tts_provider
 from app.core.config import get_settings
 
 from app.api.dependencies import get_db
@@ -973,50 +974,59 @@ def update_patient_identity(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Public TTS — hasta sayfası sesli asistan (OpenAI nova). Anonim; sadece AI'ın
-# söyleyeceği kısa metni sese çevirir. voice_external_enabled ile kapatılabilir.
+# Public ses — hasta sayfası sesli asistan. KVKK local-first: ses varsayılan
+# olarak yurt içinde işlenir (TTS=Piper tr_TR, STT=faster-whisper). Anonim.
 # ─────────────────────────────────────────────────────────────────────────────
 class PublicSynthesizeRequest(BaseModel):
     text: str = Field(min_length=1, max_length=1200)
-    voice: str = "nova"   # nova | shimmer | alloy | onyx | echo | fable
+    voice: str = "nova"
 
 
 @router.post("/clinics/{slug}/voice/synthesize")
 def public_synthesize_speech(slug: str, body: PublicSynthesizeRequest) -> StreamingResponse:
-    """Hasta sayfası için metni doğal sese (OpenAI TTS nova) çevirir.
+    """Hasta sayfası için metni doğal sese çevirir (varsayılan lokal Piper tr_TR).
 
-    Auth gerekmez (anonim hasta akışı). Tarayıcının robotik Web Speech sesi
-    yerine kullanılır. Klinik veri içermez — yalnızca asistanın söylediği metin.
+    Auth gerekmez (anonim hasta akışı). Ses yurt içinde üretilir; klinik veri
+    içermez — yalnızca asistanın söylediği metin.
     """
-    settings = get_settings()
-    if not settings.voice_external_enabled:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail="Sesli yanıt şu an kapalı (voice_external_enabled=false).",
-        )
-    if not settings.openai_api_key:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="OpenAI API key gerekli.")
-
     text = body.text.strip()[:1200]
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Metin boş.")
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=settings.openai_api_key)
     try:
-        response = client.audio.speech.create(
-            model="tts-1",
-            voice=body.voice,   # type: ignore[arg-type]
-            input=text,
-            response_format="mp3",
-        )
-        audio_bytes = response.content
+        audio_bytes, mime = get_tts_provider().synthesize(text, voice=body.voice)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Ses sentezi hatası: {exc}") from exc
 
+    ext = "wav" if mime == "audio/wav" else "mp3"
     return StreamingResponse(
         io.BytesIO(audio_bytes),
-        media_type="audio/mpeg",
-        headers={"Content-Disposition": "inline; filename=speech.mp3"},
+        media_type=mime,
+        headers={"Content-Disposition": f"inline; filename=speech.{ext}"},
     )
+
+
+@router.post("/clinics/{slug}/voice/transcribe")
+async def public_transcribe_speech(
+    slug: str,
+    file: UploadFile,
+    language: str = "tr",
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    """Hasta sayfası sesli görüşmesi için konuşmayı metne çevirir.
+
+    Varsayılan lokal faster-whisper ile yurt içinde çözülür; ses verisi dışarı
+    çıkmaz. Anonim (klinik slug doğrulanır).
+    """
+    clinic = db.scalars(select(Clinic).where(Clinic.slug == slug)).first()
+    if clinic is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="clinic_not_found")
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Ses dosyası boş.")
+    if len(audio_bytes) > 8 * 1024 * 1024:  # 8 MB üst sınır — kötüye kullanım koruması
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Ses dosyası çok büyük.")
+    try:
+        text = get_stt_provider().transcribe(audio_bytes, language=language)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Ses tanıma hatası: {exc}") from exc
+    return {"text": text}
