@@ -1,4 +1,5 @@
 import type { PublicClinicView } from "../../api/patientClient";
+import { fill, useT } from "../../i18n";
 
 interface Props {
   clinic: PublicClinicView;
@@ -12,6 +13,7 @@ interface Props {
  * Hero, hizmet etiketleri, şube bilgisi, tek bir net CTA.
  */
 export function PatientLanding({ clinic, onStart }: Props) {
+  const { t } = useT();
   return (
     <div className="patient-card patient-landing">
       <header className="patient-hero">
@@ -29,7 +31,7 @@ export function PatientLanding({ clinic, onStart }: Props) {
       </header>
 
       <section className="patient-services">
-        <h2>Hizmetlerimiz</h2>
+        <h2>{t("patient.landing.services")}</h2>
         <ul>
           {clinic.services.map((s) => (
             <li key={s}>{s}</li>
@@ -39,7 +41,7 @@ export function PatientLanding({ clinic, onStart }: Props) {
 
       {clinic.branches.length > 0 ? (
         <section className="patient-branches">
-          <h2>Şube ve çalışma saatleri</h2>
+          <h2>{t("patient.landing.branches")}</h2>
           {clinic.branches.map((b) => (
             <div key={b.name} className="patient-branch-row">
               <strong>{b.name}</strong>
@@ -58,19 +60,17 @@ export function PatientLanding({ clinic, onStart }: Props) {
 
       <div className="patient-cta-row">
         <button type="button" className="patient-cta" onClick={onStart}>
-          AI ile randevu al →
+          {t("patient.landing.cta")}
         </button>
         {clinic.contact_phone ? (
           <a href={`tel:${clinic.contact_phone.replace(/\s/g, "")}`} className="patient-cta-secondary">
-            ☎ Telefonla {clinic.contact_phone}
+            {fill(t("patient.landing.call"), { phone: clinic.contact_phone })}
           </a>
         ) : null}
       </div>
 
       <p className="patient-hint">
-        AI ile sohbet etmek için KVKK aydınlatma metnini okuyup onaylamanız gerekir.
-        Aydınlatma metni v{clinic.disclosure.version} — saklama süresi, haklarınız ve
-        veri işleme amacımız açıkça yazılıdır.
+        {fill(t("patient.landing.hint"), { version: clinic.disclosure.version })}
       </p>
     </div>
   );

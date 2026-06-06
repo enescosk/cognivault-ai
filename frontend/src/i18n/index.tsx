@@ -18,6 +18,17 @@ type I18nContextValue = {
 
 const I18nContext = createContext<I18nContextValue | undefined>(undefined);
 
+/**
+ * Replace `{var}` placeholders in a translated string. Keeps the i18n core
+ * dependency-free while supporting the handful of patient-flow strings that
+ * need a clinic name, disclosure version, phone, etc.
+ */
+export function fill(template: string, vars: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key: string) =>
+    key in vars ? String(vars[key]) : `{${key}}`,
+  );
+}
+
 function readInitialLocale(): Locale {
   const stored = typeof window !== "undefined" ? window.localStorage.getItem(LOCALE_KEY) : null;
   if (stored && (stored === "tr" || stored === "en")) return stored;

@@ -82,6 +82,96 @@ export const DICT = {
     "conv.sentiment.flat": "sabit",
     "conv.warn.low_confidence": "eşik altı",
     "conv.warn.hallucination": "hayali içerik riski",
+
+    // ── Patient-facing (public /c/:slug flow) ──────────────────────────────
+    "patient.lang.switch": "English",
+    "patient.invalid_link": "Geçersiz klinik bağlantısı.",
+    "patient.clinic_not_found_title": "Klinik bulunamadı",
+    "patient.clinic_not_found_body": "Bağlantınız yanlış olabilir veya klinik artık aktif değildir.",
+    "patient.footer.disclosure": "KVKK aydınlatma v{version}",
+
+    "patient.landing.services": "Hizmetlerimiz",
+    "patient.landing.branches": "Şube ve çalışma saatleri",
+    "patient.landing.cta": "AI ile randevu al →",
+    "patient.landing.call": "☎ Telefonla {phone}",
+    "patient.landing.hint":
+      "AI ile sohbet etmek için KVKK aydınlatma metnini okuyup onaylamanız gerekir. Aydınlatma metni v{version} — saklama süresi, haklarınız ve veri işleme amacımız açıkça yazılıdır.",
+
+    "patient.consent.title": "KVKK aydınlatma onayı",
+    "patient.consent.bullet1": "Ad-soyad, telefon ve sağlık şikayetiniz işlenir.",
+    "patient.consent.bullet2": "Amaç: randevu yönetimi ve sizinle iletişim.",
+    "patient.consent.bullet3": "Veriler yerel sunucularımızda işlenir.",
+    "patient.consent.bullet4": "Saklama: 90 gün anonimleştirme, 1 yıl tam silme.",
+    "patient.consent.bullet5": "KVKK m.11 kapsamındaki tüm haklarınız saklıdır.",
+    "patient.consent.cross_border":
+      "WhatsApp, Twilio gibi yurt dışı transit aracılarının kullanımına da onay veriyorum. (Opsiyonel — verilmezse alternatif iletişim kanalı önerilir.)",
+    "patient.consent.show_full": "▾ Tam aydınlatma metnini oku",
+    "patient.consent.hide_full": "▴ Tam metni gizle",
+    "patient.consent.load_failed": "Aydınlatma metni yüklenemedi.",
+    "patient.consent.loading_retry": "Aydınlatma metni yükleniyor — lütfen tekrar deneyin.",
+    "patient.consent.bootstrapping": "Sohbet açılıyor…",
+    "patient.consent.submitting": "Onaylanıyor…",
+    "patient.consent.accept": "Kabul ediyorum, sohbete başla",
+    "patient.consent.cancel_hint_phone":
+      "\"Vazgeç\" derseniz hizmetten men edilmezsiniz — {phone} numarasını arayabilir veya kliniğe direkt başvurabilirsiniz.",
+    "patient.consent.cancel_hint_nophone":
+      "\"Vazgeç\" derseniz hizmetten men edilmezsiniz — klinikle telefonla iletişime geçebilir veya kliniğe direkt başvurabilirsiniz.",
+
+    "patient.chat.welcome_fallback": "Merhaba, ben {name} AI asistanı. Size nasıl yardımcı olabilirim?",
+    "patient.chat.system_hint":
+      "ℹ Şikayetinizi ve tercih ettiğiniz gün/saati yazarsanız randevu oluşturabilirim. Acil semptomlarınız varsa lütfen 112'yi arayın.",
+    "patient.chat.review_received":
+      "Mesajınızı aldık. Klinik personeli kısa sürede size yazılı olarak dönüş yapacak.",
+    "patient.chat.emergency_title": "Acil durum tespit edildi.",
+    "patient.chat.emergency_body_pre": "Lütfen vakit kaybetmeden ",
+    "patient.chat.emergency_call": "112'yi arayın",
+    "patient.chat.emergency_body_post":
+      " veya en yakın acil servise başvurun. Klinik ekibimize de yüksek öncelikli alarm iletildi.",
+    "patient.chat.subtitle": "AI asistanı · #{id}",
+    "patient.chat.tts_on_title": "AI cevaplarını sesli dinle",
+    "patient.chat.tts_off_title": "Sesi kapat",
+    "patient.chat.tts_on": "🔊 Sesli",
+    "patient.chat.tts_off": "🔇 Sessiz",
+    "patient.chat.close": "Sohbeti kapat",
+    "patient.chat.booking_intro": "{dept} için gerçek klinik takviminden üretilen uygun saatler:",
+    "patient.chat.slots_aria": "Uygun randevu saatleri",
+    "patient.chat.slot_held": "Tutuldu",
+    "patient.chat.slot_offer": "15 dk geçerli teklif",
+    "patient.chat.clinic_team": "Klinik ekibi",
+    "patient.chat.slots_checking":
+      "Uygun saat için klinik ekibi takvimi kontrol ediyor. Net slot gelmeden randevu oluşturulmaz.",
+    "patient.chat.confirming": "Onaylanıyor…",
+    "patient.chat.confirm_continue": "Devam et — Bilgilerinizi alalım",
+    "patient.chat.confirm_book": "Seçili saati randevuya çevir",
+    "patient.chat.identity_title": "Son bir adım kaldı",
+    "patient.chat.identity_desc":
+      "Randevu kaydınız ve SMS onayınız için sadece ad-soyad ve cep telefonunuz gerekli. Bu bilgiler yerel sunucularımızda KVKK uyumlu olarak saklanır.",
+    "patient.chat.identity_name": "Ad-soyad",
+    "patient.chat.identity_phone": "Cep telefonu",
+    "patient.chat.identity_name_ph": "Ahmet Yılmaz",
+    "patient.chat.identity_phone_ph": "0532 123 45 67",
+    "patient.chat.identity_submit": "Randevuyu oluştur",
+    "patient.chat.identity_saving": "Kaydediliyor…",
+    "patient.chat.err_select_slot": "Lütfen önce klinik takviminden gelen uygun saatlerden birini seçin.",
+    "patient.chat.err_name": "Lütfen adınızı ve soyadınızı girin.",
+    "patient.chat.err_phone": "Lütfen geçerli bir TR cep numarası girin (örn: 0532 123 45 67).",
+    "patient.chat.record_bubble": "✓ Kayıt: {name} · {phone}. Randevu oluşturuluyor…",
+    "patient.chat.note_confirmed": "Hasta web chat üzerinden onayladı.",
+    "patient.chat.input_locked": "Sohbet kilitlendi",
+    "patient.chat.input_placeholder": "Mesajınızı yazın…",
+    "patient.chat.send": "Gönder",
+    "patient.chat.review_banner":
+      "Mesajınız klinik personelinin onayını bekliyor — kısa süre içinde dönüş yapılacak.",
+
+    "patient.confirm.title": "Randevu talebiniz oluşturuldu",
+    "patient.confirm.body":
+      "{name} ekibi randevunuzu kısa süre içinde onaylayacak ve size SMS ile teyit gönderecek. SMS'i alıncaya kadar saatleri lütfen aramamızı bekleyin.",
+    "patient.confirm.next1": "📩 Onay SMS'i — birkaç dakika içinde",
+    "patient.confirm.next2": "📞 Eğer detay gerekirse klinik sizi arayacak",
+    "patient.confirm.next3": "🛡 Konuşma kayıtları KVKK uyarınca 1 yıl içinde silinecek",
+    "patient.confirm.address": "Adres:",
+    "patient.confirm.contact": "İletişim:",
+    "patient.confirm.start_over": "Yeni bir görüşme başlat",
   },
   en: {
     "common.loading": "Loading…",
@@ -162,6 +252,96 @@ export const DICT = {
     "conv.sentiment.flat": "stable",
     "conv.warn.low_confidence": "below threshold",
     "conv.warn.hallucination": "possible hallucination",
+
+    // ── Patient-facing (public /c/:slug flow) ──────────────────────────────
+    "patient.lang.switch": "Türkçe",
+    "patient.invalid_link": "Invalid clinic link.",
+    "patient.clinic_not_found_title": "Clinic not found",
+    "patient.clinic_not_found_body": "Your link may be incorrect, or the clinic is no longer active.",
+    "patient.footer.disclosure": "KVKK disclosure v{version}",
+
+    "patient.landing.services": "Our services",
+    "patient.landing.branches": "Branches & working hours",
+    "patient.landing.cta": "Book with AI →",
+    "patient.landing.call": "☎ Call {phone}",
+    "patient.landing.hint":
+      "To chat with the AI you need to read and accept the KVKK disclosure. Disclosure v{version} clearly states the retention period, your rights and our data-processing purpose.",
+
+    "patient.consent.title": "KVKK disclosure consent",
+    "patient.consent.bullet1": "Your name, phone and health complaint are processed.",
+    "patient.consent.bullet2": "Purpose: appointment management and contacting you.",
+    "patient.consent.bullet3": "Data is processed on our local servers.",
+    "patient.consent.bullet4": "Retention: anonymized after 90 days, fully erased within 1 year.",
+    "patient.consent.bullet5": "All your rights under KVKK art. 11 are reserved.",
+    "patient.consent.cross_border":
+      "I also consent to the use of cross-border transit intermediaries such as WhatsApp and Twilio. (Optional — if withheld, an alternative contact channel is offered.)",
+    "patient.consent.show_full": "▾ Read the full disclosure text",
+    "patient.consent.hide_full": "▴ Hide full text",
+    "patient.consent.load_failed": "Could not load the disclosure text.",
+    "patient.consent.loading_retry": "Disclosure text is loading — please try again.",
+    "patient.consent.bootstrapping": "Opening chat…",
+    "patient.consent.submitting": "Confirming…",
+    "patient.consent.accept": "I accept, start the chat",
+    "patient.consent.cancel_hint_phone":
+      "If you choose \"Cancel\" you are not barred from service — you can call {phone} or visit the clinic directly.",
+    "patient.consent.cancel_hint_nophone":
+      "If you choose \"Cancel\" you are not barred from service — you can reach the clinic by phone or visit directly.",
+
+    "patient.chat.welcome_fallback": "Hello, I'm the {name} AI assistant. How can I help you?",
+    "patient.chat.system_hint":
+      "ℹ Tell me your complaint and your preferred day/time and I can create an appointment. If you have urgent symptoms please call 112.",
+    "patient.chat.review_received":
+      "We've received your message. Clinic staff will get back to you in writing shortly.",
+    "patient.chat.emergency_title": "Emergency detected.",
+    "patient.chat.emergency_body_pre": "Please don't lose time — ",
+    "patient.chat.emergency_call": "call 112",
+    "patient.chat.emergency_body_post":
+      " or go to the nearest emergency room. A high-priority alert has also been sent to our clinic team.",
+    "patient.chat.subtitle": "AI assistant · #{id}",
+    "patient.chat.tts_on_title": "Listen to AI replies aloud",
+    "patient.chat.tts_off_title": "Mute",
+    "patient.chat.tts_on": "🔊 Voice",
+    "patient.chat.tts_off": "🔇 Muted",
+    "patient.chat.close": "Close chat",
+    "patient.chat.booking_intro": "Available times for {dept}, generated from the real clinic calendar:",
+    "patient.chat.slots_aria": "Available appointment times",
+    "patient.chat.slot_held": "Held",
+    "patient.chat.slot_offer": "Offer valid 15 min",
+    "patient.chat.clinic_team": "Clinic team",
+    "patient.chat.slots_checking":
+      "The clinic team is checking the calendar for an available time. No appointment is created until a concrete slot arrives.",
+    "patient.chat.confirming": "Confirming…",
+    "patient.chat.confirm_continue": "Continue — let's take your details",
+    "patient.chat.confirm_book": "Turn the selected time into an appointment",
+    "patient.chat.identity_title": "One last step",
+    "patient.chat.identity_desc":
+      "For your appointment record and SMS confirmation we only need your full name and mobile number. This data is stored KVKK-compliantly on our local servers.",
+    "patient.chat.identity_name": "Full name",
+    "patient.chat.identity_phone": "Mobile phone",
+    "patient.chat.identity_name_ph": "John Smith",
+    "patient.chat.identity_phone_ph": "0532 123 45 67",
+    "patient.chat.identity_submit": "Create appointment",
+    "patient.chat.identity_saving": "Saving…",
+    "patient.chat.err_select_slot": "Please first select one of the available times from the clinic calendar.",
+    "patient.chat.err_name": "Please enter your first and last name.",
+    "patient.chat.err_phone": "Please enter a valid TR mobile number (e.g. 0532 123 45 67).",
+    "patient.chat.record_bubble": "✓ Recorded: {name} · {phone}. Creating appointment…",
+    "patient.chat.note_confirmed": "Patient confirmed via web chat.",
+    "patient.chat.input_locked": "Chat is locked",
+    "patient.chat.input_placeholder": "Type your message…",
+    "patient.chat.send": "Send",
+    "patient.chat.review_banner":
+      "Your message is awaiting clinic staff approval — you'll hear back shortly.",
+
+    "patient.confirm.title": "Your appointment request has been created",
+    "patient.confirm.body":
+      "The {name} team will confirm your appointment shortly and send you an SMS confirmation. Please wait for our call until you receive the SMS.",
+    "patient.confirm.next1": "📩 Confirmation SMS — within a few minutes",
+    "patient.confirm.next2": "📞 The clinic will call you if any detail is needed",
+    "patient.confirm.next3": "🛡 Conversation records will be deleted within 1 year per KVKK",
+    "patient.confirm.address": "Address:",
+    "patient.confirm.contact": "Contact:",
+    "patient.confirm.start_over": "Start a new conversation",
   },
 } as const;
 

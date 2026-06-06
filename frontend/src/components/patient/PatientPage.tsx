@@ -10,6 +10,7 @@ import {
   startConversation,
   type PatientSessionState,
 } from "../../api/patientClient";
+import { fill, useT } from "../../i18n";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { SkeletonBlock } from "../ui/Skeleton";
 import { PatientChatRoom } from "./PatientChatRoom";
@@ -46,6 +47,7 @@ import { PatientLanding } from "./PatientLanding";
 type Step = "landing" | "consent" | "chat" | "confirm";
 
 export function PatientPage() {
+  const { t, locale, setLocale } = useT();
   const params = useParams<{ slug: string }>();
   const slug = (params.slug ?? "").trim();
 
@@ -168,12 +170,25 @@ export function PatientPage() {
     setStep("landing");
   };
 
+  const langToggle = (
+    <div className="patient-langbar">
+      <button
+        type="button"
+        className="patient-lang-toggle"
+        onClick={() => setLocale(locale === "tr" ? "en" : "tr")}
+      >
+        {t("patient.lang.switch")}
+      </button>
+    </div>
+  );
+
   if (!slug) {
-    return <div className="patient-shell"><div className="patient-empty">Geçersiz klinik bağlantısı.</div></div>;
+    return <div className="patient-shell"><div className="patient-empty">{t("patient.invalid_link")}</div></div>;
   }
   if (clinicQuery.isLoading) {
     return (
       <div className="patient-shell">
+        {langToggle}
         <div className="patient-card"><SkeletonBlock count={4} /></div>
       </div>
     );
@@ -181,9 +196,10 @@ export function PatientPage() {
   if (clinicQuery.error || !branding) {
     return (
       <div className="patient-shell">
+        {langToggle}
         <div className="patient-card patient-error">
-          <h2>Klinik bulunamadı</h2>
-          <p>Bağlantınız yanlış olabilir veya klinik artık aktif değildir.</p>
+          <h2>{t("patient.clinic_not_found_title")}</h2>
+          <p>{t("patient.clinic_not_found_body")}</p>
         </div>
       </div>
     );
@@ -191,6 +207,7 @@ export function PatientPage() {
 
   return (
     <div className="patient-shell">
+      {langToggle}
       {step === "landing" && (
         <ErrorBoundary scope="Patient landing">
           <PatientLanding clinic={branding} onStart={() => setStep("consent")} />
@@ -232,7 +249,7 @@ export function PatientPage() {
         <span>{branding.name}</span>
         {branding.public_address ? <span>· {branding.public_address}</span> : null}
         {branding.contact_phone ? <span>· {branding.contact_phone}</span> : null}
-        <span>· KVKK aydınlatma v{branding.disclosure.version}</span>
+        <span>· {fill(t("patient.footer.disclosure"), { version: branding.disclosure.version })}</span>
       </footer>
     </div>
   );

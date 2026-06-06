@@ -6094,6 +6094,31 @@ body:has(.login-shell) {
   color: var(--patient-text-2);
 }
 
+.patient-langbar {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -8px;
+}
+
+.patient-lang-toggle {
+  border: 1px solid var(--patient-border, rgba(15, 23, 42, 0.12));
+  background: var(--patient-card-bg);
+  color: var(--patient-text-2);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.patient-lang-toggle:hover {
+  background: var(--patient-primary, #0f766e);
+  color: #fff;
+}
+
 .patient-footer {
   color: var(--patient-text-3);
   font-size: 0.78rem;

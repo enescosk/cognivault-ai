@@ -6,6 +6,7 @@ import {
   submitConsent,
   type PublicClinicView,
 } from "../../api/patientClient";
+import { fill, useT } from "../../i18n";
 import { SkeletonBlock } from "../ui/Skeleton";
 
 interface Props {
@@ -35,6 +36,7 @@ export function PatientConsentModal({
   bootstrapping = false,
   bootstrapError = null,
 }: Props) {
+  const { t } = useT();
   const [expanded, setExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +52,7 @@ export function PatientConsentModal({
   async function handleAccept() {
     const disclosure = disclosureQuery.data;
     if (!disclosure) {
-      setError("Aydınlatma metni yükleniyor — lütfen tekrar deneyin.");
+      setError(t("patient.consent.loading_retry"));
       return;
     }
     setSubmitting(true);
@@ -72,16 +74,16 @@ export function PatientConsentModal({
   return (
     <div className="patient-card patient-consent">
       <header className="patient-consent-header">
-        <h2>KVKK aydınlatma onayı</h2>
+        <h2>{t("patient.consent.title")}</h2>
         <span className="patient-badge">v{clinic.disclosure.version}</span>
       </header>
 
       <ul className="patient-consent-bullets">
-        <li>Ad-soyad, telefon ve sağlık şikayetiniz işlenir.</li>
-        <li>Amaç: randevu yönetimi ve sizinle iletişim.</li>
-        <li>Veriler yerel sunucularımızda işlenir.</li>
-        <li>Saklama: 90 gün anonimleştirme, 1 yıl tam silme.</li>
-        <li>KVKK m.11 kapsamındaki tüm haklarınız saklıdır.</li>
+        <li>{t("patient.consent.bullet1")}</li>
+        <li>{t("patient.consent.bullet2")}</li>
+        <li>{t("patient.consent.bullet3")}</li>
+        <li>{t("patient.consent.bullet4")}</li>
+        <li>{t("patient.consent.bullet5")}</li>
       </ul>
 
       <label className="patient-consent-checkbox">
@@ -90,10 +92,7 @@ export function PatientConsentModal({
           checked={includeCrossBorder}
           onChange={(e) => setIncludeCrossBorder(e.target.checked)}
         />
-        <span>
-          WhatsApp, Twilio gibi yurt dışı transit aracılarının kullanımına da onay
-          veriyorum. (Opsiyonel — verilmezse alternatif iletişim kanalı önerilir.)
-        </span>
+        <span>{t("patient.consent.cross_border")}</span>
       </label>
 
       <button
@@ -101,7 +100,7 @@ export function PatientConsentModal({
         className="patient-link-button"
         onClick={() => setExpanded((v) => !v)}
       >
-        {expanded ? "▴ Tam metni gizle" : "▾ Tam aydınlatma metnini oku"}
+        {expanded ? t("patient.consent.hide_full") : t("patient.consent.show_full")}
       </button>
 
       {expanded ? (
@@ -109,7 +108,7 @@ export function PatientConsentModal({
           {disclosureQuery.isLoading ? (
             <SkeletonBlock count={4} />
           ) : disclosureQuery.error ? (
-            <div className="patient-error-line">Aydınlatma metni yüklenemedi.</div>
+            <div className="patient-error-line">{t("patient.consent.load_failed")}</div>
           ) : (
             <pre>{disclosureQuery.data?.body}</pre>
           )}
@@ -128,10 +127,10 @@ export function PatientConsentModal({
           disabled={submitting || bootstrapping || !disclosureQuery.data}
         >
           {bootstrapping
-            ? "Sohbet açılıyor…"
+            ? t("patient.consent.bootstrapping")
             : submitting
-              ? "Onaylanıyor…"
-              : "Kabul ediyorum, sohbete başla"}
+              ? t("patient.consent.submitting")
+              : t("patient.consent.accept")}
         </button>
         <button
           type="button"
@@ -139,14 +138,14 @@ export function PatientConsentModal({
           onClick={onCancel}
           disabled={bootstrapping}
         >
-          Vazgeç
+          {t("common.cancel")}
         </button>
       </div>
 
       <p className="patient-hint">
-        "Vazgeç" derseniz hizmetten men edilmezsiniz —
-        {clinic.contact_phone ? ` ${clinic.contact_phone} numarasını arayabilir` : " klinikle telefonla iletişime geçebilir"}
-        {" "}veya kliniğe direkt başvurabilirsiniz.
+        {clinic.contact_phone
+          ? fill(t("patient.consent.cancel_hint_phone"), { phone: clinic.contact_phone })
+          : t("patient.consent.cancel_hint_nophone")}
       </p>
     </div>
   );
