@@ -2784,6 +2784,36 @@ button { cursor: pointer; border: none; background: none; }
 .boutique-clinic-panel .clinical-card-top span {
   color: #2b7a78;
 }
+.clinic-tabbar {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 20px;
+  border-radius: 999px;
+  background: rgba(43,122,120,0.10);
+  border: 1px solid rgba(43,122,120,0.16);
+}
+.clinic-tabbar button {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  padding: 9px 22px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #2b7a78;
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.clinic-tabbar button:hover {
+  color: #15231f;
+}
+.clinic-tabbar button.active {
+  background: #2b7a78;
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(43,122,120,0.28);
+}
 .clinic-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.7fr);

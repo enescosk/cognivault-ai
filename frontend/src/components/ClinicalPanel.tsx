@@ -112,6 +112,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"ops" | "pitch">("ops");
 
   useEffect(() => {
     void loadClinical();
@@ -211,38 +212,31 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
 
   return (
     <div className="clinical-panel boutique-clinic-panel">
-      <section className="clinic-hero">
-        <div className="clinic-hero-copy">
-          <div className="clinical-kicker">CogniVault Clinical OS</div>
-          <h2>Dental ve butik klinikler için AI çağrı merkezi kokpiti</h2>
-          <p>
-            Hasta konuşmasını anlayan, doğru branşa yönlendiren, randevu için eksik bilgileri tamamlayan
-            ve riskli yanıtları doktor onayına alan medikal operasyon yüzeyi.
-          </p>
-          <div className="clinic-command-center">
-            <article>
-              <span>Canlı hedef</span>
-              <strong>Kaçan çağrıyı randevuya çevir</strong>
-            </article>
-            <article>
-              <span>Guardrail</span>
-              <strong>Tanı koyma, riskli ifadeyi aktar</strong>
-            </article>
-            <article>
-              <span>Persona</span>
-              <strong>{selectedPersona.name} · {selectedPersona.title}</strong>
-            </article>
-          </div>
-        </div>
-        <div className="clinic-hero-panel">
-          <span>Ürün odağı</span>
-          <strong>Türkiye klinikleri için özgün, KVKK-first ve doktor onaylı premium intake motoru</strong>
-          <p>Diş klinikleri, dermatoloji, estetik ve küçük özel kliniklerde telefon + WhatsApp randevu otomasyonu.</p>
-        </div>
-      </section>
+      <div className="clinic-tabbar" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "ops"}
+          className={tab === "ops" ? "active" : ""}
+          onClick={() => setTab("ops")}
+        >
+          Operasyon
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "pitch"}
+          className={tab === "pitch" ? "active" : ""}
+          onClick={() => setTab("pitch")}
+        >
+          Sunum
+        </button>
+      </div>
 
       {error ? <div className="error-box clinical-error">{error}</div> : null}
 
+      {tab === "ops" ? (
+        <>
       <section className="clinic-metric-strip">
         <ClinicalMetric label="Bugünkü hasta teması" value={metrics?.conversations_today ?? 0} />
         <ClinicalMetric label="Telefon araması" value={metrics?.phone_calls_today ?? 0} />
@@ -355,6 +349,102 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         </div>
       </section>
 
+      <DoctorScreen
+        selectedConversation={selectedConversation}
+        reviews={reviews}
+        slotBoard={slotBoard}
+        busy={busy}
+        editingReviewId={editingReviewId}
+        editedReply={editedReply}
+        onEditReply={setEditedReply}
+        onStartEdit={(review) => {
+          setEditingReviewId(review.id);
+          setEditedReply(review.draft_reply);
+        }}
+        onDecide={(review, status) => void decideReview(review, status)}
+      />
+
+      <section className="clinic-bottom-grid">
+        <div className="clinic-card">
+          <div className="clinical-card-top">
+            <div>
+              <span>Tüm akış</span>
+              <h3>Hasta temasları</h3>
+            </div>
+          </div>
+          <ConversationList
+            conversations={conversations}
+            selectedId={selectedConversation?.id}
+            empty="Henüz hasta teması yok."
+            onSelect={handleSelect}
+          />
+        </div>
+
+        <div className="clinic-card">
+          <div className="clinical-card-top">
+            <div>
+              <span>Doktor onayı</span>
+              <h3>Riskli veya belirsiz cevaplar</h3>
+            </div>
+          </div>
+          <div className="clinical-review-list">
+            {reviews.length ? reviews.map((review) => (
+              <article key={review.id} className="clinical-review">
+                <div className="clinical-review-top">
+                  <strong>{review.intent.replace(/_/g, " ")}</strong>
+                  <span>{review.channel ?? "medical"} · {review.persona_name ?? "AI"} · {Math.round(review.confidence_score * 100)}%</span>
+                </div>
+                <p>{review.draft_reply}</p>
+                <small>{review.risk_reason}</small>
+                {editingReviewId === review.id ? (
+                  <textarea value={editedReply} onChange={(event) => setEditedReply(event.target.value)} />
+                ) : null}
+                <div className="clinical-review-actions">
+                  <button type="button" onClick={() => void decideReview(review, "approved")} disabled={busy}>Onayla</button>
+                  <button type="button" onClick={() => { setEditingReviewId(review.id); setEditedReply(review.draft_reply); }} disabled={busy}>Düzenle</button>
+                  {editingReviewId === review.id ? (
+                    <button type="button" onClick={() => void decideReview(review, "edited")} disabled={busy || !editedReply.trim()}>Düzenlemeyi gönder</button>
+                  ) : null}
+                  <button type="button" className="danger" onClick={() => void decideReview(review, "rejected")} disabled={busy}>Reddet</button>
+                </div>
+              </article>
+            )) : <div className="clinical-empty">Doktor onayı bekleyen kayıt yok.</div>}
+          </div>
+        </div>
+      </section>
+        </>
+      ) : (
+        <>
+      <section className="clinic-hero">
+        <div className="clinic-hero-copy">
+          <div className="clinical-kicker">CogniVault Clinical OS</div>
+          <h2>Dental ve butik klinikler için AI çağrı merkezi kokpiti</h2>
+          <p>
+            Hasta konuşmasını anlayan, doğru branşa yönlendiren, randevu için eksik bilgileri tamamlayan
+            ve riskli yanıtları doktor onayına alan medikal operasyon yüzeyi.
+          </p>
+          <div className="clinic-command-center">
+            <article>
+              <span>Canlı hedef</span>
+              <strong>Kaçan çağrıyı randevuya çevir</strong>
+            </article>
+            <article>
+              <span>Guardrail</span>
+              <strong>Tanı koyma, riskli ifadeyi aktar</strong>
+            </article>
+            <article>
+              <span>Persona</span>
+              <strong>{selectedPersona.name} · {selectedPersona.title}</strong>
+            </article>
+          </div>
+        </div>
+        <div className="clinic-hero-panel">
+          <span>Ürün odağı</span>
+          <strong>Türkiye klinikleri için özgün, KVKK-first ve doktor onaylı premium intake motoru</strong>
+          <p>Diş klinikleri, dermatoloji, estetik ve küçük özel kliniklerde telefon + WhatsApp randevu otomasyonu.</p>
+        </div>
+      </section>
+
       <section className="clinic-product-grid">
         <div className="clinic-card">
           <div className="clinical-card-top">
@@ -460,70 +550,8 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           </div>
         </div>
       </section>
-
-      <DoctorScreen
-        selectedConversation={selectedConversation}
-        reviews={reviews}
-        slotBoard={slotBoard}
-        busy={busy}
-        editingReviewId={editingReviewId}
-        editedReply={editedReply}
-        onEditReply={setEditedReply}
-        onStartEdit={(review) => {
-          setEditingReviewId(review.id);
-          setEditedReply(review.draft_reply);
-        }}
-        onDecide={(review, status) => void decideReview(review, status)}
-      />
-
-      <section className="clinic-bottom-grid">
-        <div className="clinic-card">
-          <div className="clinical-card-top">
-            <div>
-              <span>Tüm akış</span>
-              <h3>Hasta temasları</h3>
-            </div>
-          </div>
-          <ConversationList
-            conversations={conversations}
-            selectedId={selectedConversation?.id}
-            empty="Henüz hasta teması yok."
-            onSelect={handleSelect}
-          />
-        </div>
-
-        <div className="clinic-card">
-          <div className="clinical-card-top">
-            <div>
-              <span>Doktor onayı</span>
-              <h3>Riskli veya belirsiz cevaplar</h3>
-            </div>
-          </div>
-          <div className="clinical-review-list">
-            {reviews.length ? reviews.map((review) => (
-              <article key={review.id} className="clinical-review">
-                <div className="clinical-review-top">
-                  <strong>{review.intent.replace(/_/g, " ")}</strong>
-                  <span>{review.channel ?? "medical"} · {review.persona_name ?? "AI"} · {Math.round(review.confidence_score * 100)}%</span>
-                </div>
-                <p>{review.draft_reply}</p>
-                <small>{review.risk_reason}</small>
-                {editingReviewId === review.id ? (
-                  <textarea value={editedReply} onChange={(event) => setEditedReply(event.target.value)} />
-                ) : null}
-                <div className="clinical-review-actions">
-                  <button type="button" onClick={() => void decideReview(review, "approved")} disabled={busy}>Onayla</button>
-                  <button type="button" onClick={() => { setEditingReviewId(review.id); setEditedReply(review.draft_reply); }} disabled={busy}>Düzenle</button>
-                  {editingReviewId === review.id ? (
-                    <button type="button" onClick={() => void decideReview(review, "edited")} disabled={busy || !editedReply.trim()}>Düzenlemeyi gönder</button>
-                  ) : null}
-                  <button type="button" className="danger" onClick={() => void decideReview(review, "rejected")} disabled={busy}>Reddet</button>
-                </div>
-              </article>
-            )) : <div className="clinical-empty">Doktor onayı bekleyen kayıt yok.</div>}
-          </div>
-        </div>
-      </section>
+        </>
+      )}
     </div>
   );
 }
