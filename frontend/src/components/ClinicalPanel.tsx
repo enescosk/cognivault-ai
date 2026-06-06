@@ -701,6 +701,98 @@ const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
   cancelled: "İptal edildi",
 };
 
+function AppointmentRow({
+  row,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  row: ClinicalAppointmentRow;
+  busy: boolean;
+  onConfirm: (row: ClinicalAppointmentRow) => void;
+  onCancel: (row: ClinicalAppointmentRow) => void;
+}) {
+  return (
+    <article className={`appointment-request ${row.status}`}>
+      <div className="appointment-request-main">
+        <strong>{row.patient_name ?? `Hasta #${row.patient_id}`}</strong>
+        <span>
+          {row.department}
+          {row.physician_name ? ` · ${row.physician_name}` : ""}
+          {row.branch_name ? ` · ${row.branch_name}` : ""}
+        </span>
+        <small>
+          {row.starts_at
+            ? trDateTime.format(new Date(row.starts_at))
+            : `Talep: ${trDateTime.format(new Date(row.created_at))}`}
+        </small>
+      </div>
+      <div className="appointment-request-side">
+        <span className={`appointment-request-badge ${row.status}`}>
+          {APPOINTMENT_STATUS_LABELS[row.status] ?? row.status}
+        </span>
+        {row.status === "pending" ? (
+          <div className="appointment-request-actions">
+            <button type="button" className="appointment-confirm" disabled={busy} onClick={() => onConfirm(row)}>
+              Onayla
+            </button>
+            <button type="button" className="appointment-cancel" disabled={busy} onClick={() => onCancel(row)}>
+              İptal
+            </button>
+          </div>
+        ) : row.status === "confirmed" ? (
+          <div className="appointment-request-actions">
+            <button type="button" className="appointment-cancel" disabled={busy} onClick={() => onCancel(row)}>
+              İptal et
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function AppointmentBucket({
+  title,
+  subtitle,
+  tone,
+  rows,
+  busy,
+  emptyText,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  subtitle: string;
+  tone: "pending" | "confirmed" | "cancelled";
+  rows: ClinicalAppointmentRow[];
+  busy: boolean;
+  emptyText: string;
+  onConfirm: (row: ClinicalAppointmentRow) => void;
+  onCancel: (row: ClinicalAppointmentRow) => void;
+}) {
+  return (
+    <div className={`clinic-card appointment-bucket appointment-bucket--${tone}`}>
+      <div className="clinical-card-top">
+        <div>
+          <span>{subtitle}</span>
+          <h3>{title}</h3>
+        </div>
+        <b>{rows.length}</b>
+      </div>
+      {rows.length ? (
+        <div className="appointment-request-list">
+          {rows.map((row) => (
+            <AppointmentRow key={row.id} row={row} busy={busy} onConfirm={onConfirm} onCancel={onCancel} />
+          ))}
+        </div>
+      ) : (
+        <div className="clinical-empty">{emptyText}</div>
+      )}
+    </div>
+  );
+}
+
 function AppointmentRequestsCard({
   appointments,
   busy,
@@ -712,64 +804,43 @@ function AppointmentRequestsCard({
   onConfirm: (row: ClinicalAppointmentRow) => void;
   onCancel: (row: ClinicalAppointmentRow) => void;
 }) {
-  const pendingCount = appointments.filter((row) => row.status === "pending").length;
+  const pending = appointments.filter((row) => row.status === "pending");
+  const confirmed = appointments.filter((row) => row.status === "confirmed");
+  const cancelled = appointments.filter((row) => row.status === "cancelled");
   return (
-    <section className="clinic-card appointment-requests-card">
-      <div className="clinical-card-top">
-        <div>
-          <span>Hasta randevu talepleri</span>
-          <h3>Web chat üzerinden gelen randevular</h3>
-        </div>
-        <b>{pendingCount}</b>
-      </div>
-      {appointments.length ? (
-        <div className="appointment-request-list">
-          {appointments.map((row) => (
-            <article key={row.id} className={`appointment-request ${row.status}`}>
-              <div className="appointment-request-main">
-                <strong>{row.patient_name ?? `Hasta #${row.patient_id}`}</strong>
-                <span>
-                  {row.department}
-                  {row.physician_name ? ` · ${row.physician_name}` : ""}
-                  {row.branch_name ? ` · ${row.branch_name}` : ""}
-                </span>
-                <small>
-                  {row.starts_at
-                    ? trDateTime.format(new Date(row.starts_at))
-                    : `Talep: ${trDateTime.format(new Date(row.created_at))}`}
-                </small>
-              </div>
-              <div className="appointment-request-side">
-                <span className={`appointment-request-badge ${row.status}`}>
-                  {APPOINTMENT_STATUS_LABELS[row.status] ?? row.status}
-                </span>
-                {row.status === "pending" ? (
-                  <div className="appointment-request-actions">
-                    <button
-                      type="button"
-                      className="appointment-confirm"
-                      disabled={busy}
-                      onClick={() => onConfirm(row)}
-                    >
-                      Onayla
-                    </button>
-                    <button
-                      type="button"
-                      className="appointment-cancel"
-                      disabled={busy}
-                      onClick={() => onCancel(row)}
-                    >
-                      İptal
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className="clinical-empty">Henüz hasta tarafından alınmış randevu yok.</div>
-      )}
+    <section className="appointment-requests-grid">
+      <AppointmentBucket
+        title="Onay bekleyen hastalar"
+        subtitle="Web chat üzerinden gelen talepler"
+        tone="pending"
+        rows={pending}
+        busy={busy}
+        emptyText="Onay bekleyen randevu yok."
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />
+      <AppointmentBucket
+        title="Onaylanan randevular"
+        subtitle="Operatör onayından geçti"
+        tone="confirmed"
+        rows={confirmed}
+        busy={busy}
+        emptyText="Henüz onaylanmış randevu yok."
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />
+      {cancelled.length ? (
+        <AppointmentBucket
+          title="İptal edilenler"
+          subtitle="Arşiv"
+          tone="cancelled"
+          rows={cancelled}
+          busy={busy}
+          emptyText="İptal edilen randevu yok."
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
+      ) : null}
     </section>
   );
 }

@@ -3278,8 +3278,23 @@ button { cursor: pointer; border: none; background: none; }
   color: #b5641d;
 }
 
-.appointment-requests-card {
+.appointment-requests-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
   margin-bottom: 18px;
+}
+.appointment-bucket {
+  border-top: 3px solid transparent;
+}
+.appointment-bucket--pending {
+  border-top-color: #c27722;
+}
+.appointment-bucket--confirmed {
+  border-top-color: #1f6f68;
+}
+.appointment-bucket--cancelled {
+  border-top-color: #a23535;
 }
 .appointment-request-list {
   display: grid;
