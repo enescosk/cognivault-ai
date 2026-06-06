@@ -8,6 +8,7 @@ import type {
   ClinicalConversationDetail,
   ClinicalOverview,
   ClinicalAppointment,
+  ClinicalAppointmentRow,
   ClinicalPatentDossier,
   ClinicalPersona,
   ClinicalSlotBoard,
@@ -254,6 +255,22 @@ export function createClinicalAppointment(
 
 export function getUpcomingClinicalAppointments(token: string, withinMinutes = 120): Promise<ClinicalAppointment[]> {
   return request<ClinicalAppointment[]>(`/clinical/appointments/upcoming?within_minutes=${withinMinutes}`, { method: "GET" }, token);
+}
+
+export function listClinicalAppointments(token: string, limit = 50): Promise<ClinicalAppointmentRow[]> {
+  return request<ClinicalAppointmentRow[]>(`/clinical/appointments?limit=${limit}`, { method: "GET" }, token);
+}
+
+export function updateClinicalAppointmentStatus(
+  token: string,
+  appointmentId: number,
+  status: "pending" | "confirmed" | "cancelled"
+): Promise<ClinicalAppointmentRow> {
+  return request<ClinicalAppointmentRow>(
+    `/clinical/appointments/${appointmentId}/status`,
+    { method: "POST", body: JSON.stringify({ status }) },
+    token
+  );
 }
 
 /**

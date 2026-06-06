@@ -3277,6 +3277,93 @@ button { cursor: pointer; border: none; background: none; }
   background: rgba(194,119,34,0.16);
   color: #b5641d;
 }
+
+.appointment-requests-card {
+  margin-bottom: 18px;
+}
+.appointment-request-list {
+  display: grid;
+  gap: 10px;
+}
+.appointment-request {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(32,72,67,0.12);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.74);
+}
+.appointment-request.pending {
+  border-color: rgba(194,119,34,0.32);
+  background: rgba(194,119,34,0.06);
+}
+.appointment-request.cancelled {
+  opacity: 0.62;
+}
+.appointment-request-main {
+  display: grid;
+  gap: 3px;
+}
+.appointment-request-main strong {
+  font-size: 0.98rem;
+}
+.appointment-request-main span {
+  font-size: 0.82rem;
+  color: #4a5b57;
+}
+.appointment-request-main small {
+  font-size: 0.76rem;
+  color: #7c8a86;
+}
+.appointment-request-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.appointment-request-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: rgba(43,122,120,0.12);
+  color: #1f6f68;
+}
+.appointment-request-badge.pending {
+  background: rgba(194,119,34,0.16);
+  color: #b5641d;
+}
+.appointment-request-badge.cancelled {
+  background: rgba(176,58,58,0.14);
+  color: #a23535;
+}
+.appointment-request-actions {
+  display: flex;
+  gap: 6px;
+}
+.appointment-request-actions button {
+  border: none;
+  border-radius: 9px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.appointment-request-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.appointment-confirm {
+  background: #1f6f68;
+  color: #fff;
+}
+.appointment-cancel {
+  background: rgba(176,58,58,0.12);
+  color: #a23535;
+}
 .acceptance-rule-list,
 .scenario-pick-list,
 .doctor-approval-packet {

@@ -763,6 +763,37 @@ def upcoming_clinical_appointments(db: Session, clinic: Clinic, within_minutes: 
     )
 
 
+def recent_clinical_appointments(db: Session, clinic: Clinic, limit: int = 50) -> list[ClinicalAppointment]:
+    """Operatör paneli için kliniğin son randevuları (tüm statüler), en yeni önce."""
+    return list(
+        db.scalars(
+            select(ClinicalAppointment)
+            .where(ClinicalAppointment.clinic_id == clinic.id)
+            .order_by(ClinicalAppointment.created_at.desc())
+            .limit(limit)
+        )
+    )
+
+
+def set_clinical_appointment_status(
+    db: Session, clinic: Clinic, appointment_id: int, status_value: str
+) -> ClinicalAppointment:
+    """Operatör randevu durumunu günceller (pending → confirmed/cancelled)."""
+    appointment = db.scalars(
+        select(ClinicalAppointment).where(
+            ClinicalAppointment.id == appointment_id,
+            ClinicalAppointment.clinic_id == clinic.id,
+        )
+    ).first()
+    if appointment is None:
+        raise NotFoundError("Appointment not found")
+    appointment.status = ClinicalAppointmentStatus(status_value)
+    db.add(appointment)
+    db.commit()
+    db.refresh(appointment)
+    return appointment
+
+
 def update_shadow_review(
     db: Session,
     clinic: Clinic,

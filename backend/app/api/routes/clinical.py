@@ -18,6 +18,7 @@ from app.core.webhook_security import (
 )
 from app.models import (
     AuditResultStatus,
+    ClinicBranch,
     ClinicChannel,
     ClinicConversation,
     ClinicMessage,
@@ -32,6 +33,8 @@ from app.models import (
 from app.schemas.clinical import (
     ClinicalAppointmentCreateRequest,
     ClinicalAppointmentResponse,
+    ClinicalAppointmentRow,
+    ClinicalAppointmentStatusUpdate,
     ClinicalComplianceProfileResponse,
     ClinicalConversationDetail,
     ClinicalConversationSummary,
@@ -69,6 +72,8 @@ from app.services.clinical_service import (
     list_shadow_reviews,
     parse_meta_payload,
     parse_twilio_form,
+    recent_clinical_appointments,
+    set_clinical_appointment_status,
     upcoming_clinical_appointments,
     update_pre_intake,
     update_shadow_review,
@@ -289,6 +294,48 @@ def post_clinical_appointment(
         notes=payload.notes,
     )
     return appointment_payload(appointment)
+
+
+def appointment_row_payload(db: Session, appointment: ClinicalAppointment) -> ClinicalAppointmentRow:
+    """Randevuyu hasta adı, hekim ve şube bilgisiyle zenginleştirir."""
+    patient = db.get(ClinicPatient, appointment.patient_id)
+    branch = db.get(ClinicBranch, appointment.branch_id) if appointment.branch_id else None
+    metadata = appointment.metadata_json or {}
+    return ClinicalAppointmentRow(
+        id=appointment.id,
+        patient_id=appointment.patient_id,
+        patient_name=patient.full_name if patient else None,
+        conversation_id=appointment.conversation_id,
+        department=appointment.department,
+        physician_name=metadata.get("physician_name"),
+        branch_name=branch.name if branch else None,
+        starts_at=appointment.starts_at,
+        status=appointment.status.value,
+        notes=appointment.notes,
+        created_at=appointment.created_at,
+    )
+
+
+@router.get("/clinical/appointments", response_model=list[ClinicalAppointmentRow])
+def list_clinical_appointments(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ClinicalAppointmentRow]:
+    clinic = ensure_clinic_access(db, current_user)
+    return [appointment_row_payload(db, item) for item in recent_clinical_appointments(db, clinic, limit)]
+
+
+@router.post("/clinical/appointments/{appointment_id}/status", response_model=ClinicalAppointmentRow)
+def post_clinical_appointment_status(
+    appointment_id: int,
+    payload: ClinicalAppointmentStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalAppointmentRow:
+    clinic = ensure_clinic_access(db, current_user)
+    appointment = set_clinical_appointment_status(db, clinic, appointment_id, payload.status)
+    return appointment_row_payload(db, appointment)
 
 
 @router.get("/clinical/conversations/{conversation_id}", response_model=ClinicalConversationDetail)

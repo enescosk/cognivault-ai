@@ -322,6 +322,19 @@ export type ClinicalSlotAppointment = {
   status: "confirmed" | "pending" | string;
   status_label: string;
 };
+export type ClinicalAppointmentRow = {
+  id: number;
+  patient_id: number;
+  patient_name: string | null;
+  conversation_id: number | null;
+  department: string;
+  physician_name: string | null;
+  branch_name: string | null;
+  starts_at: string | null;
+  status: "pending" | "confirmed" | "cancelled" | string;
+  notes: string | null;
+  created_at: string;
+};
 export type ClinicalSlotItem = {
   id: string;
   department: string;

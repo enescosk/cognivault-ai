@@ -87,6 +87,46 @@ def test_public_patient_can_only_confirm_a_held_slot_offer(client, db_session):
     assert stored_offer.status == ClinicalSlotOfferStatus.CONSUMED
 
 
+def test_operator_lists_and_confirms_patient_booked_appointment(client, db_session, operator_token):
+    """Hasta sohbetten randevu alır (PENDING); operatör panelden görüp onaylar."""
+    slug, session_token, conversation_id = _bootstrap_public_session(
+        client, db_session, "+90 555 700 33 22"
+    )
+    message = client.post(
+        f"/api/public/clinics/{slug}/conversations/{conversation_id}/messages",
+        headers={"Authorization": f"Bearer {session_token}"},
+        json={"body": "Dolgum düştü, bugün randevu almak istiyorum."},
+    ).json()
+    offer = message["slot_offers"][0]
+    client.post(
+        f"/api/public/clinics/{slug}/conversations/{conversation_id}/slot-offers/{offer['id']}/hold",
+        headers={"Authorization": f"Bearer {session_token}"},
+    )
+    confirm = client.post(
+        f"/api/public/clinics/{slug}/conversations/{conversation_id}/appointments",
+        headers={"Authorization": f"Bearer {session_token}"},
+        json={"department": offer["department"], "slot_offer_id": offer["id"]},
+    ).json()
+    appointment_id = confirm["appointment_id"]
+
+    auth = {"Authorization": f"Bearer {operator_token}"}
+    listing = client.get("/api/clinical/appointments", headers=auth)
+    assert listing.status_code == 200
+    rows = listing.json()
+    target = next((row for row in rows if row["id"] == appointment_id), None)
+    assert target is not None, rows
+    assert target["patient_name"]  # zenginleştirilmiş hasta adı
+    assert target["status"] == "pending"
+
+    updated = client.post(
+        f"/api/clinical/appointments/{appointment_id}/status",
+        headers=auth,
+        json={"status": "confirmed"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["status"] == "confirmed"
+
+
 def test_public_consent_token_binds_only_its_own_audit_rows(client, db_session):
     clinic = ensure_default_clinic(db_session)
     slug = clinic.slug

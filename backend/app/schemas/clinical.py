@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -180,6 +181,26 @@ class ClinicalAppointmentCreateRequest(BaseModel):
     department: str = Field(default="Muayene", min_length=2, max_length=140)
     starts_at: datetime | None = None
     notes: str | None = Field(default=None, max_length=2000)
+
+
+class ClinicalAppointmentRow(BaseModel):
+    """Operatör randevu listesi satırı — kim / ne zaman / nerede zenginleştirilmiş."""
+
+    id: int
+    patient_id: int
+    patient_name: str | None = None
+    conversation_id: int | None = None
+    department: str
+    physician_name: str | None = None
+    branch_name: str | None = None
+    starts_at: datetime | None = None
+    status: str
+    notes: str | None = None
+    created_at: datetime
+
+
+class ClinicalAppointmentStatusUpdate(BaseModel):
+    status: Literal["pending", "confirmed", "cancelled"]
 
 
 class VoiceCallSimulationRequest(BaseModel):

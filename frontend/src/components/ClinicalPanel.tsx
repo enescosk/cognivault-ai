@@ -6,11 +6,14 @@ import {
   getClinicalOverview,
   getClinicalPatentDossier,
   getClinicalSlotBoard,
+  listClinicalAppointments,
   simulateVoiceCall,
   simulateWhatsAppMessage,
+  updateClinicalAppointmentStatus,
   updateShadowReview,
 } from "../api/client";
 import type {
+  ClinicalAppointmentRow,
   ClinicalComplianceProfile,
   ClinicalConversationDetail,
   ClinicalConversationSummary,
@@ -101,6 +104,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [complianceProfile, setComplianceProfile] = useState<ClinicalComplianceProfile | null>(null);
   const [patentDossier, setPatentDossier] = useState<ClinicalPatentDossier | null>(null);
   const [slotBoard, setSlotBoard] = useState<ClinicalSlotBoard | null>(null);
+  const [appointments, setAppointments] = useState<ClinicalAppointmentRow[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<ClinicalConversationDetail | null>(null);
   const [phone, setPhone] = useState("+90 555 111 22 33");
   const [patientName, setPatientName] = useState("Ayse Hasta");
@@ -122,16 +126,18 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   async function loadClinical(nextConversationId?: number) {
     setError(null);
     try {
-      const [data, compliance, patent, slots] = await Promise.all([
+      const [data, compliance, patent, slots, appointmentRows] = await Promise.all([
         getClinicalOverview(token),
         getClinicalComplianceProfile(token),
         getClinicalPatentDossier(token),
         getClinicalSlotBoard(token),
+        listClinicalAppointments(token),
       ]);
       setOverview(data);
       setComplianceProfile(compliance);
       setPatentDossier(patent);
       setSlotBoard(slots);
+      setAppointments(appointmentRows);
       const id = nextConversationId ?? selectedConversation?.id ?? data.doctor_inbox[0]?.id ?? data.conversations[0]?.id;
       if (id) {
         setSelectedConversation(await getClinicalConversation(id, token));
@@ -197,6 +203,22 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
     }
   }
 
+  async function handleAppointmentStatus(
+    appointment: ClinicalAppointmentRow,
+    status: "confirmed" | "cancelled",
+  ) {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await updateClinicalAppointmentStatus(token, appointment.id, status);
+      setAppointments((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Randevu durumu güncellenemedi");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const metrics = overview?.metrics;
   const conversations = overview?.conversations ?? [];
   const doctorInbox = overview?.doctor_inbox ?? [];
@@ -257,6 +279,13 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           }}
         />
       </section>
+
+      <AppointmentRequestsCard
+        appointments={appointments}
+        busy={busy}
+        onConfirm={(row) => handleAppointmentStatus(row, "confirmed")}
+        onCancel={(row) => handleAppointmentStatus(row, "cancelled")}
+      />
 
       <section className="clinic-workspace-grid">
         <div className="clinic-card clinic-call-card">
@@ -663,6 +692,85 @@ function SlotAppointmentsModal({ slot, onClose }: { slot: ClinicalSlotItem; onCl
         )}
       </div>
     </div>
+  );
+}
+
+const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
+  pending: "Onay bekliyor",
+  confirmed: "Onaylandı",
+  cancelled: "İptal edildi",
+};
+
+function AppointmentRequestsCard({
+  appointments,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  appointments: ClinicalAppointmentRow[];
+  busy: boolean;
+  onConfirm: (row: ClinicalAppointmentRow) => void;
+  onCancel: (row: ClinicalAppointmentRow) => void;
+}) {
+  const pendingCount = appointments.filter((row) => row.status === "pending").length;
+  return (
+    <section className="clinic-card appointment-requests-card">
+      <div className="clinical-card-top">
+        <div>
+          <span>Hasta randevu talepleri</span>
+          <h3>Web chat üzerinden gelen randevular</h3>
+        </div>
+        <b>{pendingCount}</b>
+      </div>
+      {appointments.length ? (
+        <div className="appointment-request-list">
+          {appointments.map((row) => (
+            <article key={row.id} className={`appointment-request ${row.status}`}>
+              <div className="appointment-request-main">
+                <strong>{row.patient_name ?? `Hasta #${row.patient_id}`}</strong>
+                <span>
+                  {row.department}
+                  {row.physician_name ? ` · ${row.physician_name}` : ""}
+                  {row.branch_name ? ` · ${row.branch_name}` : ""}
+                </span>
+                <small>
+                  {row.starts_at
+                    ? trDateTime.format(new Date(row.starts_at))
+                    : `Talep: ${trDateTime.format(new Date(row.created_at))}`}
+                </small>
+              </div>
+              <div className="appointment-request-side">
+                <span className={`appointment-request-badge ${row.status}`}>
+                  {APPOINTMENT_STATUS_LABELS[row.status] ?? row.status}
+                </span>
+                {row.status === "pending" ? (
+                  <div className="appointment-request-actions">
+                    <button
+                      type="button"
+                      className="appointment-confirm"
+                      disabled={busy}
+                      onClick={() => onConfirm(row)}
+                    >
+                      Onayla
+                    </button>
+                    <button
+                      type="button"
+                      className="appointment-cancel"
+                      disabled={busy}
+                      onClick={() => onCancel(row)}
+                    >
+                      İptal
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="clinical-empty">Henüz hasta tarafından alınmış randevu yok.</div>
+      )}
+    </section>
   );
 }
 
