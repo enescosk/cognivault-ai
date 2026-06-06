@@ -279,8 +279,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         <ClinicalMetric label="Doktor onayı" value={metrics?.pending_shadow_reviews ?? 0} tone="danger" />
       </section>
 
-      <section className="clinic-lab-grid">
-        <SlotBoardCard slotBoard={slotBoard} onOpenSlot={setActiveSlot} />
+      <section className="clinic-lab-grid clinic-lab-grid--single">
         <TestLab
           slotBoard={slotBoard}
           onPick={(message) => {
@@ -590,12 +589,17 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
       ) : null}
 
       {tab === "appointments" ? (
-        <AppointmentRequestsCard
-          appointments={appointments}
-          busy={busy}
-          onConfirm={(row) => handleAppointmentStatus(row, "confirmed")}
-          onCancel={(row) => handleAppointmentStatus(row, "cancelled")}
-        />
+        <>
+          <section className="clinic-lab-grid clinic-lab-grid--single">
+            <SlotBoardCard slotBoard={slotBoard} onOpenSlot={setActiveSlot} />
+          </section>
+          <AppointmentRequestsCard
+            appointments={appointments}
+            busy={busy}
+            onConfirm={(row) => handleAppointmentStatus(row, "confirmed")}
+            onCancel={(row) => handleAppointmentStatus(row, "cancelled")}
+          />
+        </>
       ) : null}
 
       {activeSlot ? (

@@ -2952,6 +2952,9 @@ button { cursor: pointer; border: none; background: none; }
   margin-bottom: 14px;
   align-items: start;
 }
+.clinic-lab-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
 .clinic-product-grid {
   display: grid;
   grid-template-columns: 1.1fr 1fr 1fr;
