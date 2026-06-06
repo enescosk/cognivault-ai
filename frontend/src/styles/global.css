@@ -6673,6 +6673,30 @@ body:has(.login-shell) {
   color: var(--patient-primary);
 }
 
+/* === Patient dil seçimi ================================================= */
+.patient-lang-pick {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 4px 0 8px;
+}
+.patient-lang-btn {
+  flex: 1 1 200px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--patient-accent);
+  background: color-mix(in srgb, var(--patient-accent) 10%, transparent);
+  color: var(--patient-primary);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms ease, transform 80ms ease;
+}
+.patient-lang-btn:hover { background: color-mix(in srgb, var(--patient-accent) 22%, transparent); }
+.patient-lang-btn:active { transform: scale(0.98); }
+.patient-lang-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* === Patient sesli görüşme (çağrı) modu ================================= */
 .patient-call-btn {
   background: color-mix(in srgb, var(--patient-accent) 16%, transparent);

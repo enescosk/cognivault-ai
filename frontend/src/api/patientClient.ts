@@ -97,6 +97,9 @@ export type PublicMessageResponse = {
   requires_human_review: boolean;
   conversation_status: string;
   slot_offers: PublicSlotOfferView[];
+  detected_intent?: string | null;
+  specialty?: string | null;
+  emergency?: boolean;
 };
 
 export type AppointmentConfirmResponse = {

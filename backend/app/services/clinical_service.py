@@ -423,7 +423,7 @@ def _existing_inbound_message(
     ).first()
 
 
-def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None) -> IngestionResult:
+def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None, use_ai: bool = True) -> IngestionResult:
     clinic = clinic or ensure_default_clinic(db)
 
     if incoming.external_message_id:
@@ -500,7 +500,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
     db.commit()
     db.refresh(message)
 
-    ai_result = generate_clinical_reply(clinic, incoming.body, language, incoming.requested_persona_id)
+    ai_result = generate_clinical_reply(clinic, incoming.body, language, incoming.requested_persona_id, use_ai=use_ai)
 
     # Multi-intent ve consent sinyallerini AI çıktısı sonrası hesapla.
     # Primary intent ai_result.intent'ten geliyor; secondary'leri ondan çıkarıyoruz.

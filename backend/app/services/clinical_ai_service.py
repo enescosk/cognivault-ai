@@ -692,7 +692,14 @@ def generate_clinical_reply(
     text: str,
     language: str | None = None,
     requested_persona_id: str | None = None,
+    use_ai: bool = True,
 ) -> ClinicalAIResult:
+    """use_ai=False → LLM'i atla, kural-tabanlı (hızlı) yolu kullan.
+
+    Hasta sayfası rehberli akışında LLM cevabı kullanılmıyor; sadece intent,
+    intake (branş) ve slot_decision lazım. Bunlar kural-tabanlı üretildiği için
+    use_ai=False ile çağrı ~anında döner (lokal LLM'in ~6 sn'si yerine).
+    """
     resolved_language = language or detect_language(text, clinic.default_language)
     intent, intent_confidence = classify_intent(text)
     intake = extract_clinical_intake(text)
@@ -701,7 +708,7 @@ def generate_clinical_reply(
     governance = build_governance_context(clinic, text, intent, resolved_language).as_dict()
 
     settings = get_settings()
-    if settings.clinical_ai_enabled:
+    if use_ai and settings.clinical_ai_enabled:
         provider = get_llm_provider(governance["data_residency_mode"], governance["external_transfer_allowed"])
         system_prompt = (
             "You are a JSON-only clinical receptionist API. "

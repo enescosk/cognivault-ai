@@ -151,6 +151,11 @@ class PublicMessageResponse(BaseModel):
     requires_human_review: bool
     conversation_status: str
     slot_offers: list[PublicSlotOfferView] = []
+    # Rehberli akış için üst seviye sinyaller — mesaj shadow review'a düşüp
+    # assistant_message None olsa bile intent/branş/acil bilgisi buradan okunur.
+    detected_intent: str | None = None
+    specialty: str | None = None
+    emergency: bool = False
 
 
 class PublicSlotHoldResponse(BaseModel):
@@ -657,7 +662,9 @@ def send_patient_message(
         conversation_id=conversation.id,
         raw_payload={"source": "patient_page"},
     )
-    result = ingest_clinical_message(db, incoming, clinic=clinic)
+    # Hasta sayfası rehberli akışı LLM cevabını kullanmıyor (intent + branş + slot
+    # kural-tabanlı yeterli). use_ai=False → ~anında döner, lokal LLM beklenmez.
+    result = ingest_clinical_message(db, incoming, clinic=clinic, use_ai=False)
 
     # En son hasta + asistan mesajı çek
     msgs = sorted(result.conversation.messages, key=lambda m: m.created_at)
@@ -699,6 +706,19 @@ def send_patient_message(
             slot_decision=data.get("slot_decision") or {},
         )
 
+    # Üst seviye sinyaller: assistant ya da shadow review hangisindeyse oradan al.
+    detected_intent = assistant_intent or shadow_intent
+    # "data" anahtarı olan ilk kaynağı seç: auto-reply mesajı data taşır; shadow'da
+    # taslak mesaj data taşımaz ama ShadowReview taşır.
+    _metas = [
+        last_assistant.metadata_json if last_assistant is not None else None,
+        result.shadow_review.metadata_json if result.shadow_review is not None else None,
+    ]
+    chosen_meta = next((m for m in _metas if m and m.get("data")), {})
+    intake_meta = (chosen_meta.get("data") or {}).get("intake") or {}
+    specialty = intake_meta.get("specialty")
+    emergency = detected_intent == "medical_emergency"
+
     return PublicMessageResponse(
         patient_message=_message_view(last_patient) if last_patient else _message_view(result.message),
         assistant_message=_message_view(last_assistant) if last_assistant else None,
@@ -707,6 +727,9 @@ def send_patient_message(
         if hasattr(result.conversation.status, "value")
         else str(result.conversation.status),
         slot_offers=[_slot_offer_view(offer) for offer in slot_offers],
+        detected_intent=detected_intent,
+        specialty=specialty,
+        emergency=emergency,
     )
 
 
