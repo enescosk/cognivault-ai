@@ -3128,6 +3128,155 @@ button { cursor: pointer; border: none; background: none; }
   background: #fffbea;
   border-color: rgba(176,142,44,0.24);
 }
+.slot-board-hint {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: #2b7a78;
+  font-weight: 600;
+}
+.slot-row--clickable {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.slot-row--clickable:hover {
+  border-color: rgba(43,122,120,0.55);
+  box-shadow: 0 8px 20px rgba(43,122,120,0.16);
+  transform: translateY(-1px);
+}
+.slot-row--clickable:focus-visible {
+  outline: 2px solid #2b7a78;
+  outline-offset: 2px;
+}
+
+/* Bölüm randevu detay modalı — "kim / saat kaçta / nerede" */
+.slot-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(13,28,24,0.46);
+  backdrop-filter: blur(2px);
+}
+.slot-modal {
+  width: min(560px, 100%);
+  max-height: 86vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 18px;
+  padding: 22px;
+  box-shadow: 0 24px 60px rgba(13,28,24,0.32);
+}
+.slot-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.slot-modal-head span {
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #2b7a78;
+}
+.slot-modal-head h3 {
+  margin: 4px 0 2px;
+  color: #132721;
+}
+.slot-modal-head p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #667a76;
+}
+.slot-modal-close {
+  appearance: none;
+  border: 0;
+  background: rgba(43,122,120,0.10);
+  color: #2b7a78;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.slot-modal-close:hover {
+  background: rgba(43,122,120,0.20);
+}
+.slot-modal-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.slot-modal-stats article {
+  background: rgba(43,122,120,0.07);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.slot-modal-stats span {
+  display: block;
+  font-size: 0.72rem;
+  color: #667a76;
+}
+.slot-modal-stats strong {
+  font-size: 1.1rem;
+  color: #132721;
+}
+.slot-appointment-list {
+  display: grid;
+  gap: 8px;
+}
+.slot-appointment {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(32,72,67,0.12);
+  border-left: 3px solid #2b7a78;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.9);
+}
+.slot-appointment.pending {
+  border-left-color: #c27722;
+  background: #fff8f1;
+}
+.slot-appointment-time {
+  font-weight: 700;
+  color: #1f6f68;
+  font-variant-numeric: tabular-nums;
+}
+.slot-appointment-main strong {
+  display: block;
+  color: #132721;
+}
+.slot-appointment-main span,
+.slot-appointment-main small {
+  display: block;
+  font-size: 0.78rem;
+  color: #667a76;
+}
+.slot-appointment-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: rgba(43,122,120,0.12);
+  color: #1f6f68;
+}
+.slot-appointment-badge.pending {
+  background: rgba(194,119,34,0.16);
+  color: #b5641d;
+}
 .acceptance-rule-list,
 .scenario-pick-list,
 .doctor-approval-packet {

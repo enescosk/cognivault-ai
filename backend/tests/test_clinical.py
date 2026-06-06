@@ -299,6 +299,24 @@ def test_slot_board_exposes_full_slots_and_acceptance_rules(client, operator_tok
     assert any("Dolu slot" == item["label"] for item in data["test_scenarios"])
 
 
+def test_slot_board_includes_per_slot_appointment_detail(client, operator_token):
+    res = client.get("/api/clinical/slot-board", headers={"Authorization": f"Bearer {operator_token}"})
+
+    assert res.status_code == 200
+    data = res.json()
+    for slot in data["schedule"]:
+        appointments = slot.get("appointments")
+        assert isinstance(appointments, list)
+        # booked sayısı kadar randevu üretilmeli
+        assert len(appointments) == slot["booked"]
+        for appt in appointments:
+            assert appt["patient_name"]
+            assert appt["doctor"] == slot["doctor"]
+            assert appt["branch"]
+            # saat HH:MM formatında
+            assert len(appt["time"]) == 5 and appt["time"][2] == ":"
+
+
 def test_full_slot_request_returns_alternative_slot_metadata(client, operator_token):
     res = client.post(
         "/api/clinical/simulate-voice-call",

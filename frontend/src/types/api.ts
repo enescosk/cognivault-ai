@@ -310,6 +310,18 @@ export type ClinicalPatentDossier = {
   evidence_to_preserve: string[];
   next_actions: string[];
 };
+export type ClinicalSlotAppointment = {
+  id: string;
+  time: string;
+  patient_name: string;
+  doctor: string;
+  branch: string;
+  department: string;
+  date_label: string;
+  phone: string;
+  status: "confirmed" | "pending" | string;
+  status_label: string;
+};
 export type ClinicalSlotItem = {
   id: string;
   department: string;
@@ -322,6 +334,7 @@ export type ClinicalSlotItem = {
   status: "available" | "limited" | "full" | string;
   next_available: string;
   waitlist_count: number;
+  appointments?: ClinicalSlotAppointment[];
 };
 export type ClinicalSlotBoard = {
   summary: {

@@ -113,6 +113,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"ops" | "pitch">("ops");
+  const [activeSlot, setActiveSlot] = useState<ClinicalSlotItem | null>(null);
 
   useEffect(() => {
     void loadClinical();
@@ -246,7 +247,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
       </section>
 
       <section className="clinic-lab-grid">
-        <SlotBoardCard slotBoard={slotBoard} />
+        <SlotBoardCard slotBoard={slotBoard} onOpenSlot={setActiveSlot} />
         <TestLab
           slotBoard={slotBoard}
           onPick={(message) => {
@@ -552,11 +553,21 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
       </section>
         </>
       )}
+
+      {activeSlot ? (
+        <SlotAppointmentsModal slot={activeSlot} onClose={() => setActiveSlot(null)} />
+      ) : null}
     </div>
   );
 }
 
-function SlotBoardCard({ slotBoard }: { slotBoard: ClinicalSlotBoard | null }) {
+function SlotBoardCard({
+  slotBoard,
+  onOpenSlot,
+}: {
+  slotBoard: ClinicalSlotBoard | null;
+  onOpenSlot: (slot: ClinicalSlotItem) => void;
+}) {
   const schedule = slotBoard?.schedule ?? [];
   return (
     <div className="clinic-card slot-board-card">
@@ -581,16 +592,17 @@ function SlotBoardCard({ slotBoard }: { slotBoard: ClinicalSlotBoard | null }) {
           <strong>{slotBoard?.summary.waitlist_total ?? 0}</strong>
         </article>
       </div>
+      <p className="slot-board-hint">Randevuları görmek için bir bölüme tıklayın →</p>
       <div className="slot-board-list">
-        {schedule.map((slot) => <SlotRow key={slot.id} slot={slot} />)}
+        {schedule.map((slot) => <SlotRow key={slot.id} slot={slot} onOpen={onOpenSlot} />)}
       </div>
     </div>
   );
 }
 
-function SlotRow({ slot }: { slot: ClinicalSlotItem }) {
+function SlotRow({ slot, onOpen }: { slot: ClinicalSlotItem; onOpen: (slot: ClinicalSlotItem) => void }) {
   return (
-    <article className={`slot-row ${slot.status}`}>
+    <button type="button" className={`slot-row slot-row--clickable ${slot.status}`} onClick={() => onOpen(slot)}>
       <div>
         <strong>{slot.department}</strong>
         <span>{slot.doctor} · {slot.date_label} · {slot.time_range}</span>
@@ -599,7 +611,58 @@ function SlotRow({ slot }: { slot: ClinicalSlotItem }) {
         <b>{slot.booked}/{slot.capacity}</b>
         <small>{slot.status === "full" ? "Dolu" : slot.status === "limited" ? "Son slot" : "Uygun"}</small>
       </div>
-    </article>
+    </button>
+  );
+}
+
+function SlotAppointmentsModal({ slot, onClose }: { slot: ClinicalSlotItem; onClose: () => void }) {
+  const appointments = slot.appointments ?? [];
+  return (
+    <div className="slot-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="slot-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="slot-modal-head">
+          <div>
+            <span>Randevu takvimi</span>
+            <h3>{slot.department}</h3>
+            <p>{slot.doctor} · {slot.date_label} · {slot.time_range}</p>
+          </div>
+          <button type="button" className="slot-modal-close" onClick={onClose} aria-label="Kapat">×</button>
+        </div>
+
+        <div className="slot-modal-stats">
+          <article>
+            <span>Dolu / Kapasite</span>
+            <strong>{slot.booked}/{slot.capacity}</strong>
+          </article>
+          <article>
+            <span>Boş slot</span>
+            <strong>{slot.open}</strong>
+          </article>
+          <article>
+            <span>Bekleme listesi</span>
+            <strong>{slot.waitlist_count}</strong>
+          </article>
+        </div>
+
+        {appointments.length ? (
+          <div className="slot-appointment-list">
+            {appointments.map((appt) => (
+              <article key={appt.id} className={`slot-appointment ${appt.status}`}>
+                <div className="slot-appointment-time">{appt.time}</div>
+                <div className="slot-appointment-main">
+                  <strong>{appt.patient_name}</strong>
+                  <span>{appt.branch} · {appt.doctor}</span>
+                  <small>{appt.phone}</small>
+                </div>
+                <span className={`slot-appointment-badge ${appt.status}`}>{appt.status_label}</span>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="clinical-empty">Bu slotta kayıtlı randevu yok — kapasite uygun.</div>
+        )}
+      </div>
+    </div>
   );
 }
 

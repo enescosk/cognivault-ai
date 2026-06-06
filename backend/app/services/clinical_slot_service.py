@@ -72,6 +72,71 @@ SLOT_STATUS_LABELS = {
     "doctor_review": "Doktor onayı",
 }
 
+# Operatör takvim detayı için demo hasta havuzu. Gerçek ClinicalAppointment
+# kayıtları henüz oluşmadan, bir bölüme tıklandığında "kim / saat kaçta /
+# nerede" sorusunu görselleştirmek için deterministik randevu üretiriz.
+DEMO_PATIENT_NAMES = [
+    "Ayşe Yılmaz", "Mehmet Demir", "Zeynep Kaya", "Mustafa Çelik",
+    "Elif Şahin", "Can Aydın", "Fatma Arslan", "Ahmet Doğan",
+    "Selin Koç", "Burak Yıldız", "Merve Aksoy", "Emre Polat",
+    "Hülya Öztürk", "Kerem Acar", "Nur Eren", "Tolga Şen",
+]
+DEMO_BRANCHES = ["Merkez Şube", "Levent Şube"]
+APPOINTMENT_STATUS_LABELS = {
+    "confirmed": "Onaylandı",
+    "pending": "Onay bekliyor",
+}
+
+
+def _parse_time_range(time_range: str) -> tuple[int, int]:
+    """'09:00-12:00' -> (540, 720) dakika. Hatalı formatta güvenli varsayılan."""
+    try:
+        start_s, end_s = time_range.split("-")
+        sh, sm = (int(part) for part in start_s.strip().split(":"))
+        eh, em = (int(part) for part in end_s.strip().split(":"))
+        return sh * 60 + sm, eh * 60 + em
+    except Exception:
+        return 9 * 60, 17 * 60
+
+
+def slot_appointments(slot: DemoSlot) -> list[dict]:
+    """Slot başına deterministik demo randevu listesi.
+
+    booked sayısı kadar hasta üretir; randevu saatlerini slot'un time_range'i
+    içine eşit dağıtır. Aynı slot her zaman aynı sonucu verir (slot.id seed).
+    """
+    count = max(slot.booked, 0)
+    if count == 0:
+        return []
+    start_min, end_min = _parse_time_range(slot.time_range)
+    span = max(end_min - start_min, count * 15)
+    step = span / count
+    seed = sum(ord(ch) for ch in slot.id)
+    appointments: list[dict] = []
+    for index in range(count):
+        minute = int(start_min + index * step)
+        minute -= minute % 5  # 5 dakikaya yuvarla
+        hour, minute_of_hour = divmod(minute, 60)
+        name = DEMO_PATIENT_NAMES[(seed + index * 3) % len(DEMO_PATIENT_NAMES)]
+        branch = DEMO_BRANCHES[(seed + index) % len(DEMO_BRANCHES)]
+        status = "pending" if index % 4 == 3 else "confirmed"
+        masked = f"+90 5{(seed + index) % 9}{(seed * 2 + index) % 10} ••• •• {(seed * 7 + index * 13) % 100:02d}"
+        appointments.append(
+            {
+                "id": f"{slot.id}-{index + 1}",
+                "time": f"{hour:02d}:{minute_of_hour:02d}",
+                "patient_name": name,
+                "doctor": slot.doctor,
+                "branch": branch,
+                "department": slot.department,
+                "date_label": slot.date_label,
+                "phone": masked,
+                "status": status,
+                "status_label": APPOINTMENT_STATUS_LABELS[status],
+            }
+        )
+    return appointments
+
 OFFER_TTL_MINUTES = 15
 HOLD_TTL_MINUTES = 5
 ISTANBUL = ZoneInfo("Europe/Istanbul")
@@ -375,7 +440,7 @@ def build_slot_board() -> dict:
             "next_open_slot": "bugün 15:40 Restoratif Diş Tedavisi",
             "waitlist_total": sum(slot.waitlist_count for slot in DEMO_SLOTS),
         },
-        "schedule": [slot.as_dict() for slot in DEMO_SLOTS],
+        "schedule": [{**slot.as_dict(), "appointments": slot_appointments(slot)} for slot in DEMO_SLOTS],
         "acceptance_rules": [
             {
                 "rule": "Net randevu talebi ve uygun slot",
