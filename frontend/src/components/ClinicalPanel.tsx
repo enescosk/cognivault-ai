@@ -116,7 +116,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"ops" | "pitch">("ops");
+  const [tab, setTab] = useState<"ops" | "appointments" | "pitch">("ops");
   const [activeSlot, setActiveSlot] = useState<ClinicalSlotItem | null>(null);
 
   useEffect(() => {
@@ -220,6 +220,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   }
 
   const metrics = overview?.metrics;
+  const pendingAppointmentCount = appointments.filter((row) => row.status === "pending").length;
   const conversations = overview?.conversations ?? [];
   const doctorInbox = overview?.doctor_inbox ?? [];
   const reviews = overview?.shadow_reviews ?? [];
@@ -244,6 +245,16 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           onClick={() => setTab("ops")}
         >
           Operasyon
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "appointments"}
+          className={tab === "appointments" ? "active" : ""}
+          onClick={() => setTab("appointments")}
+        >
+          Randevular
+          {pendingAppointmentCount > 0 ? <span className="clinic-tab-badge">{pendingAppointmentCount}</span> : null}
         </button>
         <button
           type="button"
@@ -279,13 +290,6 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           }}
         />
       </section>
-
-      <AppointmentRequestsCard
-        appointments={appointments}
-        busy={busy}
-        onConfirm={(row) => handleAppointmentStatus(row, "confirmed")}
-        onCancel={(row) => handleAppointmentStatus(row, "cancelled")}
-      />
 
       <section className="clinic-workspace-grid">
         <div className="clinic-card clinic-call-card">
@@ -443,7 +447,9 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         </div>
       </section>
         </>
-      ) : (
+      ) : null}
+
+      {tab === "pitch" ? (
         <>
       <section className="clinic-hero">
         <div className="clinic-hero-copy">
@@ -581,7 +587,16 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         </div>
       </section>
         </>
-      )}
+      ) : null}
+
+      {tab === "appointments" ? (
+        <AppointmentRequestsCard
+          appointments={appointments}
+          busy={busy}
+          onConfirm={(row) => handleAppointmentStatus(row, "confirmed")}
+          onCancel={(row) => handleAppointmentStatus(row, "cancelled")}
+        />
+      ) : null}
 
       {activeSlot ? (
         <SlotAppointmentsModal slot={activeSlot} onClose={() => setActiveSlot(null)} />
