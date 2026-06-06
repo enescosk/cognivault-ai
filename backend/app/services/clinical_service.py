@@ -794,6 +794,70 @@ def set_clinical_appointment_status(
     return appointment
 
 
+def create_manual_clinical_appointment(
+    db: Session,
+    clinic: Clinic,
+    *,
+    full_name: str | None,
+    phone: str,
+    department: str,
+    starts_at: datetime | None,
+    physician_name: str | None,
+    branch_name: str | None,
+    notes: str | None,
+) -> ClinicalAppointment:
+    """Operatörün panelden (sohbet olmadan) açtığı randevu.
+
+    Mevcut hasta telefon numarasından bulunur, yoksa minimal kayıt açılır.
+    Slot panosundan tıklanan dilim bilgisi metadata_json'a düşer.
+    """
+    normalized_phone = normalize_phone(phone)
+    patient = db.scalars(
+        select(ClinicPatient).where(
+            ClinicPatient.clinic_id == clinic.id, ClinicPatient.phone == normalized_phone
+        )
+    ).first()
+    if patient is None:
+        patient = ClinicPatient(
+            clinic_id=clinic.id,
+            full_name=full_name,
+            phone=normalized_phone,
+            language=clinic.default_language or "tr",
+            source=ClinicChannel.PHONE,
+            external_ref=normalized_phone,
+            metadata_json={},
+        )
+        db.add(patient)
+        db.commit()
+        db.refresh(patient)
+    elif full_name and not patient.full_name:
+        patient.full_name = full_name
+        db.add(patient)
+        db.commit()
+        db.refresh(patient)
+
+    metadata: dict = {"created_by": "operator_panel"}
+    if physician_name:
+        metadata["physician_name"] = physician_name
+    if branch_name:
+        metadata["branch_name"] = branch_name
+
+    appointment = ClinicalAppointment(
+        clinic_id=clinic.id,
+        patient_id=patient.id,
+        conversation_id=None,
+        department=department,
+        starts_at=starts_at,
+        status=ClinicalAppointmentStatus.PENDING,
+        notes=notes,
+        metadata_json=metadata,
+    )
+    db.add(appointment)
+    db.commit()
+    db.refresh(appointment)
+    return appointment
+
+
 def update_shadow_review(
     db: Session,
     clinic: Clinic,

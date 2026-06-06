@@ -273,6 +273,27 @@ export function updateClinicalAppointmentStatus(
   );
 }
 
+export type ClinicalManualAppointmentInput = {
+  full_name?: string | null;
+  phone: string;
+  department: string;
+  starts_at?: string | null;
+  physician_name?: string | null;
+  branch_name?: string | null;
+  notes?: string | null;
+};
+
+export function createManualClinicalAppointment(
+  token: string,
+  payload: ClinicalManualAppointmentInput
+): Promise<ClinicalAppointmentRow> {
+  return request<ClinicalAppointmentRow>(
+    `/clinical/appointments/manual`,
+    { method: "POST", body: JSON.stringify(payload) },
+    token
+  );
+}
+
 /**
  * AI yanıtını SSE stream olarak okur.
  * Her yield: { t: "tk", v: "<token>" }  veya  { t: "done", card: ... }

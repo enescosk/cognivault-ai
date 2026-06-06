@@ -326,6 +326,7 @@ export type ClinicalAppointmentRow = {
   id: number;
   patient_id: number;
   patient_name: string | null;
+  patient_phone: string | null;
   conversation_id: number | null;
   department: string;
   physician_name: string | null;

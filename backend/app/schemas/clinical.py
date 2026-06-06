@@ -189,6 +189,7 @@ class ClinicalAppointmentRow(BaseModel):
     id: int
     patient_id: int
     patient_name: str | None = None
+    patient_phone: str | None = None
     conversation_id: int | None = None
     department: str
     physician_name: str | None = None
@@ -201,6 +202,16 @@ class ClinicalAppointmentRow(BaseModel):
 
 class ClinicalAppointmentStatusUpdate(BaseModel):
     status: Literal["pending", "confirmed", "cancelled"]
+
+
+class ClinicalManualAppointmentRequest(BaseModel):
+    full_name: str | None = Field(default=None, max_length=160)
+    phone: str = Field(min_length=6, max_length=40)
+    department: str = Field(default="Muayene", min_length=2, max_length=140)
+    starts_at: datetime | None = None
+    physician_name: str | None = Field(default=None, max_length=160)
+    branch_name: str | None = Field(default=None, max_length=160)
+    notes: str | None = Field(default=None, max_length=2000)
 
 
 class VoiceCallSimulationRequest(BaseModel):

@@ -127,6 +127,35 @@ def test_operator_lists_and_confirms_patient_booked_appointment(client, db_sessi
     assert updated.json()["status"] == "confirmed"
 
 
+def test_operator_can_create_manual_appointment_from_slot(client, db_session, operator_token):
+    """Operatör slot panosundan sohbet olmadan randevu açabilir; liste zenginleştirilmiş döner."""
+    ensure_default_clinic(db_session)
+    auth = {"Authorization": f"Bearer {operator_token}"}
+    res = client.post(
+        "/api/clinical/appointments/manual",
+        headers=auth,
+        json={
+            "full_name": "Manuel Hasta",
+            "phone": "+90 555 700 44 11",
+            "department": "Endodonti",
+            "starts_at": "2026-06-08T09:30:00",
+            "physician_name": "Dr. Selin Okan",
+            "branch_name": "Bahçelievler",
+            "notes": "Slot panosundan açıldı",
+        },
+    )
+    assert res.status_code == 200, res.text
+    row = res.json()
+    assert row["patient_name"] == "Manuel Hasta"
+    assert row["patient_phone"]
+    assert row["physician_name"] == "Dr. Selin Okan"
+    assert row["status"] == "pending"
+    assert row["conversation_id"] is None
+
+    listing = client.get("/api/clinical/appointments", headers=auth).json()
+    assert any(item["id"] == row["id"] for item in listing)
+
+
 def test_public_consent_token_binds_only_its_own_audit_rows(client, db_session):
     clinic = ensure_default_clinic(db_session)
     slug = clinic.slug

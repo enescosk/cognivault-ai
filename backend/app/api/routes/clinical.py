@@ -35,6 +35,7 @@ from app.schemas.clinical import (
     ClinicalAppointmentResponse,
     ClinicalAppointmentRow,
     ClinicalAppointmentStatusUpdate,
+    ClinicalManualAppointmentRequest,
     ClinicalComplianceProfileResponse,
     ClinicalConversationDetail,
     ClinicalConversationSummary,
@@ -72,6 +73,7 @@ from app.services.clinical_service import (
     list_shadow_reviews,
     parse_meta_payload,
     parse_twilio_form,
+    create_manual_clinical_appointment,
     recent_clinical_appointments,
     set_clinical_appointment_status,
     upcoming_clinical_appointments,
@@ -305,6 +307,7 @@ def appointment_row_payload(db: Session, appointment: ClinicalAppointment) -> Cl
         id=appointment.id,
         patient_id=appointment.patient_id,
         patient_name=patient.full_name if patient else None,
+        patient_phone=patient.phone if patient else None,
         conversation_id=appointment.conversation_id,
         department=appointment.department,
         physician_name=metadata.get("physician_name"),
@@ -324,6 +327,28 @@ def list_clinical_appointments(
 ) -> list[ClinicalAppointmentRow]:
     clinic = ensure_clinic_access(db, current_user)
     return [appointment_row_payload(db, item) for item in recent_clinical_appointments(db, clinic, limit)]
+
+
+@router.post("/clinical/appointments/manual", response_model=ClinicalAppointmentRow)
+def post_clinical_manual_appointment(
+    payload: ClinicalManualAppointmentRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalAppointmentRow:
+    """Operatör slot panosundan veya panelden manuel randevu açar."""
+    clinic = ensure_clinic_access(db, current_user)
+    appointment = create_manual_clinical_appointment(
+        db,
+        clinic,
+        full_name=payload.full_name,
+        phone=payload.phone,
+        department=payload.department,
+        starts_at=payload.starts_at,
+        physician_name=payload.physician_name,
+        branch_name=payload.branch_name,
+        notes=payload.notes,
+    )
+    return appointment_row_payload(db, appointment)
 
 
 @router.post("/clinical/appointments/{appointment_id}/status", response_model=ClinicalAppointmentRow)

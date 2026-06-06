@@ -7,6 +7,7 @@ import {
   getClinicalPatentDossier,
   getClinicalSlotBoard,
   listClinicalAppointments,
+  createManualClinicalAppointment,
   simulateVoiceCall,
   simulateWhatsAppMessage,
   updateClinicalAppointmentStatus,
@@ -118,6 +119,8 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"ops" | "appointments" | "pitch">("ops");
   const [activeSlot, setActiveSlot] = useState<ClinicalSlotItem | null>(null);
+  const [detailAppointment, setDetailAppointment] = useState<ClinicalAppointmentRow | null>(null);
+  const [detailConversation, setDetailConversation] = useState<ClinicalConversationDetail | null>(null);
 
   useEffect(() => {
     void loadClinical();
@@ -198,6 +201,52 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
       await loadClinical(review.conversation_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Doktor onayi guncellenemedi");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openAppointmentDetail(row: ClinicalAppointmentRow) {
+    setDetailAppointment(row);
+    setDetailConversation(null);
+    if (row.conversation_id) {
+      try {
+        setDetailConversation(await getClinicalConversation(row.conversation_id, token));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Konuşma yüklenemedi");
+      }
+    }
+  }
+
+  async function handleManualBooking(input: {
+    full_name: string;
+    phone: string;
+    notes?: string;
+  }): Promise<boolean> {
+    if (!activeSlot) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      const slot = activeSlot;
+      const [startTime] = slot.time_range.split("-").map((part) => part.trim());
+      // date_label TR formatlı; gerçek datetime üretmek için bugünün tarihini
+      // baz alıyoruz (demo amaçlı — production'da slot.starts_at gelecek).
+      const now = new Date();
+      const [hh, mm] = (startTime ?? "09:00").split(":").map(Number);
+      const starts = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh || 9, mm || 0);
+      const newRow = await createManualClinicalAppointment(token, {
+        full_name: input.full_name.trim() || null,
+        phone: input.phone.trim(),
+        department: slot.department,
+        starts_at: starts.toISOString(),
+        physician_name: slot.doctor,
+        notes: input.notes?.trim() || null,
+      });
+      setAppointments((rows) => [newRow, ...rows]);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Randevu oluşturulamadı");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -598,12 +647,29 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
             busy={busy}
             onConfirm={(row) => handleAppointmentStatus(row, "confirmed")}
             onCancel={(row) => handleAppointmentStatus(row, "cancelled")}
+            onOpenDetail={openAppointmentDetail}
           />
         </>
       ) : null}
 
       {activeSlot ? (
-        <SlotAppointmentsModal slot={activeSlot} onClose={() => setActiveSlot(null)} />
+        <SlotAppointmentsModal
+          slot={activeSlot}
+          busy={busy}
+          onClose={() => setActiveSlot(null)}
+          onBook={handleManualBooking}
+        />
+      ) : null}
+
+      {detailAppointment ? (
+        <AppointmentDetailModal
+          appointment={detailAppointment}
+          conversation={detailConversation}
+          onClose={() => {
+            setDetailAppointment(null);
+            setDetailConversation(null);
+          }}
+        />
       ) : null}
     </div>
   );
@@ -663,8 +729,33 @@ function SlotRow({ slot, onOpen }: { slot: ClinicalSlotItem; onOpen: (slot: Clin
   );
 }
 
-function SlotAppointmentsModal({ slot, onClose }: { slot: ClinicalSlotItem; onClose: () => void }) {
+function SlotAppointmentsModal({
+  slot,
+  busy,
+  onClose,
+  onBook,
+}: {
+  slot: ClinicalSlotItem;
+  busy: boolean;
+  onClose: () => void;
+  onBook: (input: { full_name: string; phone: string; notes?: string }) => Promise<boolean>;
+}) {
   const appointments = slot.appointments ?? [];
+  const [showForm, setShowForm] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("+90 ");
+  const [notes, setNotes] = useState("");
+
+  async function submit() {
+    if (!phone.trim() || phone.trim().length < 7) return;
+    const ok = await onBook({ full_name: fullName, phone, notes });
+    if (ok) {
+      setShowForm(false);
+      setFullName("");
+      setPhone("+90 ");
+      setNotes("");
+    }
+  }
   return (
     <div className="slot-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="slot-modal" onClick={(event) => event.stopPropagation()}>
@@ -709,6 +800,40 @@ function SlotAppointmentsModal({ slot, onClose }: { slot: ClinicalSlotItem; onCl
         ) : (
           <div className="clinical-empty">Bu slotta kayıtlı randevu yok — kapasite uygun.</div>
         )}
+
+        <div className="slot-modal-book">
+          {showForm ? (
+            <div className="slot-book-form">
+              <input
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                placeholder="Hasta adı"
+              />
+              <input
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                placeholder="+90..."
+              />
+              <input
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Not (opsiyonel)"
+              />
+              <div className="slot-book-actions">
+                <button type="button" disabled={busy || phone.trim().length < 7} onClick={submit}>
+                  Randevuyu oluştur
+                </button>
+                <button type="button" className="ghost" onClick={() => setShowForm(false)}>
+                  Vazgeç
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="slot-book-cta" onClick={() => setShowForm(true)}>
+              + Bu slota yeni randevu ekle
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -725,15 +850,24 @@ function AppointmentRow({
   busy,
   onConfirm,
   onCancel,
+  onOpenDetail,
 }: {
   row: ClinicalAppointmentRow;
   busy: boolean;
   onConfirm: (row: ClinicalAppointmentRow) => void;
   onCancel: (row: ClinicalAppointmentRow) => void;
+  onOpenDetail: (row: ClinicalAppointmentRow) => void;
 }) {
+  const phoneDigits = row.patient_phone ? row.patient_phone.replace(/[^\d+]/g, "") : null;
+  const waNumber = phoneDigits ? phoneDigits.replace(/^\+/, "") : null;
   return (
     <article className={`appointment-request ${row.status}`}>
-      <div className="appointment-request-main">
+      <button
+        type="button"
+        className="appointment-request-main"
+        onClick={() => onOpenDetail(row)}
+        title="Detayı aç"
+      >
         <strong>{row.patient_name ?? `Hasta #${row.patient_id}`}</strong>
         <span>
           {row.department}
@@ -745,11 +879,20 @@ function AppointmentRow({
             ? trDateTime.format(new Date(row.starts_at))
             : `Talep: ${trDateTime.format(new Date(row.created_at))}`}
         </small>
-      </div>
+        {row.patient_phone ? <small className="appointment-request-phone">{row.patient_phone}</small> : null}
+      </button>
       <div className="appointment-request-side">
         <span className={`appointment-request-badge ${row.status}`}>
           {APPOINTMENT_STATUS_LABELS[row.status] ?? row.status}
         </span>
+        {phoneDigits ? (
+          <div className="appointment-request-contact">
+            <a href={`tel:${phoneDigits}`} title="Ara">📞</a>
+            {waNumber ? (
+              <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noreferrer" title="WhatsApp">💬</a>
+            ) : null}
+          </div>
+        ) : null}
         {row.status === "pending" ? (
           <div className="appointment-request-actions">
             <button type="button" className="appointment-confirm" disabled={busy} onClick={() => onConfirm(row)}>
@@ -780,6 +923,7 @@ function AppointmentBucket({
   emptyText,
   onConfirm,
   onCancel,
+  onOpenDetail,
 }: {
   title: string;
   subtitle: string;
@@ -789,6 +933,7 @@ function AppointmentBucket({
   emptyText: string;
   onConfirm: (row: ClinicalAppointmentRow) => void;
   onCancel: (row: ClinicalAppointmentRow) => void;
+  onOpenDetail: (row: ClinicalAppointmentRow) => void;
 }) {
   return (
     <div className={`clinic-card appointment-bucket appointment-bucket--${tone}`}>
@@ -802,7 +947,14 @@ function AppointmentBucket({
       {rows.length ? (
         <div className="appointment-request-list">
           {rows.map((row) => (
-            <AppointmentRow key={row.id} row={row} busy={busy} onConfirm={onConfirm} onCancel={onCancel} />
+            <AppointmentRow
+              key={row.id}
+              row={row}
+              busy={busy}
+              onConfirm={onConfirm}
+              onCancel={onCancel}
+              onOpenDetail={onOpenDetail}
+            />
           ))}
         </div>
       ) : (
@@ -817,11 +969,13 @@ function AppointmentRequestsCard({
   busy,
   onConfirm,
   onCancel,
+  onOpenDetail,
 }: {
   appointments: ClinicalAppointmentRow[];
   busy: boolean;
   onConfirm: (row: ClinicalAppointmentRow) => void;
   onCancel: (row: ClinicalAppointmentRow) => void;
+  onOpenDetail: (row: ClinicalAppointmentRow) => void;
 }) {
   const pending = appointments.filter((row) => row.status === "pending");
   const confirmed = appointments.filter((row) => row.status === "confirmed");
@@ -837,6 +991,7 @@ function AppointmentRequestsCard({
         emptyText="Onay bekleyen randevu yok."
         onConfirm={onConfirm}
         onCancel={onCancel}
+        onOpenDetail={onOpenDetail}
       />
       <AppointmentBucket
         title="Onaylanan randevular"
@@ -847,6 +1002,7 @@ function AppointmentRequestsCard({
         emptyText="Henüz onaylanmış randevu yok."
         onConfirm={onConfirm}
         onCancel={onCancel}
+        onOpenDetail={onOpenDetail}
       />
       {cancelled.length ? (
         <AppointmentBucket
@@ -858,6 +1014,7 @@ function AppointmentRequestsCard({
           emptyText="İptal edilen randevu yok."
           onConfirm={onConfirm}
           onCancel={onCancel}
+          onOpenDetail={onOpenDetail}
         />
       ) : null}
     </section>
@@ -1032,6 +1189,108 @@ function ConversationList({
           <p>{conversation.last_message_preview ?? "Henüz mesaj yok"}</p>
         </button>
       ))}
+    </div>
+  );
+}
+
+function AppointmentDetailModal({
+  appointment,
+  conversation,
+  onClose,
+}: {
+  appointment: ClinicalAppointmentRow;
+  conversation: ClinicalConversationDetail | null;
+  onClose: () => void;
+}) {
+  const phoneDigits = appointment.patient_phone ? appointment.patient_phone.replace(/[^\d+]/g, "") : null;
+  const waNumber = phoneDigits ? phoneDigits.replace(/^\+/, "") : null;
+  return (
+    <div className="slot-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="slot-modal appointment-detail-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="slot-modal-head">
+          <div>
+            <span>Randevu detayı</span>
+            <h3>{appointment.patient_name ?? `Hasta #${appointment.patient_id}`}</h3>
+            <p>
+              {appointment.department}
+              {appointment.physician_name ? ` · ${appointment.physician_name}` : ""}
+              {appointment.branch_name ? ` · ${appointment.branch_name}` : ""}
+            </p>
+          </div>
+          <button type="button" className="slot-modal-close" onClick={onClose} aria-label="Kapat">×</button>
+        </div>
+
+        <div className="appointment-detail-meta">
+          <article>
+            <span>Saat</span>
+            <strong>
+              {appointment.starts_at
+                ? trDateTime.format(new Date(appointment.starts_at))
+                : "—"}
+            </strong>
+          </article>
+          <article>
+            <span>Durum</span>
+            <strong className={`appointment-request-badge ${appointment.status}`}>
+              {APPOINTMENT_STATUS_LABELS[appointment.status] ?? appointment.status}
+            </strong>
+          </article>
+          <article>
+            <span>Telefon</span>
+            <strong>{appointment.patient_phone ?? "—"}</strong>
+          </article>
+        </div>
+
+        {phoneDigits ? (
+          <div className="appointment-detail-contact">
+            <a href={`tel:${phoneDigits}`}>📞 Ara</a>
+            {waNumber ? (
+              <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
+            ) : null}
+          </div>
+        ) : null}
+
+        {appointment.notes ? (
+          <div className="appointment-detail-notes">
+            <span>Not</span>
+            <p>{appointment.notes}</p>
+          </div>
+        ) : null}
+
+        <div className="appointment-detail-history">
+          <h4>Sohbet geçmişi</h4>
+          {appointment.conversation_id ? (
+            conversation ? (
+              conversation.messages.length ? (
+                <ul>
+                  {conversation.messages.map((message) => (
+                    <li key={message.id} className={`appointment-detail-message ${message.sender}`}>
+                      <small>
+                        {message.sender === "patient"
+                          ? "Hasta"
+                          : message.sender === "assistant"
+                          ? "AI"
+                          : message.sender === "operator"
+                          ? "Operatör"
+                          : "Sistem"}
+                        {" · "}
+                        {trDateTime.format(new Date(message.created_at))}
+                      </small>
+                      <p>{message.content}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="clinical-empty">Bu sohbette mesaj yok.</div>
+              )
+            ) : (
+              <div className="clinical-empty">Sohbet yükleniyor…</div>
+            )
+          ) : (
+            <div className="clinical-empty">Bu randevu operatör tarafından panelden açıldı.</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
