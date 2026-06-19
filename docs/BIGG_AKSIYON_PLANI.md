@@ -21,7 +21,7 @@ Son güncelleme: 2026-06-19
 | İP-5 | Pilot Saha & Klinik Doğrulama | Ay 7–12 | ⬜ Açık |
 | İP-6 | Ticarileştirme & Fikri Mülkiyet | Ay 9–12 | ⬜ Açık |
 
-**🔵 ŞU ANKİ ODAK:** İP-1 / Madde 1.2 — argo/günlük Türkçe diş şikâyeti korpusunu topla ve etiketle (≥500 anonim senaryo).
+**🔵 ŞU ANKİ ODAK:** İP-1 / Madde 1.3 — alana özgü Türkçe normalizasyon hattı (argo → kanonik terim).
 
 ---
 
@@ -30,8 +30,8 @@ Son güncelleme: 2026-06-19
 **Çıktı:** Yönlendirici + kalibrasyon raporu. **Sorumlu:** Efe.
 
 - ✅ **1.1** YAPILDI (2026-06-19) Branş + aciliyet ontolojisi tanımlandı — tek doğru kaynak `backend/app/clinical/ontology.py` (10 branş + genel, 3 aciliyet seviyesi). `clinical_ai_service` ontolojiye bağlandı; 40 test geçti (`tests/test_clinical_ontology.py`). Hekim onayına hazır şema.
-- 🔵 **1.2** Argo/günlük Türkçe diş şikâyeti korpusunu topla ve etiketle — hedef ≥500 anonim senaryo. (Veri hendeği başlangıcı.)
-- ⬜ **1.3** Alana özgü Türkçe normalizasyon hattı (argo → kanonik terim). Mevcut `agent/parsing.py` + `classify.py` üstüne kur.
+- ✅ **1.2** YAPILDI (2026-06-19) Türkçe diş şikâyeti korpusu kuruldu — `backend/app/clinical/corpus/`. Deterministik sentetik üretici (`build.py`) → **546 etiketli senaryo** (11 branş + 3 aciliyet + 4 kanal, dengeli, PII-temiz); 35 vakalık elle küratörlü **golden** değerlendirme seti (`build_golden.py`). Etiketler ontolojiye bağlı (yer-doğruluğu). 13 test (`tests/test_corpus.py`), üretici↔dosya senkron kapısı dahil. KVKK: tamamen sentetik/anonim, gerçek hasta verisi yok.
+- 🔵 **1.3** Alana özgü Türkçe normalizasyon hattı (argo → kanonik terim). Mevcut `agent/parsing.py` + `classify.py` üstüne kur.
 - ⬜ **1.4** Branş yönlendirme modeli — ≥%90 doğruluk hedefi. Mevcut `agent/classify.py` baz alınır.
 - ⬜ **1.5** Kalibrasyon katmanı (confidence calibration) — ECE<0,05 ölç ve raporla.
 - ⬜ **1.6** Çekimser/selective prediction: düşük-güven veya tutarsız kanıtta otomatik insan-yükseltme (conformal prediction eşiği).
@@ -112,3 +112,4 @@ Son güncelleme: 2026-06-19
 ## Değişiklik Günlüğü
 - 2026-06-19: Plan oluşturuldu. Mevcut MVP üzerinden İP-2 (zarf), İP-3 (yerel yığın), İP-4 (shadow mode) temel maddeleri YAPILDI işaretlendi. Aktif odak İP-1.1.
 - 2026-06-19: İP-1.1 YAPILDI. `app/clinical/ontology.py` ontoloji modülü eklendi (branş + aciliyet, tek kaynak); `clinical_ai_service` yinelenen tanımlardan arındırılıp ontolojiye bağlandı; `tests/test_clinical_ontology.py` (12 test) eklendi. Odak İP-1.2'ye taşındı.
+- 2026-06-19: İP-1.2 YAPILDI. `app/clinical/corpus/` paketi eklendi: schema (CorpusEntry + JSONL + PII tarama), şablonlar, deterministik üretici (546 senaryo) ve 35 vakalık golden set. `tests/test_corpus.py` (13 test). Tüm paket 168 test geçti, regresyon yok. Odak İP-1.3'e taşındı.
