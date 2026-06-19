@@ -24,6 +24,7 @@ import type {
   ClinicalSlotItem,
   ShadowReview,
 } from "../types/api";
+import { ShadowReviewCard } from "./clinical/ShadowReviewCard";
 
 const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
 
@@ -471,25 +472,21 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           </div>
           <div className="clinical-review-list">
             {reviews.length ? reviews.map((review) => (
-              <article key={review.id} className="clinical-review">
-                <div className="clinical-review-top">
-                  <strong>{review.intent.replace(/_/g, " ")}</strong>
-                  <span>{review.channel ?? "medical"} · {review.persona_name ?? "AI"} · {Math.round(review.confidence_score * 100)}%</span>
-                </div>
-                <p>{review.draft_reply}</p>
-                <small>{review.risk_reason}</small>
-                {editingReviewId === review.id ? (
-                  <textarea value={editedReply} onChange={(event) => setEditedReply(event.target.value)} />
-                ) : null}
-                <div className="clinical-review-actions">
-                  <button type="button" onClick={() => void decideReview(review, "approved")} disabled={busy}>Onayla</button>
-                  <button type="button" onClick={() => { setEditingReviewId(review.id); setEditedReply(review.draft_reply); }} disabled={busy}>Düzenle</button>
-                  {editingReviewId === review.id ? (
-                    <button type="button" onClick={() => void decideReview(review, "edited")} disabled={busy || !editedReply.trim()}>Düzenlemeyi gönder</button>
-                  ) : null}
-                  <button type="button" className="danger" onClick={() => void decideReview(review, "rejected")} disabled={busy}>Reddet</button>
-                </div>
-              </article>
+              <ShadowReviewCard
+                key={review.id}
+                review={review}
+                editing={editingReviewId === review.id}
+                editedReply={editedReply}
+                busy={busy}
+                onEditedReplyChange={setEditedReply}
+                onApprove={() => void decideReview(review, "approved")}
+                onStartEdit={() => {
+                  setEditingReviewId(review.id);
+                  setEditedReply(review.draft_reply);
+                }}
+                onSubmitEdit={() => void decideReview(review, "edited")}
+                onReject={() => void decideReview(review, "rejected")}
+              />
             )) : <div className="clinical-empty">Doktor onayı bekleyen kayıt yok.</div>}
           </div>
         </div>
