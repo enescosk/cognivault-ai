@@ -7,7 +7,9 @@ from app.models.entities import (
     ChatMessage,
     ChatSession,
     ClinicalAppointment,
+    ClinicalAppointmentProcedure,
     ClinicalAppointmentStatus,
+    ClinicalProcedureStatus,
     ClinicalSlotOffer,
     ClinicalSlotOfferStatus,
     Clinic,
@@ -75,7 +77,9 @@ __all__ = [
     "ChatMessage",
     "ChatSession",
     "ClinicalAppointment",
+    "ClinicalAppointmentProcedure",
     "ClinicalAppointmentStatus",
+    "ClinicalProcedureStatus",
     "ClinicalSlotOffer",
     "ClinicalSlotOfferStatus",
     "Clinic",
@@ -133,4 +137,3 @@ __all__ = [
     "ClinicService",
     "KVKKDisclosureVersion",
 ]
-

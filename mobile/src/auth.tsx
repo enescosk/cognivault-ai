@@ -10,7 +10,7 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -22,17 +22,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const stored = await AsyncStorage.getItem(KEY);
-      if (stored) {
-        try {
+      try {
+        const stored = await AsyncStorage.getItem(KEY);
+        if (stored) {
           const nextUser = await api.me(stored);
           setToken(stored);
           setUser(nextUser);
-        } catch {
-          await AsyncStorage.removeItem(KEY);
         }
+      } catch {
+        await AsyncStorage.removeItem(KEY).catch(() => undefined);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     })();
   }, []);
 

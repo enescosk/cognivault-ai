@@ -328,13 +328,30 @@ export type ClinicalAppointmentRow = {
   patient_name: string | null;
   patient_phone: string | null;
   conversation_id: number | null;
+  assigned_doctor_id: number | null;
   department: string;
   physician_name: string | null;
   branch_name: string | null;
   starts_at: string | null;
+  ends_at: string | null;
+  duration_minutes: number;
+  visit_reason: string | null;
   status: "pending" | "confirmed" | "cancelled" | string;
   notes: string | null;
+  procedures: ClinicalProcedure[];
   created_at: string;
+};
+export type ClinicalProcedure = {
+  id: number;
+  name: string;
+  code: string | null;
+  tooth: string | null;
+  status: "planned" | "in_progress" | "completed" | "cancelled" | string;
+  notes: string | null;
+  sort_order: number;
+  performed_by_doctor_id: number | null;
+  started_at: string | null;
+  completed_at: string | null;
 };
 export type ClinicalSlotItem = {
   id: string;
@@ -394,11 +411,17 @@ export type ClinicalAppointment = {
   clinic_id: number;
   patient_id: number;
   conversation_id?: number | null;
+  assigned_doctor_id?: number | null;
+  assigned_doctor_name?: string | null;
   department: string;
   starts_at?: string | null;
+  ends_at?: string | null;
+  duration_minutes: number;
+  visit_reason?: string | null;
   status: string;
   notes?: string | null;
   metadata_json?: Record<string, unknown> | null;
+  procedures: ClinicalProcedure[];
   created_at: string;
   updated_at: string;
 };

@@ -131,6 +131,13 @@ class ClinicalAppointmentStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ClinicalProcedureStatus(str, Enum):
+    PLANNED = "planned"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
 class ClinicalSlotOfferStatus(str, Enum):
     OFFERED = "offered"
     HELD = "held"
@@ -298,6 +305,7 @@ class ShadowReview(Base):
     clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
     conversation_id: Mapped[int] = mapped_column(ForeignKey("clinic_conversations.id"), nullable=False, index=True)
     patient_message_id: Mapped[int] = mapped_column(ForeignKey("clinic_messages.id"), nullable=False)
+    assigned_doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"), nullable=True, index=True)
     draft_reply: Mapped[str] = mapped_column(Text, nullable=False)
     intent: Mapped[ClinicIntent] = mapped_column(SqlEnum(ClinicIntent), default=ClinicIntent.UNKNOWN, nullable=False)
     confidence_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
@@ -317,6 +325,7 @@ class ShadowReview(Base):
     conversation: Mapped["ClinicConversation"] = relationship(back_populates="shadow_reviews")
     patient_message: Mapped["ClinicMessage"] = relationship(foreign_keys=[patient_message_id])
     reviewed_by: Mapped["User"] = relationship()
+    assigned_doctor: Mapped["Doctor | None"] = relationship(back_populates="shadow_reviews")
 
 
 class ClinicalAppointment(Base):
@@ -327,10 +336,20 @@ class ClinicalAppointment(Base):
     patient_id: Mapped[int] = mapped_column(ForeignKey("clinic_patients.id"), nullable=False, index=True)
     conversation_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_conversations.id"))
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_branches.id"))
+    assigned_doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"), nullable=True, index=True)
     department: Mapped[str] = mapped_column(String(140), nullable=False)
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    visit_reason: Mapped[str | None] = mapped_column(String(500))
     status: Mapped[ClinicalAppointmentStatus] = mapped_column(
         SqlEnum(ClinicalAppointmentStatus), default=ClinicalAppointmentStatus.PENDING, nullable=False
+    )
+    assigned_doctor: Mapped["Doctor | None"] = relationship(back_populates="appointments")
+    procedures: Mapped[list["ClinicalAppointmentProcedure"]] = relationship(
+        back_populates="appointment",
+        cascade="all, delete-orphan",
+        order_by="ClinicalAppointmentProcedure.sort_order, ClinicalAppointmentProcedure.id",
     )
     external_ref: Mapped[str | None] = mapped_column(String(140))
     notes: Mapped[str | None] = mapped_column(Text)
@@ -339,6 +358,34 @@ class ClinicalAppointment(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class ClinicalAppointmentProcedure(Base):
+    __tablename__ = "clinical_appointment_procedures"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    appointment_id: Mapped[int] = mapped_column(
+        ForeignKey("clinical_appointments.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(240), nullable=False)
+    code: Mapped[str | None] = mapped_column(String(80))
+    tooth: Mapped[str | None] = mapped_column(String(40))
+    status: Mapped[ClinicalProcedureStatus] = mapped_column(
+        SqlEnum(ClinicalProcedureStatus), default=ClinicalProcedureStatus.PLANNED, nullable=False
+    )
+    notes: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    performed_by_doctor_id: Mapped[int | None] = mapped_column(ForeignKey("doctors.id"), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    appointment: Mapped["ClinicalAppointment"] = relationship(back_populates="procedures")
+    performed_by: Mapped["Doctor | None"] = relationship()
 
 
 class ClinicalSlotOffer(Base):
@@ -1007,12 +1054,16 @@ class Doctor(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
     specialty: Mapped[str] = mapped_column(String(160), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     clinic: Mapped["Clinic"] = relationship(back_populates="doctors")
+    user: Mapped["User | None"] = relationship()
+    shadow_reviews: Mapped[list["ShadowReview"]] = relationship(back_populates="assigned_doctor")
+    appointments: Mapped[list["ClinicalAppointment"]] = relationship(back_populates="assigned_doctor")
 
 
 class ClinicService(Base):

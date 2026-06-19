@@ -27,6 +27,8 @@ import type {
 import { ShadowReviewCard } from "./clinical/ShadowReviewCard";
 
 const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
+const trDay = new Intl.DateTimeFormat("tr-TR", { weekday: "long", day: "2-digit", month: "long" });
+const trTime = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit" });
 
 type ClinicalPanelProps = {
   token: string;
@@ -639,6 +641,7 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           <section className="clinic-lab-grid clinic-lab-grid--single">
             <SlotBoardCard slotBoard={slotBoard} onOpenSlot={setActiveSlot} />
           </section>
+          <DoctorScheduleCalendar appointments={appointments} onOpenDetail={openAppointmentDetail} />
           <AppointmentRequestsCard
             appointments={appointments}
             busy={busy}
@@ -873,9 +876,15 @@ function AppointmentRow({
         </span>
         <small>
           {row.starts_at
-            ? trDateTime.format(new Date(row.starts_at))
+            ? `${trDateTime.format(new Date(row.starts_at))} · ${row.duration_minutes} dk`
             : `Talep: ${trDateTime.format(new Date(row.created_at))}`}
         </small>
+        {row.visit_reason ? <small className="appointment-request-reason">{row.visit_reason}</small> : null}
+        {row.procedures.length ? (
+          <small className="appointment-request-procedures">
+            {row.procedures.length} işlem · {row.procedures.filter((item) => item.status === "completed").length} tamamlandı
+          </small>
+        ) : null}
         {row.patient_phone ? <small className="appointment-request-phone">{row.patient_phone}</small> : null}
       </button>
       <div className="appointment-request-side">
@@ -908,6 +917,66 @@ function AppointmentRow({
         ) : null}
       </div>
     </article>
+  );
+}
+
+function DoctorScheduleCalendar({
+  appointments,
+  onOpenDetail,
+}: {
+  appointments: ClinicalAppointmentRow[];
+  onOpenDetail: (row: ClinicalAppointmentRow) => void;
+}) {
+  const scheduled = appointments
+    .filter((row) => row.status !== "cancelled" && row.starts_at)
+    .sort((a, b) => new Date(a.starts_at!).getTime() - new Date(b.starts_at!).getTime());
+  const groups = scheduled.reduce<Array<{ key: string; date: Date; rows: ClinicalAppointmentRow[] }>>((result, row) => {
+    const date = new Date(row.starts_at!);
+    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    const current = result[result.length - 1];
+    if (!current || current.key !== key) result.push({ key, date, rows: [row] });
+    else current.rows.push(row);
+    return result;
+  }, []);
+
+  return (
+    <section className="clinic-card doctor-calendar">
+      <div className="clinical-card-top">
+        <div>
+          <span>Hekim bazlı saatli görünüm</span>
+          <h3>Klinik ajandası</h3>
+        </div>
+        <b>{scheduled.length}</b>
+      </div>
+      {groups.length ? (
+        <div className="doctor-calendar-days">
+          {groups.map((group) => (
+            <section key={group.key} className="doctor-calendar-day">
+              <h4>{trDay.format(group.date)}</h4>
+              <div className="doctor-calendar-slots">
+                {group.rows.map((row) => (
+                  <button key={row.id} type="button" className={`doctor-calendar-slot ${row.status}`} onClick={() => onOpenDetail(row)}>
+                    <time>
+                      <strong>{trTime.format(new Date(row.starts_at!))}</strong>
+                      <small>{row.ends_at ? trTime.format(new Date(row.ends_at)) : `${row.duration_minutes} dk`}</small>
+                    </time>
+                    <span className="doctor-calendar-line" />
+                    <div>
+                      <strong>{row.patient_name ?? `Hasta #${row.patient_id}`}</strong>
+                      <span>{row.physician_name ?? "Hekim ataması bekliyor"} · {row.department}</span>
+                      <small>{row.visit_reason ?? "Ziyaret nedeni henüz girilmedi"}</small>
+                    </div>
+                    <span className={`appointment-request-badge ${row.status}`}>
+                      {APPOINTMENT_STATUS_LABELS[row.status] ?? row.status}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : <div className="clinical-empty">Saat atanmış aktif randevu yok.</div>}
+    </section>
   );
 }
 
@@ -1217,7 +1286,7 @@ function AppointmentDetailModal({
           <button type="button" className="slot-modal-close" onClick={onClose} aria-label="Kapat">×</button>
         </div>
 
-        <div className="appointment-detail-meta">
+        <div className="appointment-detail-meta appointment-detail-meta--calendar">
           <article>
             <span>Saat</span>
             <strong>
@@ -1236,6 +1305,10 @@ function AppointmentDetailModal({
             <span>Telefon</span>
             <strong>{appointment.patient_phone ?? "—"}</strong>
           </article>
+          <article>
+            <span>Süre / bitiş</span>
+            <strong>{appointment.ends_at ? `${appointment.duration_minutes} dk · ${trTime.format(new Date(appointment.ends_at))}` : `${appointment.duration_minutes} dk`}</strong>
+          </article>
         </div>
 
         {phoneDigits ? (
@@ -1246,6 +1319,35 @@ function AppointmentDetailModal({
             ) : null}
           </div>
         ) : null}
+
+        <div className="appointment-detail-clinical">
+          <span>Ziyaret nedeni</span>
+          <p>{appointment.visit_reason ?? "Henüz ziyaret nedeni girilmedi."}</p>
+        </div>
+
+        <div className="appointment-detail-procedure-plan">
+          <div className="appointment-detail-section-head">
+            <div>
+              <span>Klinik işlem planı</span>
+              <strong>Hastaya uygulanacak işlemler</strong>
+            </div>
+            <b>{appointment.procedures.length}</b>
+          </div>
+          {appointment.procedures.length ? (
+            <ul>
+              {appointment.procedures.map((procedure) => (
+                <li key={procedure.id} className={`procedure-plan-row ${procedure.status}`}>
+                  <span className="procedure-plan-dot" />
+                  <div>
+                    <strong>{procedure.name}</strong>
+                    <small>{[procedure.tooth ? `Diş ${procedure.tooth}` : null, procedure.code, procedure.notes].filter(Boolean).join(" · ")}</small>
+                  </div>
+                  <em>{procedure.status === "completed" ? "Tamamlandı" : procedure.status === "in_progress" ? "İşlemde" : procedure.status === "cancelled" ? "İptal" : "Planlandı"}</em>
+                </li>
+              ))}
+            </ul>
+          ) : <div className="clinical-empty">İşlem planı henüz hekim tarafından oluşturulmadı.</div>}
+        </div>
 
         {appointment.notes ? (
           <div className="appointment-detail-notes">

@@ -11,4 +11,5 @@ else
   exit 1
 fi
 cd "$ROOT_DIR/backend"
-uvicorn app.main:app --reload
+# 0.0.0.0: aynı Wi-Fi'daki gerçek telefonun API'ye erişebilmesi için.
+uvicorn app.main:app --reload --host 0.0.0.0

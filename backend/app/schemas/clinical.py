@@ -57,6 +57,9 @@ class ShadowReviewResponse(BaseModel):
     clinic_id: int
     conversation_id: int
     patient_message_id: int
+    assigned_doctor_id: int | None = None
+    assigned_doctor_name: str | None = None
+    assigned_doctor_specialty: str | None = None
     draft_reply: str
     intent: str
     confidence_score: float
@@ -88,7 +91,15 @@ class ClinicalMetricsResponse(BaseModel):
     frustration_events: int
 
 
+class ClinicalViewerResponse(BaseModel):
+    clinic_role: str
+    doctor_id: int | None = None
+    doctor_name: str | None = None
+    specialty: str | None = None
+
+
 class ClinicalOverviewResponse(BaseModel):
+    viewer: ClinicalViewerResponse
     metrics: ClinicalMetricsResponse
     conversations: list[ClinicalConversationSummary]
     doctor_inbox: list[ClinicalConversationSummary]
@@ -162,16 +173,45 @@ class ClinicalPersonaResponse(BaseModel):
     safety_rule: str
 
 
+class ClinicalProcedureInput(BaseModel):
+    id: int | None = None
+    name: str = Field(min_length=2, max_length=240)
+    code: str | None = Field(default=None, max_length=80)
+    tooth: str | None = Field(default=None, max_length=40)
+    status: Literal["planned", "in_progress", "completed", "cancelled"] = "planned"
+    notes: str | None = Field(default=None, max_length=2000)
+    sort_order: int = Field(default=0, ge=0, le=1000)
+
+
+class ClinicalProcedureResponse(BaseModel):
+    id: int
+    name: str
+    code: str | None = None
+    tooth: str | None = None
+    status: str
+    notes: str | None = None
+    sort_order: int
+    performed_by_doctor_id: int | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
 class ClinicalAppointmentResponse(BaseModel):
     id: int
     clinic_id: int
     patient_id: int
     conversation_id: int | None = None
+    assigned_doctor_id: int | None = None
+    assigned_doctor_name: str | None = None
     department: str
     starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    duration_minutes: int = 30
+    visit_reason: str | None = None
     status: str
     notes: str | None = None
     metadata_json: dict | None = None
+    procedures: list[ClinicalProcedureResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -180,6 +220,8 @@ class ClinicalAppointmentCreateRequest(BaseModel):
     conversation_id: int
     department: str = Field(default="Muayene", min_length=2, max_length=140)
     starts_at: datetime | None = None
+    duration_minutes: int = Field(default=30, ge=15, le=240)
+    visit_reason: str | None = Field(default=None, max_length=500)
     notes: str | None = Field(default=None, max_length=2000)
 
 
@@ -191,12 +233,17 @@ class ClinicalAppointmentRow(BaseModel):
     patient_name: str | None = None
     patient_phone: str | None = None
     conversation_id: int | None = None
+    assigned_doctor_id: int | None = None
     department: str
     physician_name: str | None = None
     branch_name: str | None = None
     starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    duration_minutes: int = 30
+    visit_reason: str | None = None
     status: str
     notes: str | None = None
+    procedures: list[ClinicalProcedureResponse] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -204,11 +251,21 @@ class ClinicalAppointmentStatusUpdate(BaseModel):
     status: Literal["pending", "confirmed", "cancelled"]
 
 
+class ClinicalAppointmentDetailsUpdate(BaseModel):
+    starts_at: datetime | None = None
+    duration_minutes: int | None = Field(default=None, ge=15, le=240)
+    visit_reason: str | None = Field(default=None, max_length=500)
+    notes: str | None = Field(default=None, max_length=2000)
+    procedures: list[ClinicalProcedureInput] | None = Field(default=None, max_length=30)
+
+
 class ClinicalManualAppointmentRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=160)
     phone: str = Field(min_length=6, max_length=40)
     department: str = Field(default="Muayene", min_length=2, max_length=140)
     starts_at: datetime | None = None
+    duration_minutes: int = Field(default=30, ge=15, le=240)
+    visit_reason: str | None = Field(default=None, max_length=500)
     physician_name: str | None = Field(default=None, max_length=160)
     branch_name: str | None = Field(default=None, max_length=160)
     notes: str | None = Field(default=None, max_length=2000)

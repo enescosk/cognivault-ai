@@ -261,6 +261,34 @@ export function listClinicalAppointments(token: string, limit = 50): Promise<Cli
   return request<ClinicalAppointmentRow[]>(`/clinical/appointments?limit=${limit}`, { method: "GET" }, token);
 }
 
+export type ClinicalProcedureInput = {
+  id?: number;
+  name: string;
+  code?: string | null;
+  tooth?: string | null;
+  status?: "planned" | "in_progress" | "completed" | "cancelled";
+  notes?: string | null;
+  sort_order?: number;
+};
+
+export function updateClinicalAppointmentDetails(
+  token: string,
+  appointmentId: number,
+  payload: {
+    starts_at?: string | null;
+    duration_minutes?: number;
+    visit_reason?: string | null;
+    notes?: string | null;
+    procedures?: ClinicalProcedureInput[];
+  }
+): Promise<ClinicalAppointmentRow> {
+  return request<ClinicalAppointmentRow>(
+    `/clinical/appointments/${appointmentId}/clinical-details`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    token
+  );
+}
+
 export function updateClinicalAppointmentStatus(
   token: string,
   appointmentId: number,
@@ -278,6 +306,8 @@ export type ClinicalManualAppointmentInput = {
   phone: string;
   department: string;
   starts_at?: string | null;
+  duration_minutes?: number;
+  visit_reason?: string | null;
   physician_name?: string | null;
   branch_name?: string | null;
   notes?: string | null;
@@ -578,4 +608,3 @@ export function createDisclosure(token: string, payload: { version: string; disc
     body: JSON.stringify(payload)
   }, token);
 }
-

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models import ClinicalAppointment, ClinicalSlotOffer, ClinicalSlotOfferStatus, ConsentRecord
+from app.models import ClinicalAppointment, ClinicalSlotOffer, ClinicalSlotOfferStatus, ConsentRecord, Doctor, User
 from app.services import patient_session
 from app.services.clinical_service import ensure_default_clinic
 
@@ -98,6 +98,22 @@ def test_operator_lists_and_confirms_patient_booked_appointment(client, db_sessi
         json={"body": "Dolgum düştü, bugün randevu almak istiyorum."},
     ).json()
     offer = message["slot_offers"][0]
+    clinic = ensure_default_clinic(db_session)
+    operator = db_session.query(User).filter_by(email="operator@test.com").first()
+    linked_doctor = db_session.query(Doctor).filter_by(user_id=operator.id).first()
+    if linked_doctor is None:
+        linked_doctor = Doctor(
+            clinic_id=clinic.id,
+            user_id=operator.id,
+            full_name=offer["physician_name"],
+            specialty=offer["department"],
+            is_active=True,
+        )
+    else:
+        linked_doctor.full_name = offer["physician_name"]
+        linked_doctor.specialty = offer["department"]
+    db_session.add(linked_doctor)
+    db_session.commit()
     client.post(
         f"/api/public/clinics/{slug}/conversations/{conversation_id}/slot-offers/{offer['id']}/hold",
         headers={"Authorization": f"Bearer {session_token}"},

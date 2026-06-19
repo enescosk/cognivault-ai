@@ -14,9 +14,13 @@ from app.models import (
     ChatMessage,
     ChatSession,
     Clinic,
+    ClinicalAppointment,
+    ClinicalAppointmentProcedure,
+    ClinicalProcedureStatus,
     ClinicMembership,
     ClinicMessage,
     ClinicUserRole,
+    Doctor,
     Department,
     EnterpriseAgent,
     EnterpriseCustomer,
@@ -29,6 +33,7 @@ from app.models import (
     Role,
     RoleName,
     RoutingRule,
+    ShadowReview,
     User,
 )
 from app.services.audit_service import log_action
@@ -72,6 +77,23 @@ OPERATOR_PROFILES = [
     {"full_name": "Selin Kaya",   "email": "operator@cognivault.com",  "locale": "tr", "dept": "Operations",  "title": "Operator"},
     {"full_name": "Tuba Erdoğan", "email": "operator2@cognivault.com", "locale": "tr", "dept": "Operations",  "title": "Senior Operator"},
     {"full_name": "David Kim",    "email": "operator3@cognivault.com", "locale": "en", "dept": "Operations",  "title": "Operations Specialist"},
+]
+
+CLINICIAN_PROFILES = [
+    {
+        "full_name": "Dr. Deniz Aksoy",
+        "email": "hekim@cognivault.com",
+        "locale": "tr",
+        "dept": "Genel Diş Hekimliği",
+        "title": "Diş Hekimi",
+    },
+    {"full_name": "Dr. Ece Arslan", "email": "ece.hekim@cognivault.com", "locale": "tr", "dept": "Endodonti", "title": "Endodontist"},
+    {"full_name": "Dr. Burak Tan", "email": "burak.hekim@cognivault.com", "locale": "tr", "dept": "Periodontoloji", "title": "Periodontolog"},
+    {"full_name": "Dr. Mina Soyer", "email": "mina.hekim@cognivault.com", "locale": "tr", "dept": "Pedodonti", "title": "Pedodontist"},
+    {"full_name": "Dr. Deniz Kural", "email": "deniz.hekim@cognivault.com", "locale": "tr", "dept": "İmplantoloji", "title": "İmplantoloji Uzmanı"},
+    {"full_name": "Dr. Selin Okan", "email": "selin.hekim@cognivault.com", "locale": "tr", "dept": "Restoratif Diş Tedavisi", "title": "Restoratif Diş Hekimi"},
+    {"full_name": "Dr. Nehir Aydın", "email": "nehir.hekim@cognivault.com", "locale": "tr", "dept": "Dermatoloji", "title": "Dermatolog"},
+    {"full_name": "Dr. Lara Demir", "email": "lara.hekim@cognivault.com", "locale": "tr", "dept": "Medikal Estetik", "title": "Medikal Estetik Hekimi"},
 ]
 
 ADMIN_PROFILES = [
@@ -275,6 +297,19 @@ def seed_database(db: Session) -> None:
         )
         all_users.append(u)
 
+    for profile in CLINICIAN_PROFILES:
+        u = User(
+            full_name=profile["full_name"],
+            email=profile["email"],
+            hashed_password=hash_password("demo123"),
+            locale=profile["locale"],
+            department=profile["dept"],
+            title=profile["title"],
+            role_id=role_lookup[RoleName.OPERATOR].id,
+            is_active=True,
+        )
+        all_users.append(u)
+
     for profile in ADMIN_PROFILES:
         u = User(
             full_name=profile["full_name"],
@@ -441,6 +476,7 @@ def ensure_demo_users(db: Session) -> None:
     profile_groups = [
         (CUSTOMER_PROFILES, RoleName.CUSTOMER),
         (OPERATOR_PROFILES, RoleName.OPERATOR),
+        (CLINICIAN_PROFILES, RoleName.OPERATOR),
         (ADMIN_PROFILES, RoleName.ADMIN),
     ]
 
@@ -731,10 +767,116 @@ def seed_enterprise_demo(db: Session) -> None:
 
 def seed_clinical_demo(db: Session) -> None:
     clinic = ensure_default_clinic(db)
+    users = {u.email: u for u in db.scalars(select(User)).all()}
+    linked_doctors: dict[str, Doctor] = {}
+    primary_doctor: Doctor | None = None
+    for profile in CLINICIAN_PROFILES:
+        clinician = users.get(profile["email"])
+        if clinician is None:
+            continue
+        doctor = db.scalars(
+            select(Doctor).where(Doctor.clinic_id == clinic.id, Doctor.user_id == clinician.id)
+        ).first()
+        if doctor is None:
+            doctor = Doctor(
+                clinic_id=clinic.id,
+                user_id=clinician.id,
+                full_name=profile["full_name"],
+                specialty=profile["dept"],
+                is_active=True,
+            )
+            db.add(doctor)
+            db.flush()
+        else:
+            doctor.full_name = profile["full_name"]
+            doctor.specialty = profile["dept"]
+            doctor.is_active = True
+            db.add(doctor)
+        membership = db.scalars(
+            select(ClinicMembership).where(
+                ClinicMembership.clinic_id == clinic.id,
+                ClinicMembership.user_id == clinician.id,
+            )
+        ).first()
+        if membership is None:
+            db.add(ClinicMembership(clinic_id=clinic.id, user_id=clinician.id, role=ClinicUserRole.CLINICIAN))
+        else:
+            membership.role = ClinicUserRole.CLINICIAN
+            db.add(membership)
+        linked_doctors[doctor.full_name.strip().casefold()] = doctor
+        if profile["email"] == "hekim@cognivault.com":
+            primary_doctor = doctor
+
+    if primary_doctor is not None:
+        for review in db.scalars(
+            select(ShadowReview).where(
+                ShadowReview.clinic_id == clinic.id,
+                ShadowReview.assigned_doctor_id.is_(None),
+            )
+        ).all():
+            review.assigned_doctor_id = primary_doctor.id
+            db.add(review)
+        procedure_templates = {
+            "Endodonti": [
+                ("Periapikal radyografi", "RAD-PA"),
+                ("Kanal tedavisi değerlendirmesi", "ENDO-EVAL"),
+            ],
+            "Periodontoloji": [
+                ("Periodontal muayene", "PERIO-EXAM"),
+                ("Diş taşı temizliği planı", "PERIO-SCR"),
+            ],
+            "Pedodonti": [
+                ("Çocuk ağız-diş muayenesi", "PEDO-EXAM"),
+                ("Koruyucu tedavi planlaması", "PEDO-PREV"),
+            ],
+            "İmplantoloji": [
+                ("İmplant klinik kontrolü", "IMP-CHECK"),
+                ("Radyolojik değerlendirme", "RAD-PANO"),
+            ],
+        }
+        all_appointments = db.scalars(
+            select(ClinicalAppointment).where(ClinicalAppointment.clinic_id == clinic.id)
+        ).all()
+        for appointment in all_appointments:
+            physician_name = str((appointment.metadata_json or {}).get("physician_name") or "").strip().casefold()
+            matched_doctor = linked_doctors.get(physician_name) if physician_name else None
+            if matched_doctor is not None:
+                appointment.assigned_doctor_id = matched_doctor.id
+            elif appointment.assigned_doctor_id is None:
+                appointment.assigned_doctor_id = primary_doctor.id
+            if not appointment.duration_minutes:
+                appointment.duration_minutes = 45 if appointment.department == "Endodonti" else 30
+            if appointment.starts_at and appointment.ends_at is None:
+                appointment.ends_at = appointment.starts_at + timedelta(minutes=appointment.duration_minutes)
+            if not appointment.visit_reason:
+                appointment.visit_reason = f"{appointment.department} muayenesi ve tedavi planlaması"
+            has_procedure = db.scalars(
+                select(ClinicalAppointmentProcedure.id).where(
+                    ClinicalAppointmentProcedure.appointment_id == appointment.id
+                )
+            ).first()
+            if has_procedure is None:
+                templates = procedure_templates.get(
+                    appointment.department,
+                    [("Klinik muayene", "EXAM"), ("Tedavi planlaması", "PLAN")],
+                )
+                for order, (name, code) in enumerate(templates):
+                    db.add(
+                        ClinicalAppointmentProcedure(
+                            clinic_id=clinic.id,
+                            appointment_id=appointment.id,
+                            name=name,
+                            code=code,
+                            status=ClinicalProcedureStatus.PLANNED,
+                            sort_order=order,
+                        )
+                    )
+            db.add(appointment)
+        db.commit()
+
     if db.scalars(select(ClinicMessage).where(ClinicMessage.clinic_id == clinic.id)).first():
         return
 
-    users = {u.email: u for u in db.scalars(select(User)).all()}
     for email, role in [
         ("admin@cognivault.com", ClinicUserRole.OWNER),
         ("operator@cognivault.com", ClinicUserRole.OPERATOR),

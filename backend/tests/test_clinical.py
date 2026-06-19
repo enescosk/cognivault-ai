@@ -1,3 +1,17 @@
+from app.core.security import hash_password
+from app.models import (
+    ClinicalAppointment,
+    ClinicalAppointmentStatus,
+    ClinicMembership,
+    ClinicUserRole,
+    Doctor,
+    Role,
+    RoleName,
+    User,
+)
+from app.services.clinical_service import ensure_default_clinic
+
+
 def test_operator_can_simulate_whatsapp_message(client, operator_token):
     res = client.post(
         "/api/clinical/simulate-whatsapp",
@@ -40,6 +54,196 @@ def test_medical_emergency_routes_to_shadow_mode(client, operator_token):
 def test_customer_cannot_access_clinical_dashboard(client, customer_token):
     res = client.get("/api/clinical/overview", headers={"Authorization": f"Bearer {customer_token}"})
     assert res.status_code == 403
+
+
+def test_clinician_only_sees_and_decides_own_assigned_reviews(client, db_session, operator_token):
+    clinic = ensure_default_clinic(db_session)
+    operator_role = db_session.query(Role).filter_by(name=RoleName.OPERATOR).first()
+
+    clinicians = []
+    for suffix in ("one", "two"):
+        user = User(
+            full_name=f"Dr. Test {suffix.title()}",
+            email=f"clinician-{suffix}@test.com",
+            hashed_password=hash_password("password123"),
+            locale="tr",
+            role_id=operator_role.id,
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.flush()
+        db_session.add(
+            ClinicMembership(clinic_id=clinic.id, user_id=user.id, role=ClinicUserRole.CLINICIAN)
+        )
+        doctor = Doctor(
+            clinic_id=clinic.id,
+            user_id=user.id,
+            full_name=user.full_name,
+            specialty="Genel Diş Hekimliği",
+            is_active=True,
+        )
+        db_session.add(doctor)
+        db_session.flush()
+        clinicians.append((user, doctor))
+    db_session.commit()
+
+    created = client.post(
+        "/api/clinical/simulate-whatsapp",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={
+            "from_phone": "+90 555 818 20 20",
+            "patient_name": "Atanmış Hasta",
+            "body": "Dişim çok ağrıyor ve yüzüm şişti, acil yardım gerekiyor.",
+        },
+    )
+    assert created.status_code == 200
+    review_id = created.json()["shadow_review_id"]
+    assert review_id is not None
+    patient_id = created.json()["patient_id"]
+
+    own_appointments = []
+    for index, (_user, doctor) in enumerate(clinicians):
+        appointment = ClinicalAppointment(
+            clinic_id=clinic.id,
+            patient_id=patient_id,
+            assigned_doctor_id=doctor.id,
+            department=doctor.specialty,
+            starts_at=datetime.now(timezone.utc) + timedelta(days=2, hours=index),
+            duration_minutes=30,
+            status=ClinicalAppointmentStatus.PENDING,
+            metadata_json={"test_clinician_index": index},
+        )
+        db_session.add(appointment)
+        db_session.flush()
+        own_appointments.append(appointment)
+    db_session.commit()
+
+    tokens = []
+    for user, _doctor in clinicians:
+        login = client.post(
+            "/api/auth/login",
+            json={"email": user.email, "password": "password123"},
+        )
+        assert login.status_code == 200
+        tokens.append(login.json()["access_token"])
+
+    first_overview = client.get(
+        "/api/clinical/overview",
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+    )
+    second_overview = client.get(
+        "/api/clinical/overview",
+        headers={"Authorization": f"Bearer {tokens[1]}"},
+    )
+    assert first_overview.status_code == 200
+    assert second_overview.status_code == 200
+    assert first_overview.json()["viewer"]["doctor_id"] == clinicians[0][1].id
+    assert any(item["id"] == review_id for item in first_overview.json()["shadow_reviews"])
+    assert all(item["id"] != review_id for item in second_overview.json()["shadow_reviews"])
+    assert first_overview.json()["conversations"] == []
+
+    first_appointments = client.get(
+        "/api/clinical/appointments",
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+    )
+    second_appointments = client.get(
+        "/api/clinical/appointments",
+        headers={"Authorization": f"Bearer {tokens[1]}"},
+    )
+    assert first_appointments.status_code == 200
+    assert second_appointments.status_code == 200
+    assert any(item["id"] == own_appointments[0].id for item in first_appointments.json())
+    assert all(item["id"] != own_appointments[1].id for item in first_appointments.json())
+    assert any(item["id"] == own_appointments[1].id for item in second_appointments.json())
+
+    forbidden_appointment = client.post(
+        f"/api/clinical/appointments/{own_appointments[0].id}/status",
+        headers={"Authorization": f"Bearer {tokens[1]}"},
+        json={"status": "confirmed"},
+    )
+    assert forbidden_appointment.status_code == 404
+
+    confirmed_appointment = client.post(
+        f"/api/clinical/appointments/{own_appointments[0].id}/status",
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+        json={"status": "confirmed"},
+    )
+    assert confirmed_appointment.status_code == 200
+    assert confirmed_appointment.json()["status"] == "confirmed"
+
+    clinical_details = client.patch(
+        f"/api/clinical/appointments/{own_appointments[0].id}/clinical-details",
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+        json={
+            "duration_minutes": 45,
+            "visit_reason": "Alt sağ molar ağrı değerlendirmesi",
+            "notes": "Radyografik değerlendirme sonrası tedavi planı kesinleşecek.",
+            "procedures": [
+                {
+                    "name": "Periapikal radyografi",
+                    "code": "RAD-PA",
+                    "tooth": "46",
+                    "status": "completed",
+                    "notes": "Tanısal görüntü alındı.",
+                    "sort_order": 0,
+                },
+                {
+                    "name": "Kanal tedavisi değerlendirmesi",
+                    "code": "ENDO-EVAL",
+                    "tooth": "46",
+                    "status": "planned",
+                    "sort_order": 1,
+                },
+            ],
+        },
+    )
+    assert clinical_details.status_code == 200
+    details_body = clinical_details.json()
+    assert details_body["duration_minutes"] == 45
+    assert details_body["visit_reason"] == "Alt sağ molar ağrı değerlendirmesi"
+    assert [item["status"] for item in details_body["procedures"]] == ["completed", "planned"]
+    assert details_body["procedures"][0]["performed_by_doctor_id"] == clinicians[0][1].id
+
+    forbidden_details = client.patch(
+        f"/api/clinical/appointments/{own_appointments[0].id}/clinical-details",
+        headers={"Authorization": f"Bearer {tokens[1]}"},
+        json={"visit_reason": "Yetkisiz değişiklik"},
+    )
+    assert forbidden_details.status_code == 404
+
+    conflicting = ClinicalAppointment(
+        clinic_id=clinic.id,
+        patient_id=patient_id,
+        assigned_doctor_id=clinicians[0][1].id,
+        department="Genel Diş Hekimliği",
+        starts_at=own_appointments[0].starts_at + timedelta(minutes=20),
+        duration_minutes=30,
+        status=ClinicalAppointmentStatus.PENDING,
+        metadata_json={"test_conflict": True},
+    )
+    db_session.add(conflicting)
+    db_session.commit()
+    conflict_response = client.post(
+        f"/api/clinical/appointments/{conflicting.id}/status",
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+        json={"status": "confirmed"},
+    )
+    assert conflict_response.status_code == 409
+    assert conflict_response.json()["context"]["conflicting_appointment_id"] == own_appointments[0].id
+
+    forbidden_decision = client.patch(
+        f"/api/clinical/shadow-reviews/{review_id}",
+        headers={"Authorization": f"Bearer {tokens[1]}"},
+        json={"status": "approved"},
+    )
+    assert forbidden_decision.status_code == 404
+
+    own_decision = client.patch(
+        f"/api/clinical/shadow-reviews/{review_id}",
+        headers={"Authorization": f"Bearer {tokens[0]}"},
+        json={"status": "approved"},
+    )
+    assert own_decision.status_code == 200
 
 
 def test_twilio_webhook_ingests_without_auth(client):
@@ -420,3 +624,4 @@ def test_voice_endpoints_validate_empty_input(client, operator_token):
         files={"file": ("recording.webm", b"", "audio/webm")},
     )
     assert transcribe.status_code == 400
+from datetime import datetime, timedelta, timezone

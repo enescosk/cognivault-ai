@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import io
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -50,6 +50,7 @@ from app.services.clinical_service import (
     IncomingClinicalMessage,
     ingest_clinical_message,
     normalize_phone,
+    resolve_appointment_doctor,
 )
 from app.services.clinical_slot_service import (
     build_public_slot_offers,
@@ -796,13 +797,27 @@ def confirm_patient_appointment(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
+    assigned_doctor = resolve_appointment_doctor(
+        db,
+        clinic,
+        physician_name=offer.physician_name,
+        department=offer.department,
+    )
     appointment = ClinicalAppointment(
         clinic_id=clinic.id,
         patient_id=session.patient_id,
         conversation_id=conversation_id,
         branch_id=offer.branch_id,
+        assigned_doctor_id=assigned_doctor.id if assigned_doctor else None,
         department=offer.department,
         starts_at=offer.starts_at,
+        ends_at=offer.ends_at or (offer.starts_at + timedelta(minutes=30)),
+        duration_minutes=(
+            max(15, int((offer.ends_at - offer.starts_at).total_seconds() // 60))
+            if offer.ends_at
+            else 30
+        ),
+        visit_reason=offer.department,
         status=ClinicalAppointmentStatus.PENDING,
         notes=payload.notes,
         metadata_json={

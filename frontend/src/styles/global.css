@@ -3334,6 +3334,31 @@ button { cursor: pointer; border: none; background: none; }
   color: #2b7a78;
   font-weight: 600;
 }
+.appointment-request-reason { color: #314d46 !important; font-weight: 600; }
+.appointment-request-procedures { color: #1f6f68 !important; }
+
+.doctor-calendar { margin-bottom: 18px; border-top: 3px solid #1f6f68; }
+.doctor-calendar-days { display: grid; gap: 18px; }
+.doctor-calendar-day { display: grid; grid-template-columns: 150px 1fr; gap: 16px; align-items: start; }
+.doctor-calendar-day h4 { margin: 4px 0 0; color: #49635c; font-size: 0.82rem; text-transform: capitalize; }
+.doctor-calendar-slots { display: grid; gap: 8px; }
+.doctor-calendar-slot {
+  width: 100%; display: grid; grid-template-columns: 76px 2px minmax(0,1fr) auto;
+  align-items: center; gap: 13px; padding: 12px 14px; border-radius: 13px;
+  border: 1px solid rgba(32,72,67,0.13); background: rgba(255,255,255,0.82);
+  color: #15231f; text-align: left; cursor: pointer; transition: 160ms ease;
+}
+.doctor-calendar-slot:hover { border-color: rgba(31,111,104,0.38); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(31,80,70,0.08); }
+.doctor-calendar-slot.pending { border-left: 3px solid #c27722; }
+.doctor-calendar-slot.confirmed { border-left: 3px solid #1f6f68; }
+.doctor-calendar-slot time { display: grid; font-family: var(--font-mono); }
+.doctor-calendar-slot time strong { font-size: 1rem; }
+.doctor-calendar-slot time small { color: #82918d; font-size: 0.66rem; }
+.doctor-calendar-line { width: 2px; height: 38px; border-radius: 2px; background: #dce8e4; }
+.doctor-calendar-slot > div { display: grid; gap: 2px; }
+.doctor-calendar-slot > div > strong { font-size: 0.92rem; }
+.doctor-calendar-slot > div > span { color: #5c6f6a; font-size: 0.76rem; }
+.doctor-calendar-slot > div > small { color: #7d8c88; font-size: 0.72rem; }
 .appointment-request-contact {
   display: flex;
   gap: 6px;
@@ -3406,6 +3431,28 @@ button { cursor: pointer; border: none; background: none; }
   gap: 10px;
   margin-bottom: 12px;
 }
+.appointment-detail-modal .appointment-detail-meta--calendar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.appointment-detail-clinical,
+.appointment-detail-procedure-plan {
+  background: rgba(255,255,255,0.68); border: 1px solid rgba(32,72,67,0.1);
+  border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;
+}
+.appointment-detail-clinical > span,
+.appointment-detail-section-head span { color: #72827e; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.appointment-detail-clinical p { margin: 5px 0 0; color: #1e332d; }
+.appointment-detail-section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.appointment-detail-section-head > div { display: grid; gap: 3px; }
+.appointment-detail-section-head b { color: #1f6f68; font-size: 1.15rem; }
+.appointment-detail-procedure-plan ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 7px; }
+.procedure-plan-row { display: grid; grid-template-columns: 9px 1fr auto; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 9px; background: rgba(32,72,67,0.04); }
+.procedure-plan-dot { width: 8px; height: 8px; border-radius: 50%; background: #c27722; }
+.procedure-plan-row.completed .procedure-plan-dot { background: #1e7a34; }
+.procedure-plan-row.in_progress .procedure-plan-dot { background: #1f6f68; box-shadow: 0 0 0 3px rgba(31,111,104,0.12); }
+.procedure-plan-row.cancelled { opacity: 0.55; }
+.procedure-plan-row > div { display: grid; gap: 2px; }
+.procedure-plan-row strong { font-size: 0.84rem; }
+.procedure-plan-row small { color: #74847f; font-size: 0.7rem; }
+.procedure-plan-row em { font-style: normal; color: #526660; font-size: 0.68rem; font-weight: 700; }
 .appointment-detail-meta article {
   background: rgba(255,255,255,0.7);
   border: 1px solid rgba(32,72,67,0.1);
@@ -3554,6 +3601,12 @@ button { cursor: pointer; border: none; background: none; }
 .appointment-request-actions button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+@media (max-width: 720px) {
+  .doctor-calendar-day { grid-template-columns: 1fr; gap: 7px; }
+  .doctor-calendar-slot { grid-template-columns: 64px 2px minmax(0,1fr); }
+  .doctor-calendar-slot > .appointment-request-badge { grid-column: 3; justify-self: start; }
+  .appointment-detail-modal .appointment-detail-meta--calendar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .appointment-confirm {
   background: #1f6f68;
@@ -7401,7 +7454,50 @@ body:has(.login-shell) {
 .appt-badge-cancelled  { background: rgba(220, 38, 38, 0.18); color: #991b1b; }
 .appt-badge-neutral    { background: rgba(148, 163, 184, 0.18); color: #475569; }
 
+.appt-controls--calendar { max-width: 1180px; }
+.appt-calendar-list { width: 100%; max-width: 1180px; display: grid; gap: 20px; }
+.appt-calendar-day { display: grid; gap: 10px; }
+.appt-calendar-day-head { display: flex; justify-content: space-between; align-items: center; }
+.appt-calendar-day-head h2 { margin: 0; color: var(--patient-text-1); font-size: 1rem; text-transform: capitalize; }
+.appt-calendar-day-head span { color: var(--patient-text-3); font-size: 0.76rem; }
+.appt-calendar-timeline { display: grid; gap: 9px; }
+.appt-calendar-card {
+  display: grid; grid-template-columns: 86px 3px minmax(0,1fr); gap: 14px;
+  background: var(--patient-card-bg); border: 1px solid var(--patient-border);
+  border-radius: 15px; padding: 15px 17px; box-shadow: 0 5px 18px rgba(20,58,50,0.04);
+}
+.appt-calendar-card.pending { border-left: 3px solid #c27722; }
+.appt-calendar-card.confirmed { border-left: 3px solid #1f6f68; }
+.appt-calendar-time { display: grid; align-content: start; gap: 2px; font-family: var(--font-mono); }
+.appt-calendar-time strong { color: var(--patient-primary); font-size: 1.15rem; }
+.appt-calendar-time span { color: var(--patient-text-3); font-size: 0.7rem; }
+.appt-calendar-rail { width: 3px; height: 100%; min-height: 70px; border-radius: 3px; background: rgba(31,111,104,0.14); }
+.appt-calendar-main { min-width: 0; display: grid; gap: 9px; }
+.appt-calendar-main .appt-card-head > div { display: grid; gap: 2px; }
+.appt-calendar-main .appt-card-head strong { color: var(--patient-text-1); }
+.appt-calendar-main .appt-card-head > div > span { color: var(--patient-text-2); font-size: 0.78rem; }
+.appt-calendar-main > p { margin: 0; color: var(--patient-text-1); font-size: 0.84rem; }
+.appt-calendar-main > p.is-empty { color: var(--patient-text-3); font-style: italic; }
+.appt-calendar-procedures { position: relative; padding: 10px 12px; border-radius: 10px; background: var(--patient-bg); display: grid; gap: 7px; }
+.appt-calendar-procedures > span { color: var(--patient-text-3); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.appt-calendar-procedures > small { color: var(--patient-text-3); }
+.appt-calendar-procedures > b { position: absolute; top: 10px; right: 12px; color: #1e7a34; font-size: 0.68rem; }
+.appt-calendar-procedures ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.appt-calendar-procedures li { display: grid; grid-template-columns: 8px 1fr auto; gap: 8px; align-items: center; }
+.appt-calendar-procedures li i { width: 7px; height: 7px; border-radius: 50%; background: #c27722; }
+.appt-calendar-procedures li.completed i { background: #1e7a34; }
+.appt-calendar-procedures li.in_progress i { background: #1f6f68; box-shadow: 0 0 0 3px rgba(31,111,104,0.12); }
+.appt-calendar-procedures li.cancelled { opacity: 0.5; }
+.appt-calendar-procedures li > span { display: grid; gap: 1px; }
+.appt-calendar-procedures li strong { color: #1f312c; font-size: 0.78rem; }
+.appt-calendar-procedures li small { color: #74847f; font-size: 0.68rem; }
+.appt-calendar-procedures li em { color: var(--patient-text-2); font-size: 0.68rem; font-style: normal; font-weight: 700; }
+.appt-calendar-main .appt-meta-row a { margin-left: auto; color: var(--patient-primary); font-weight: 700; text-decoration: none; }
+
 @media (max-width: 720px) {
   .appt-header { flex-direction: column; }
   .appt-controls { padding: 12px; }
+  .appt-window-tabs { max-width: 100%; overflow-x: auto; }
+  .appt-calendar-card { grid-template-columns: 62px 2px minmax(0,1fr); padding: 12px; gap: 9px; }
+  .appt-calendar-main .appt-card-head { align-items: flex-start; gap: 7px; }
 }
