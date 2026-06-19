@@ -7,6 +7,13 @@ import re
 from anthropic import Anthropic
 
 from app.core.config import get_settings
+from app.clinical.ontology import (
+    EMERGENCY_KEYWORDS,
+    UrgencyLevel,
+    assess_urgency,
+    match_specialty,
+    normalize_tr,
+)
 from app.models import Clinic, ClinicIntent
 from app.services.clinical_compliance_service import build_governance_context, mask_identifiers
 from app.services.clinical_persona_service import ClinicalPersona, choose_persona
@@ -97,52 +104,6 @@ DENTAL_APPOINTMENT_TERMS = {
     "kontrol",
 }
 
-EMERGENCY_TERMS = {
-    "nefes",
-    "nefes alamiyorum",
-    "nefes alamıyorum",
-    "gogus",
-    "göğüs",
-    "kalp",
-    "bayildi",
-    "bayıldı",
-    "kontrol edilemeyen kanama",
-    "durmayan kanama",
-    "cene kirigi",
-    "çene kırığı",
-    "yuzum sisti",
-    "yüzüm şişti",
-    "yutamiyorum",
-    "yutamıyorum",
-    "112",
-}
-
-DENTAL_SPECIALTY_RULES: list[tuple[str, set[str], str]] = [
-    ("Restoratif Diş Tedavisi", {"dolgu", "dolgum", "dolgu düştü", "dolgu dustu", "kırık diş", "kirik dis"}, "restorative_dental"),
-    ("Endodonti", {"zonkluyor", "kanal", "gece ağrısı", "gece agrisi", "sinir", "köke", "koke"}, "dis_pain_root_canal"),
-    ("Periodontoloji", {"diş eti", "dis eti", "kanıyor", "kaniyor", "diş etim", "dis etim"}, "gum_bleeding"),
-    ("Pedodonti", {"çocuğum", "cocugum", "çocuk", "cocuk", "süt dişi", "sut disi"}, "pediatric_dental"),
-    ("Ortodonti", {"tel", "braket", "ortodonti", "plak", "şeffaf plak", "seffaf plak"}, "orthodontics"),
-    ("İmplantoloji", {"implant", "vida", "kemik tozu"}, "implant_followup"),
-    ("Ağız, Diş ve Çene Cerrahisi", {"çekim", "cekim", "20lik", "yirmilik", "gömülü", "gomulu"}, "oral_surgery"),
-    ("Estetik Diş Hekimliği", {"beyazlatma", "gülüş", "gulus", "lamina", "zirkonyum"}, "cosmetic_dentistry"),
-    ("Dermatoloji", {"akne", "sivilce", "leke", "ben", "egzama", "saç dökülmesi", "sac dokulmesi"}, "dermatology"),
-    ("Medikal Estetik", {"botoks", "dudak dolgusu", "mezoterapi", "lazer", "cilt bakımı", "cilt bakimi"}, "medical_aesthetic"),
-]
-
-
-def normalize_tr(text: str) -> str:
-    return (
-        text.lower()
-        .replace("ı", "i")
-        .replace("ğ", "g")
-        .replace("ü", "u")
-        .replace("ş", "s")
-        .replace("ö", "o")
-        .replace("ç", "c")
-    )
-
-
 def detect_language(text: str, default: str = "tr") -> str:
     lowered = text.lower()
     if any(char in lowered for char in "çğıöşü"):
@@ -156,7 +117,7 @@ def detect_language(text: str, default: str = "tr") -> str:
 def classify_intent(text: str) -> tuple[ClinicIntent, float]:
     normalized = text.lower()
     normalized_ascii = normalize_tr(text)
-    if any(normalize_tr(term) in normalized_ascii for term in EMERGENCY_TERMS):
+    if any(normalize_tr(term) in normalized_ascii for term in EMERGENCY_KEYWORDS):
         return ClinicIntent.MEDICAL_EMERGENCY, 0.99
     for intent, keywords in INTENT_KEYWORDS:
         hits = [keyword for keyword in keywords if keyword in normalized]
@@ -246,7 +207,7 @@ def detect_multi_intents(text: str, primary: ClinicIntent | None = None) -> list
     normalized = text.lower()
     normalized_ascii = normalize_tr(text)
     detected: list[str] = []
-    if any(normalize_tr(term) in normalized_ascii for term in EMERGENCY_TERMS):
+    if any(normalize_tr(term) in normalized_ascii for term in EMERGENCY_KEYWORDS):
         detected.append(ClinicIntent.MEDICAL_EMERGENCY.value)
     for intent, keywords in INTENT_KEYWORDS:
         if any(keyword in normalized for keyword in keywords):
@@ -321,13 +282,7 @@ def derive_consent_signal(governance: dict) -> dict[str, str | bool]:
 
 def extract_clinical_intake(text: str) -> dict:
     normalized = normalize_tr(text)
-    specialty = "Genel Diş Hekimliği"
-    routing_reason = "general_dental_intake"
-    for candidate, keywords, reason in DENTAL_SPECIALTY_RULES:
-        if any(normalize_tr(keyword) in normalized for keyword in keywords):
-            specialty = candidate
-            routing_reason = reason
-            break
+    match = match_specialty(text)
 
     preferred_time = None
     if "bugun" in normalized:
@@ -339,17 +294,14 @@ def extract_clinical_intake(text: str) -> dict:
         if weekday_match:
             preferred_time = weekday_match.group(1)
 
-    urgency = "routine"
-    if any(term in normalized for term in ["agri", "agriyor", "zonkluyor", "sisti", "kanama"]):
-        urgency = "priority"
-    if any(normalize_tr(term) in normalized for term in EMERGENCY_TERMS):
-        urgency = "emergency"
+    urgency: UrgencyLevel = assess_urgency(text)
 
     return {
-        "specialty": specialty,
-        "routing_reason": routing_reason,
+        "specialty": match.specialty.display_tr,
+        "specialty_code": match.specialty.code,
+        "routing_reason": match.specialty.routing_reason,
         "preferred_time": preferred_time,
-        "urgency": urgency,
+        "urgency": urgency.value,
         "complaint_summary": text.strip()[:240],
     }
 

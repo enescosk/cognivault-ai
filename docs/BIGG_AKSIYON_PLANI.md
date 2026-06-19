@@ -21,7 +21,7 @@ Son güncelleme: 2026-06-19
 | İP-5 | Pilot Saha & Klinik Doğrulama | Ay 7–12 | ⬜ Açık |
 | İP-6 | Ticarileştirme & Fikri Mülkiyet | Ay 9–12 | ⬜ Açık |
 
-**🔵 ŞU ANKİ ODAK:** İP-1 / Madde 1.1 — Türkçe diş şikâyet korpusu ve branş+aciliyet ontolojisinin tanımlanması.
+**🔵 ŞU ANKİ ODAK:** İP-1 / Madde 1.2 — argo/günlük Türkçe diş şikâyeti korpusunu topla ve etiketle (≥500 anonim senaryo).
 
 ---
 
@@ -29,8 +29,8 @@ Son güncelleme: 2026-06-19
 **Başarı ölçütü:** Branş eşlemede ≥%90 · kalibrasyon ECE<0,05 · acil-recall ≈ %100 (kaçan acil ≈ 0) · ≥500 anonim senaryo.
 **Çıktı:** Yönlendirici + kalibrasyon raporu. **Sorumlu:** Efe.
 
-- 🔵 **1.1** Branş + aciliyet ontolojisini tanımla (diş branşları taksonomisi, aciliyet seviyeleri). Danışma kurulu hekimleriyle doğrulanacak şema.
-- ⬜ **1.2** Argo/günlük Türkçe diş şikâyeti korpusunu topla ve etiketle — hedef ≥500 anonim senaryo. (Veri hendeği başlangıcı.)
+- ✅ **1.1** YAPILDI (2026-06-19) Branş + aciliyet ontolojisi tanımlandı — tek doğru kaynak `backend/app/clinical/ontology.py` (10 branş + genel, 3 aciliyet seviyesi). `clinical_ai_service` ontolojiye bağlandı; 40 test geçti (`tests/test_clinical_ontology.py`). Hekim onayına hazır şema.
+- 🔵 **1.2** Argo/günlük Türkçe diş şikâyeti korpusunu topla ve etiketle — hedef ≥500 anonim senaryo. (Veri hendeği başlangıcı.)
 - ⬜ **1.3** Alana özgü Türkçe normalizasyon hattı (argo → kanonik terim). Mevcut `agent/parsing.py` + `classify.py` üstüne kur.
 - ⬜ **1.4** Branş yönlendirme modeli — ≥%90 doğruluk hedefi. Mevcut `agent/classify.py` baz alınır.
 - ⬜ **1.5** Kalibrasyon katmanı (confidence calibration) — ECE<0,05 ölç ve raporla.
@@ -111,3 +111,4 @@ Son güncelleme: 2026-06-19
 
 ## Değişiklik Günlüğü
 - 2026-06-19: Plan oluşturuldu. Mevcut MVP üzerinden İP-2 (zarf), İP-3 (yerel yığın), İP-4 (shadow mode) temel maddeleri YAPILDI işaretlendi. Aktif odak İP-1.1.
+- 2026-06-19: İP-1.1 YAPILDI. `app/clinical/ontology.py` ontoloji modülü eklendi (branş + aciliyet, tek kaynak); `clinical_ai_service` yinelenen tanımlardan arındırılıp ontolojiye bağlandı; `tests/test_clinical_ontology.py` (12 test) eklendi. Odak İP-1.2'ye taşındı.
