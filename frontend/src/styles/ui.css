@@ -120,26 +120,17 @@
 .shadow-card-gov-redacted { font-size: 0.7rem; color: var(--text-3); padding: 4px 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); }
 .shadow-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* Karar Kartı — klinik panel AÇIK teması (.clinical-view) override'ları.
-   Koyu styleguide'ı etkilemez; sadece operatör panelinin açık zemininde okunur kılar. */
+/* Karar Kartı — klinik AÇIK tema: yalnız token'la KARŞILANMAYAN farklar kalır.
+   Metin/güven değeri/gov kenarı/badge renkleri .clinical-view token'larından
+   otomatik geldiği için burada tekrar yazılmaz (eskiden ~10 kural fazlalıktı). */
 .clinical-view .shadow-card { background: #ffffff; border-color: rgba(32,72,67,0.14); }
-.clinical-view .shadow-card-draft-text,
-.clinical-view .shadow-card-conf-val { color: #15231f; }
-.clinical-view .shadow-card-conf-label,
-.clinical-view .shadow-card-reason,
-.clinical-view .shadow-card .ui-status { color: #5c6f6a; }
 .clinical-view .shadow-card-reason-k,
 .clinical-view .shadow-card-meta { color: #94a39e; }
 .clinical-view .shadow-card .ui-meter { background: rgba(32,72,67,0.12); }
 .clinical-view .shadow-card-draft { background: rgba(124,77,201,0.06); border-color: rgba(124,77,201,0.18); }
-.clinical-view .shadow-card-gov { border-top-color: rgba(32,72,67,0.12); }
 .clinical-view .shadow-card-gov-redacted { background: rgba(32,72,67,0.05); border-color: rgba(32,72,67,0.12); color: #5c6f6a; }
 .clinical-view .shadow-card .ui-badge--neutral { background: rgba(32,72,67,0.05); border-color: rgba(32,72,67,0.14); color: #5c6f6a; }
 .clinical-view .shadow-card .ui-badge--accent { background: #e3f1ed; color: #1f6f68; }
-.clinical-view .shadow-card .ui-badge--green { color: #1e7a34; }
-.clinical-view .shadow-card .ui-badge--amber { color: #9a6212; }
-.clinical-view .shadow-card .ui-badge--red { color: #b5302f; }
-.clinical-view .shadow-card .ui-badge--purple { color: #6b46c1; }
 .clinical-view .shadow-card .ui-btn--ghost { background: rgba(32,72,67,0.04); border-color: rgba(32,72,67,0.16); color: #2c423c; }
 .clinical-view .shadow-card .ui-btn--ghost:hover:not(:disabled) { border-color: #1f6f68; color: #1f6f68; background: rgba(31,111,104,0.08); }
 
@@ -164,20 +155,12 @@
 .declog-error { font-size: 0.76rem; color: var(--red); }
 .declog-empty { font-size: 0.78rem; color: var(--text-3); }
 
-/* Karar günlüğü — klinik AÇIK tema override'ları */
-.clinical-view .declog-title { color: #15231f; }
+/* Karar günlüğü — klinik AÇIK tema: token'la karşılanmayan farklar (yarı saydam
+   filtre zemini, hover kenarı, audit teal zemini). Diğer renkler token'dan gelir. */
 .clinical-view .declog-live { color: #94a39e; }
 .clinical-view .declog-filters { background: rgba(255,255,255,0.7); border-color: rgba(32,72,67,0.14); }
 .clinical-view .declog-filters button { color: #728782; }
-.clinical-view .declog-filters button.active { background: #e3f1ed; color: #1f6f68; }
-.clinical-view .declog-row { background: #ffffff; border-color: rgba(32,72,67,0.12); }
 .clinical-view .declog-row:hover { border-color: rgba(32,72,67,0.24); }
-.clinical-view .declog-agent { color: #15231f; }
 .clinical-view .declog-agent small,
 .clinical-view .declog-meta { color: #94a39e; }
-.clinical-view .declog-reason { color: #5c6f6a; }
 .clinical-view .declog-audit { background: rgba(31,111,104,0.07); border-color: rgba(32,72,67,0.12); color: #5c6f6a; }
-.clinical-view .declog .ui-status { color: #5c6f6a; }
-.clinical-view .declog .ui-badge--green { color: #1e7a34; }
-.clinical-view .declog .ui-badge--amber { color: #9a6212; }
-.clinical-view .declog .ui-badge--red { color: #b5302f; }
