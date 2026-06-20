@@ -1,0 +1,83 @@
+/*
+ * CogniVault — tasarım token'ları (TEK KAYNAK)
+ * Bütün renk / tipografi / radius / gölge / motion buradan gelir. Bileşenler
+ * `var(--token)` kullanır; ham hex İCAT ETMEZ. Bkz. frontend/DESIGN_SYSTEM.md.
+ *
+ * İKİ TEMA — ikisi de aynı token isimleriyle çalışır:
+ *   1) Koyu (varsayılan)  → :root            (müşteri paneli, styleguide, hasta akışı)
+ *   2) Açık (klinik)      → .clinical-view    (operatör paneli)  ← token'ları OVERRIDE eder
+ * Açık tema değerleri mobil `mobile/src/theme.ts` ile hizalıdır (tek marka dili).
+ */
+
+:root {
+  --bg: #050810;
+  --bg-2: #080c14;
+  --surface: rgba(255,255,255,0.032);
+  --surface-hover: rgba(255,255,255,0.055);
+  --surface-active: rgba(99,179,237,0.10);
+  --border: rgba(255,255,255,0.07);
+  --border-hover: rgba(255,255,255,0.14);
+  --border-active: rgba(99,179,237,0.28);
+  --text: #e8edf5;
+  --text-2: #8a99b3;
+  --text-3: #4a5568;
+  --accent: #63b3ed;
+  --accent-2: #4299e1;
+  --accent-glow: rgba(99,179,237,0.18);
+  --green: #68d391;
+  --green-bg: rgba(104,211,145,0.10);
+  --amber: #f6ad55;
+  --amber-bg: rgba(246,173,85,0.10);
+  --red: #fc8181;
+  --red-bg: rgba(252,129,129,0.10);
+  --purple: #b794f4;
+  --purple-bg: rgba(183,148,244,0.10);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow: 0 4px 24px rgba(0,0,0,0.5);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.6);
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --font-display: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+  --sidebar-w: 280px;
+  --audit-w: 320px;
+  --transition: 200ms cubic-bezier(0.4,0,0.2,1);
+}
+
+/*
+ * Açık klinik tema — token OVERRIDE'ı (mobil theme.ts ile birebir hizalı).
+ * Artık `var(--text)`/`var(--surface)` kullanan her bileşen operatör panelinde
+ * otomatik okunur; bileşen başına elle override yazmak GEREKMEZ. Eski elle
+ * override kuralları (global.css) dokunulmaz kaldı; bu blok yalnız onlara sahip
+ * OLMAYAN bileşenleri düzeltir (= eskiden beyaz-üstüne-beyaz kalanlar).
+ */
+.dashboard-shell.clinical-view {
+  --bg: #eaf3ef;
+  --bg-2: #e3ece8;
+  --surface: #ffffff;
+  --surface-hover: #f4f8f6;
+  --surface-active: #e3f1ed;
+  --border: rgba(32,72,67,0.12);
+  --border-hover: rgba(32,72,67,0.22);
+  --border-active: rgba(31,111,104,0.35);
+  --text: #15231f;
+  --text-2: #5c6f6a;
+  --text-3: #9aa8a3;
+  --accent: #1f6f68;
+  --accent-2: #15504a;
+  --accent-glow: rgba(31,111,104,0.18);
+  --green: #1e7a34;
+  --green-bg: #e7f3ea;
+  --amber: #9a6212;
+  --amber-bg: #f7ecd9;
+  --red: #b5302f;
+  --red-bg: #f8e8e8;
+  --purple: #6b46c1;
+  --purple-bg: #efeafc;
+  --shadow-sm: 0 1px 3px rgba(24,42,37,0.08);
+  --shadow: 0 4px 24px rgba(24,42,37,0.10);
+  --shadow-lg: 0 20px 60px rgba(24,42,37,0.14);
+}
