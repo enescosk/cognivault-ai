@@ -10,6 +10,7 @@ Kapsam:
 """
 
 import pytest
+from types import SimpleNamespace
 
 from app.ai.ai_factory import (
     MAX_MODEL_JSON_CHARS,
@@ -21,6 +22,7 @@ from app.ai.ai_factory import (
 )
 from app.core.config import get_settings
 from app.models import ClinicIntent
+from app.services import clinical_ai_service
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -151,3 +153,104 @@ def test_mock_reply_price_intent_does_not_force_review():
     assert payload["intent"] == ClinicIntent.ASK_PRICE.value
     assert payload["requires_human_review"] is False
     assert payload["risk_reason"] is None
+
+
+def test_openai_is_used_only_as_policy_allowed_local_fallback(monkeypatch):
+    class UnavailableLocal:
+        def generate_chat_reply(self, *args, **kwargs):
+            return {
+                "_provider_source": "deterministic_local_fallback",
+                "reply": "Yerel sabit cevap",
+                "confidence": 0.7,
+                "intent": "ask_location",
+                "requires_human_review": False,
+                "data": {},
+            }
+
+    class WorkingOpenAI:
+        def generate_chat_reply(self, *args, **kwargs):
+            return {
+                "_provider_source": "openai",
+                "reply": "Kliniğin hangi şubesinin konumunu istersiniz?",
+                "confidence": 0.95,
+                "intent": "ask_location",
+                "requires_human_review": False,
+                "data": {},
+            }
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "clinical_ai_enabled", True)
+    monkeypatch.setattr(settings, "clinical_external_ai_allowed", True)
+    monkeypatch.setattr(settings, "openai_api_key", "sk-test")
+    monkeypatch.setattr(clinical_ai_service, "get_llm_provider", lambda *_: UnavailableLocal())
+    monkeypatch.setattr(clinical_ai_service, "OpenAIProvider", WorkingOpenAI)
+    clinic = SimpleNamespace(
+        name="Test Klinik",
+        default_language="tr",
+        ai_auto_reply_threshold=0.9,
+        emergency_disclaimer="Call emergency services.",
+        organization_id=None,
+        settings_json={
+            "data_residency_mode": "hybrid_explicit_consent",
+            "allow_cross_border_processors": True,
+        },
+    )
+
+    result = clinical_ai_service.generate_clinical_reply(
+        clinic,
+        "Konumunuz nerede?",
+        external_ai_consent=True,
+    )
+
+    assert result.data["provider_source"] == "openai"
+    assert [step["status"] for step in result.data["provider_trace"]] == [
+        "held_as_safe_fallback",
+        "selected",
+    ]
+
+
+def test_clinic_policy_cannot_replace_patient_cross_border_consent(monkeypatch):
+    observed_external_flags = []
+
+    class LocalOnly:
+        def generate_chat_reply(self, *args, **kwargs):
+            return {
+                "_provider_source": "local_qwen",
+                "reply": "Hangi şubenin konumunu istersiniz?",
+                "confidence": 0.94,
+                "intent": "ask_location",
+                "requires_human_review": False,
+                "data": {},
+            }
+
+    class ForbiddenOpenAI:
+        def __init__(self):
+            raise AssertionError("OpenAI must not be constructed without patient consent")
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "clinical_ai_enabled", True)
+    monkeypatch.setattr(settings, "clinical_external_ai_allowed", True)
+    monkeypatch.setattr(settings, "openai_api_key", "sk-test")
+    monkeypatch.setattr(
+        clinical_ai_service,
+        "get_llm_provider",
+        lambda _mode, external: observed_external_flags.append(external) or LocalOnly(),
+    )
+    monkeypatch.setattr(clinical_ai_service, "OpenAIProvider", ForbiddenOpenAI)
+    clinic = SimpleNamespace(
+        name="Test Klinik",
+        default_language="tr",
+        ai_auto_reply_threshold=0.9,
+        emergency_disclaimer="Call emergency services.",
+        organization_id=None,
+        settings_json={
+            "data_residency_mode": "hybrid_explicit_consent",
+            "allow_cross_border_processors": True,
+        },
+    )
+
+    result = clinical_ai_service.generate_clinical_reply(clinic, "Konumunuz nerede?")
+
+    assert observed_external_flags == [False]
+    assert result.data["provider_source"] == "local_qwen"
+    assert result.data["external_ai_consent_verified"] is False

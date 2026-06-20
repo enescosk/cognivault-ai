@@ -3,7 +3,7 @@
 > Bu dosya, CogniVault arayüzünün **tek tasarım kaynağıdır**. Claude (ve insan)
 > herhangi bir ekran/komponent tasarlamadan **önce bunu okur**. Buradaki
 > token'lar dışına çıkılmaz: yeni renk / font / radius **icat edilmez**,
-> aşağıdakiler kullanılır. Kaynağın kendisi: `frontend/src/styles/global.css`.
+> aşağıdakiler kullanılır. Token kaynağı: `frontend/src/styles/tokens.css`.
 
 ---
 
@@ -13,7 +13,7 @@
    "triyaj sohbeti", "no-show kartı"). İstersen 1-2 referans/duygu da ver.
 2. **Hızlı mockup** — Claude önce tek seferlik bir önizleme çıkarır (inline,
    bu token'larla). Yön doğru mu, 30 saniyede görürsün.
-3. **Gerçek koda dök** — onayınca `frontend/src`'e React + `global.css` token'ları
+3. **Gerçek koda dök** — onayınca `frontend/src`'e React + `tokens.css` token'ları
    ile yazılır. Mevcut desen varsa onu kullanır, yoksa **küçük, yeniden
    kullanılabilir** bir primitive ekler.
 4. **Canlı bak & rötuş** — `./scripts/run_demo.sh` ile çalıştırıp ekranda görür,
@@ -24,7 +24,7 @@ zaten var mı?" diye bak. Tutarlılık > yenilik.
 
 ---
 
-## 2) Token'lar (global.css `:root`)
+## 2) Token'lar (`tokens.css`)
 
 ### Renk — koyu, premium, "klinik güven"
 | Token | Değer | Kullanım |
@@ -86,9 +86,13 @@ Sık desenler:
 - **Sidebar** (280px) + **denetim paneli** (320px) sabit kolonlar.
 - UI primitive'leri: `components/ui/` → `EmptyState`, `Skeleton`, `Toast`.
 
-> Not (teknik borç): 732 sınıf tek `global.css`'te. Orta vadede ortak
-> primitive'lere (Card / Panel / Badge / Button / Field / StatusDot) çekmek
-> drift'i durdurur — bkz. §5.
+Stil sahipliği:
+
+- `tokens.css`: koyu + açık tema token'ları.
+- `ui.css`: ortak primitive ve governance bileşenleri.
+- `patient.css`: public hasta deneyimi.
+- `clinic-appointments.css`: klinik takvim/randevu ekranı.
+- `global.css`: kalan shell ve eski ekranlar; yeni ekran stilleri buraya eklenmez.
 
 ---
 
@@ -98,8 +102,8 @@ Sık desenler:
   Yeni tasarımları aynı çalışan app içinde, tutarlı görerek yaparız.
 - **Reusable primitive seti** — `components/ui/` altına `Card`, `Panel`, `Badge`,
   `Button`, `Field`, `StatusDot`. Yeni ekranlar sınıf icat etmek yerine bunları diz.
-- **global.css'i bölme** — token / base / primitive / ekran katmanlarına ayırıp
-  7400 satırı yönetilebilir parçalara indirme.
+- Kalan eski ekranları kullanım gördükçe `global.css`'ten ekran dosyalarına taşı;
+  import sırasını koru ve production CSS hash/boyutunu karşılaştır.
 
 ## 6) İki tema — bileşenler ikisinde de okunur olmalı (DİKKAT)
 
@@ -107,8 +111,8 @@ Uygulamada **iki tema** var:
 - **Koyu (varsayılan):** `:root` token'ları — müşteri paneli, styleguide, hasta akışı.
 - **Açık (klinik):** `.dashboard-shell.clinical-view` operatör panelini açık "medikal"
   temaya çevirir (zemin `#eaf3ef`, metin `#15231f`, accent teal `#1f6f68`) — ama
-  `:root` değişkenlerini **override etmez**.
+  aynı token isimlerini `.dashboard-shell.clinical-view` altında override eder.
 
-Sonuç: `var(--text)` (koyu-tema beyazı) açık klinik panelde **görünmez**. Klinik panele
-yeni bileşen koyarken açık tema için `.clinical-view <bileşen>` scope'lu override yaz
-(bkz. `ui.css` içindeki Karar Kartı override'ları). **Her bileşeni iki temada da test et.**
+Sonuç: token kullanan bileşenler iki temaya otomatik uyar. Yalnız token'la ifade
+edilemeyen yarı saydam/tinted farklar için `.clinical-view <bileşen>` override'ı yazılır.
+Ham renk tekrarına başlamadan önce computed değerin token'la aynı olup olmadığını kontrol et.

@@ -17,7 +17,7 @@ from app.services.customer_understanding import (
     understand_primary_intent,
     understand_with_context,
 )
-from app.ai.ai_factory import get_llm_provider, parse_model_json
+from app.ai.ai_factory import OpenAIProvider, get_llm_provider, parse_model_json
 
 
 @dataclass(frozen=True)
@@ -225,8 +225,8 @@ def derive_consent_signal(governance: dict) -> dict[str, str | bool]:
     return {
         "status": status,
         "residency": residency,
-        "granted_via": "implicit_local_first" if status == "pending" else "blocked_by_compliance",
-        "version": "v0-implicit",
+        "granted_via": "notice_only_local_processing" if status == "pending" else "blocked_by_compliance",
+        "version": "v1-explicit-gate",
     }
 
 
@@ -711,6 +711,7 @@ def generate_clinical_reply(
     requested_persona_id: str | None = None,
     use_ai: bool = True,
     previous_intent: ClinicIntent | None = None,
+    external_ai_consent: bool = False,
 ) -> ClinicalAIResult:
     """use_ai=False → LLM'i atla, kural-tabanlı (hızlı) yolu kullan.
 
@@ -736,7 +737,8 @@ def generate_clinical_reply(
 
     settings = get_settings()
     if use_ai and settings.clinical_ai_enabled:
-        provider = get_llm_provider(governance["data_residency_mode"], governance["external_transfer_allowed"])
+        effective_external_transfer = bool(governance["external_transfer_allowed"] and external_ai_consent)
+        primary_provider = get_llm_provider(governance["data_residency_mode"], effective_external_transfer)
         system_prompt = (
             "You are a JSON-only clinical receptionist API. "
             "Always return valid JSON with keys: reply (string, Turkish unless lang says otherwise), "
@@ -747,12 +749,44 @@ def generate_clinical_reply(
             "requires_human_review (bool), risk_reason (string|null), data (object)."
         )
         prompt = _structured_prompt(clinic, text, resolved_language, intent, persona)
-        payload = provider.generate_chat_reply(
-            prompt,
-            system_prompt,
-            organization_id=getattr(clinic, "organization_id", None)
+        providers = [primary_provider]
+        may_use_openai_fallback = (
+            settings.clinical_external_ai_allowed
+            and settings.openai_api_key
+            and effective_external_transfer
+            and "special_category_health_data" not in governance["data_classes"]
+            and "financial_or_insurance_data" not in governance["data_classes"]
+            and not isinstance(primary_provider, OpenAIProvider)
         )
+        if may_use_openai_fallback:
+            providers.append(OpenAIProvider())
+
+        payload = None
+        local_fallback_payload = None
+        provider_trace: list[dict[str, str]] = []
+        for provider in providers:
+            candidate = provider.generate_chat_reply(
+                prompt,
+                system_prompt,
+                organization_id=getattr(clinic, "organization_id", None),
+            )
+            source = str((candidate or {}).get("_provider_source") or provider.__class__.__name__)
+            if candidate is None:
+                provider_trace.append({"provider": source, "status": "unavailable"})
+                continue
+            if source == "deterministic_local_fallback" and len(providers) > 1:
+                local_fallback_payload = candidate
+                provider_trace.append({"provider": source, "status": "held_as_safe_fallback"})
+                continue
+            payload = candidate
+            provider_trace.append({"provider": source, "status": "selected"})
+            break
+        if payload is None and local_fallback_payload is not None:
+            payload = local_fallback_payload
+            provider_trace.append({"provider": "deterministic_local_fallback", "status": "selected"})
+
         if payload is not None:
+            provider_source = str(payload.pop("_provider_source", "unknown"))
             ai_result = _validated_provider_result(
                 payload,
                 deterministic_intent=intent,
@@ -763,6 +797,9 @@ def generate_clinical_reply(
             )
             if ai_result is not None:
                 ai_result.data.update({
+                    "provider_source": provider_source,
+                    "provider_trace": provider_trace,
+                    "external_ai_consent_verified": external_ai_consent,
                     "understanding": [
                         {"intent": item.intent, "confidence": item.confidence, "evidence": list(item.evidence)}
                         for item in understanding

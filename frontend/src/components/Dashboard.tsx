@@ -1,3 +1,4 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import {
@@ -11,9 +12,10 @@ import {
   listUsers,
   streamMessage,
 } from "../api/client";
+import { dashboardKeys } from "../api/queryKeys";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import type { Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, User } from "../types/api";
+import type { ChatSessionSummary } from "../types/api";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { AppointmentPanel } from "./AppointmentPanel";
 import { AppointmentsPage } from "./AppointmentsPage";
@@ -39,87 +41,119 @@ interface DashboardProps {
   defaultView?: "chat" | "appointments" | "clinical" | "clinic-admin";
 }
 
+function toSessionSummary(session: {
+  id: number;
+  title: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}): ChatSessionSummary {
+  return { ...session, last_message_preview: null };
+}
+
 export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
   const { token, user, logout } = useAuth();
   const navigate = useNavigate();
-  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
-  const [selectedSession, setSelectedSession] = useState<ChatSessionDetail | null>(null);
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [activeTools, setActiveTools] = useState<string[]>([]);  // şu an çalışan tool'lar
   const [isThinking, setIsThinking] = useState(false);            // LLM düşünüyor mu
-  const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "appointments" | "clinical" | "clinic-admin">(defaultView ?? "chat");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
   const isOperator = role === "operator";
   const isAdmin    = role === "admin";
+  const [view, setView] = useState<"chat" | "appointments" | "clinical" | "clinic-admin">(
+    defaultView ?? (isOperator || isAdmin ? "clinical" : "chat"),
+  );
 
-  useEffect(() => {
-    if (!token || !user) return;
-    if (defaultView) {
-      setView(defaultView);
-    } else if (user.role.name === "operator" || user.role.name === "admin") {
-      setView("clinical");
-    }
-    void loadDashboard();
-  }, [token, user, defaultView]);
+  const sessionIndexQuery = useQuery({
+    queryKey: dashboardKeys.sessions(token),
+    enabled: Boolean(token && user),
+    queryFn: async () => {
+      const sessionList = await listSessions(token!);
+      // Bir tane taslak oturum korunur; eski boş taslaklar sessizce temizlenir.
+      const emptySessions = sessionList.filter((session) => session.last_message_preview === null);
+      const staleDrafts = emptySessions.slice(1);
+      if (staleDrafts.length > 0) {
+        await Promise.all(staleDrafts.map((session) => deleteSession(session.id, token!).catch(() => undefined)));
+      }
+      const cleaned = sessionList.filter((session) => !staleDrafts.some((draft) => draft.id === session.id));
+      if (cleaned.length > 0) return cleaned;
 
-  async function loadDashboard(nextSessionId?: number) {
-    if (!token) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [sessionList, auditEntries, appointmentList, metricSummary] = await Promise.all([
-        listSessions(token),
-        getAuditLogs(token),
-        getAppointments(token),
-        getMetrics(token)
+      const created = await createSession(token!);
+      queryClient.setQueryData(dashboardKeys.session(token, created.id), created);
+      return [toSessionSummary(created)];
+    },
+  });
+
+  const sessions = sessionIndexQuery.data ?? [];
+  const resolvedSessionId =
+    selectedSessionId && sessions.some((session) => session.id === selectedSessionId)
+      ? selectedSessionId
+      : sessions[0]?.id ?? null;
+
+  const selectedSessionQuery = useQuery({
+    queryKey: dashboardKeys.session(token, resolvedSessionId),
+    enabled: Boolean(token && resolvedSessionId),
+    queryFn: () => getSession(resolvedSessionId!, token!),
+  });
+  const appointmentsQuery = useQuery({
+    queryKey: dashboardKeys.appointments(token),
+    enabled: Boolean(token && user),
+    queryFn: () => getAppointments(token!),
+  });
+  const metricsQuery = useQuery({
+    queryKey: dashboardKeys.metrics(token),
+    enabled: Boolean(token && user),
+    queryFn: () => getMetrics(token!),
+  });
+  const logsQuery = useQuery({
+    queryKey: dashboardKeys.auditLogs(token),
+    enabled: Boolean(token && isAdmin),
+    queryFn: () => getAuditLogs(token!),
+  });
+  const usersQuery = useQuery({
+    queryKey: dashboardKeys.users(token),
+    enabled: Boolean(token && (isOperator || isAdmin)),
+    queryFn: () => listUsers(token!),
+    retry: false,
+  });
+
+  const selectedSession = selectedSessionQuery.data ?? null;
+  const appointments = appointmentsQuery.data ?? [];
+  const metrics = metricsQuery.data ?? null;
+  const logs = logsQuery.data ?? [];
+  const users = usersQuery.data ?? [];
+
+  const createSessionMutation = useMutation({
+    mutationFn: () => createSession(token!),
+    onSuccess: (created) => {
+      queryClient.setQueryData<ChatSessionSummary[]>(dashboardKeys.sessions(token), (current = []) => [
+        toSessionSummary(created),
+        ...current,
       ]);
-      setLogs(auditEntries);
-      setAppointments(appointmentList);
-      setMetrics(metricSummary);
-      if (role === "operator" || role === "admin") {
-        listUsers(token).then(setUsers).catch(() => {});
-      }
+      queryClient.setQueryData(dashboardKeys.session(token, created.id), created);
+      setSelectedSessionId(created.id);
+    },
+  });
 
-      // Boş oturumları (mesaj içermeyen) otomatik sil
-      const emptyOnes = sessionList.filter(
-        s => s.last_message_preview === null && s.id !== nextSessionId
-      );
-      const nonEmpty = sessionList.filter(s => s.last_message_preview !== null);
-      // Tüm oturumlar boşsa en yenisini koru, geri kalanları sil
-      const toDelete = nonEmpty.length > 0 ? emptyOnes : emptyOnes.slice(1);
-      if (toDelete.length > 0) {
-        await Promise.all(toDelete.map(s => deleteSession(s.id, token).catch(() => {})));
-      }
-      const cleanedList = sessionList.filter(s => !toDelete.some(d => d.id === s.id));
-      setSessions(cleanedList);
-
-      if (nextSessionId) {
-        setSelectedSession(await getSession(nextSessionId, token));
-      } else if (cleanedList.length > 0) {
-        const preferredId = selectedSession?.id ?? cleanedList[0].id;
-        const preferredExists = cleanedList.some(s => s.id === preferredId);
-        setSelectedSession(await getSession(preferredExists ? preferredId : cleanedList[0].id, token));
-      } else {
-        const created = await createSession(token);
-        setSessions([{ id: created.id, title: created.title, status: created.status, created_at: created.created_at, updated_at: created.updated_at, last_message_preview: null }]);
-        setSelectedSession(created);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Dashboard failed to load");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const deleteSessionMutation = useMutation({
+    mutationFn: (sessionId: number) => deleteSession(sessionId, token!),
+    onSuccess: async (_result, sessionId) => {
+      queryClient.removeQueries({ queryKey: dashboardKeys.session(token, sessionId) });
+      if (selectedSessionId === sessionId) setSelectedSessionId(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: dashboardKeys.sessions(token) }),
+        queryClient.invalidateQueries({ queryKey: dashboardKeys.metrics(token) }),
+        queryClient.invalidateQueries({ queryKey: dashboardKeys.appointments(token) }),
+      ]);
+    },
+  });
 
   async function handleNewSession() {
     if (!token) return;
@@ -128,46 +162,27 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
       setView("chat");
       return;
     }
-    const created = await createSession(token);
-    await loadDashboard(created.id);
+    setActionError(null);
+    try {
+      await createSessionMutation.mutateAsync();
+      setView("chat");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Oturum oluşturulamadı");
+    }
   }
 
   async function handleSelectSession(sessionId: number) {
     if (!token) return;
-    setSelectedSession(await getSession(sessionId, token));
-  }
-
-  async function refreshMetrics() {
-    if (!token) return;
-    try {
-      const [metricSummary, appointmentList] = await Promise.all([
-        getMetrics(token),
-        getAppointments(token),
-      ]);
-      setMetrics(metricSummary);
-      setAppointments(appointmentList);
-    } catch {}
+    setSelectedSessionId(sessionId);
   }
 
   async function handleDeleteSession(sessionId: number) {
     if (!token) return;
     try {
-      await deleteSession(sessionId, token);
-      const remaining = sessions.filter(s => s.id !== sessionId);
-      setSessions(remaining);
-      if (selectedSession?.id === sessionId) {
-        if (remaining.length > 0) {
-          setSelectedSession(await getSession(remaining[0].id, token));
-        } else {
-          const created = await createSession(token);
-          setSessions([{ id: created.id, title: created.title, status: created.status, created_at: created.created_at, updated_at: created.updated_at, last_message_preview: null }]);
-          setSelectedSession(created);
-        }
-      }
-      // Metrics'i sil sonrası yenile
-      void refreshMetrics();
+      setActionError(null);
+      await deleteSessionMutation.mutateAsync(sessionId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Session could not be deleted");
+      setActionError(err instanceof Error ? err.message : "Session could not be deleted");
     }
   }
 
@@ -178,7 +193,7 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
     setStreamingContent("");      // AI balon hazır, içi dolacak
     setActiveTools([]);
     setIsThinking(false);
-    setError(null);
+    setActionError(null);
 
     try {
       const stream = streamMessage(selectedSession.id, content, token);
@@ -208,7 +223,12 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
           setStreamingContent(null);
           setActiveTools([]);
           setIsThinking(false);
-          await loadDashboard(selectedSession.id);
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: dashboardKeys.session(token, selectedSession.id) }),
+            queryClient.invalidateQueries({ queryKey: dashboardKeys.sessions(token) }),
+            queryClient.invalidateQueries({ queryKey: dashboardKeys.metrics(token) }),
+            queryClient.invalidateQueries({ queryKey: dashboardKeys.appointments(token) }),
+          ]);
           break;
         } else if (event.t === "err") {
           throw new Error(event.v);
@@ -219,14 +239,23 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
       setStreamingContent(null);
       setActiveTools([]);
       setIsThinking(false);
-      setError(err instanceof Error ? err.message : "Mesaj gönderilemedi");
+      setActionError(err instanceof Error ? err.message : "Mesaj gönderilemedi");
       if (selectedSession?.id) {
-        try { setSelectedSession(await getSession(selectedSession.id, token)); } catch { /* ignore */ }
+        await queryClient.invalidateQueries({ queryKey: dashboardKeys.session(token, selectedSession.id) });
       }
     } finally {
       setSending(false);
     }
   }
+
+  const queryError = [
+    sessionIndexQuery.error,
+    selectedSessionQuery.error,
+    appointmentsQuery.error,
+    metricsQuery.error,
+    logsQuery.error,
+  ].find(Boolean);
+  const error = actionError ?? (queryError instanceof Error ? queryError.message : queryError ? "Dashboard yüklenemedi" : null);
 
   // Surface dashboard-level errors via toast — fires once per distinct error message.
   useEffect(() => {
@@ -234,7 +263,9 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
   }, [error]);
 
   if (!user) return null;
-  if (loading && !selectedSession) return <div className="loading-shell">Loading workspace...</div>;
+  if ((sessionIndexQuery.isLoading || selectedSessionQuery.isLoading) && !selectedSession) {
+    return <div className="loading-shell">Loading workspace...</div>;
+  }
 
   const isClinicalView = view === "clinical" && (isOperator || isAdmin);
 

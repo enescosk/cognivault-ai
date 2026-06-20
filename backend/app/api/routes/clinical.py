@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+import hashlib
+from datetime import datetime, timezone
 from html import escape
 from urllib.parse import parse_qs
 
@@ -247,7 +248,7 @@ def get_clinical_overview(
     clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
     doctor = get_clinician_doctor(db, clinic, current_user)
     conversations = [] if doctor else list_clinical_conversations(db, clinic, limit=20)
-    doctor_items = [] if doctor else list_doctor_inbox(db, clinic, limit=20)
+    doctor_items = list_doctor_inbox(db, clinic, limit=20, doctor_id=doctor.id if doctor else None)
     reviews = list_shadow_reviews(db, clinic, doctor_id=doctor.id if doctor else None)
     return ClinicalOverviewResponse(
         viewer=ClinicalViewerResponse(
@@ -697,13 +698,18 @@ async def receive_voice_speech(request: Request, db: Session = Depends(get_db)) 
         )
 
     clinic = ensure_default_clinic(db)
+    # CallSid çağrı boyunca sabittir; tek başına idempotency anahtarı yapılırsa
+    # ikinci hasta cümlesi yanlışlıkla duplicate sayılır. Aynı webhook retry'ı
+    # yine aynı anahtarı üretirken farklı konuşma turları ayrı kaydolur.
+    speech_fingerprint = hashlib.sha256(speech.encode("utf-8")).hexdigest()[:16]
+    turn_id = f"{call_sid}:{speech_fingerprint}" if call_sid else None
     result = ingest_clinical_message(
         db,
         IncomingClinicalMessage(
             from_phone=from_phone,
             body=speech,
             channel=ClinicChannel.PHONE,
-            external_message_id=call_sid,
+            external_message_id=turn_id,
             external_thread_id=call_sid or from_phone,
             raw_payload=parsed,
         ),
@@ -716,6 +722,43 @@ async def receive_voice_speech(request: Request, db: Session = Depends(get_db)) 
             "Tıbbi güvenlik gerektiren konularda insan onayı olmadan kesin yönlendirme yapmıyorum."
         )
     return PlainTextResponse(_voice_twiml(reply or "Talebinizi aldım. Size nasıl devam edebilirim?"), media_type="application/xml")
+
+
+@router.post("/webhooks/voice/status")
+async def receive_voice_status(request: Request, db: Session = Depends(get_db)) -> PlainTextResponse:
+    """Persist Twilio's terminal/non-terminal call lifecycle without copying audio."""
+    body = await request.body()
+    _verify_twilio_voice_request(request, body)
+    parsed = dict((key, values[0] if values else "") for key, values in parse_qs(body.decode("utf-8")).items())
+    call_sid = (parsed.get("CallSid") or "").strip()
+    call_status = (parsed.get("CallStatus") or "unknown").strip().lower()
+    if not call_sid:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CallSid is required")
+
+    conversation = db.scalars(
+        select(ClinicConversation)
+        .where(ClinicConversation.external_thread_id == call_sid)
+        .order_by(ClinicConversation.updated_at.desc())
+    ).first()
+    if conversation is None:
+        # Status callback konuşma turundan önce ulaşabilir; Twilio retry etmesin.
+        return PlainTextResponse("ignored", status_code=status.HTTP_202_ACCEPTED)
+
+    terminal = call_status in {"completed", "busy", "no-answer", "failed", "canceled"}
+    metadata = {
+        **(conversation.metadata_json or {}),
+        "voice_call": {
+            "call_sid": call_sid,
+            "status": call_status,
+            "duration_seconds": int(parsed["CallDuration"]) if parsed.get("CallDuration", "").isdigit() else None,
+            "terminal": terminal,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    conversation.metadata_json = metadata
+    db.add(conversation)
+    db.commit()
+    return PlainTextResponse("ok")
 
 
 @router.get("/webhooks/whatsapp")

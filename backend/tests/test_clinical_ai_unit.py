@@ -131,7 +131,7 @@ def test_hallucinated_slot_rule_only_applies_to_booking():
 @pytest.mark.parametrize(
     ("governance", "status", "granted_via"),
     [
-        ({"auto_send_allowed": True, "data_residency_mode": "tr_local_first"}, "pending", "implicit_local_first"),
+        ({"auto_send_allowed": True, "data_residency_mode": "tr_local_first"}, "pending", "notice_only_local_processing"),
         ({"auto_send_allowed": False, "data_residency_mode": "tr_local_first"}, "rejected", "blocked_by_compliance"),
         ({"auto_send_allowed": False}, "rejected", "blocked_by_compliance"),
     ],
@@ -140,4 +140,4 @@ def test_consent_signal_matrix(governance, status, granted_via):
     signal = derive_consent_signal(governance)
     assert signal["status"] == status
     assert signal["granted_via"] == granted_via
-    assert signal["version"] == "v0-implicit"
+    assert signal["version"] == "v1-explicit-gate"

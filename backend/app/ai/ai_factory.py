@@ -105,7 +105,10 @@ class OpenAIProvider(LLMProvider):
                 _record_telemetry(settings.openai_model, prompt_t, completion_t, organization_id)
 
             content = response.choices[0].message.content or ""
-            return parse_model_json(content)
+            payload = parse_model_json(content)
+            if payload is not None:
+                payload["_provider_source"] = "openai"
+            return payload
         except Exception as e:
             logger.error(f"OpenAIProvider error: {e}")
             return None
@@ -146,7 +149,10 @@ class AnthropicProvider(LLMProvider):
                 _record_telemetry(settings.anthropic_model, prompt_t, completion_t, organization_id)
 
             content = "".join(block.text for block in response.content if getattr(block, "type", "") == "text")
-            return parse_model_json(content)
+            payload = parse_model_json(content)
+            if payload is not None:
+                payload["_provider_source"] = "anthropic"
+            return payload
         except Exception as e:
             logger.error(f"AnthropicProvider error: {e}")
             return None
@@ -190,7 +196,10 @@ class LocalQwenProvider(LLMProvider):
             with urllib.request.urlopen(req, timeout=settings.local_llm_timeout) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
                 content = res_data["choices"][0]["message"]["content"]
-                return parse_model_json(content)
+                parsed = parse_model_json(content)
+                if parsed is not None:
+                    parsed["_provider_source"] = "local_qwen"
+                return parsed
         except (urllib.error.URLError, urllib.error.HTTPError) as e:
             logger.warning(f"Local Qwen endpoint connection failed: {e}. Falling back to structured mock parser.")
             return self._generate_mock_reply(prompt)
@@ -231,6 +240,7 @@ class LocalQwenProvider(LLMProvider):
             action = "collect_cancellation_details"
 
         return {
+            "_provider_source": "deterministic_local_fallback",
             "reply": reply,
             "confidence": confidence,
             "intent": intent,

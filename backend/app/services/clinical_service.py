@@ -48,6 +48,22 @@ from app.services.clinical_ai_service import (
     detect_multi_intents,
     generate_clinical_reply,
 )
+from app.services.clinical_feedback_service import update_shadow_review
+from app.services.clinical_appointment_service import (
+    create_clinical_appointment_from_conversation,
+    create_manual_clinical_appointment,
+    recent_clinical_appointments,
+    resolve_appointment_doctor,
+    set_clinical_appointment_status,
+    upcoming_clinical_appointments,
+    update_appointment_clinical_details,
+)
+from app.services.clinical_pre_intake_service import (
+    create_pre_intake,
+    get_pre_intake,
+    list_pre_intakes,
+    update_pre_intake,
+)
 
 
 # KVKK Md. 10 — Aydınlatma metni sürümü. Metin değişirse versiyon yükseltilmeli.
@@ -63,8 +79,8 @@ KVKK_NOTICE_TEMPLATE_TR = (
     "telefon numaranız ve sağlık şikayetiniz gibi kişisel verileriniz yalnızca "
     "randevu oluşturma amacıyla işlenecektir. Verileriniz Türkiye sınırları içinde "
     "saklanmakta olup üçüncü taraflarla paylaşılmamaktadır. KVKK kapsamındaki "
-    "haklarınız için {clinic_email} adresine yazabilirsiniz. Devam etmek veri "
-    "işlemeye onay verdiğiniz anlamına gelir."
+    "haklarınız için {clinic_email} adresine yazabilirsiniz. Açık rıza gerektiren "
+    "bir işlem olursa devam etmeden önce ayrıca onayınız istenecektir."
 )
 
 
@@ -335,39 +351,6 @@ def _assign_review_doctor(db: Session, clinic: Clinic, data: dict | None) -> Doc
     return linked_doctors[0]
 
 
-def resolve_appointment_doctor(
-    db: Session,
-    clinic: Clinic,
-    *,
-    physician_name: str | None = None,
-    department: str | None = None,
-) -> Doctor | None:
-    """Resolve an appointment to a login-linked clinician, deterministically."""
-    linked_doctors = list(
-        db.scalars(
-            select(Doctor)
-            .where(Doctor.clinic_id == clinic.id, Doctor.user_id.is_not(None), Doctor.is_active.is_(True))
-            .order_by(Doctor.id)
-        )
-    )
-    if not linked_doctors:
-        return None
-    if physician_name:
-        normalized_name = physician_name.strip().casefold()
-        for doctor in linked_doctors:
-            doctor_name = doctor.full_name.strip().casefold()
-            if normalized_name == doctor_name or normalized_name in doctor_name or doctor_name in normalized_name:
-                return doctor
-        # Açıkça adı verilen ama sisteme bağlı olmayan hekimi başka bir hekime
-        # sessizce atama; operatörün eşleştirmesi için atamasız bırak.
-        return None
-    if department:
-        normalized_department = department.strip().casefold()
-        for doctor in linked_doctors:
-            if doctor.specialty.strip().casefold() == normalized_department:
-                return doctor
-    return linked_doctors[0]
-
 
 def _find_or_create_patient(db: Session, clinic: Clinic, incoming: IncomingClinicalMessage) -> ClinicPatient:
     phone = normalize_phone(incoming.from_phone)
@@ -445,8 +428,8 @@ def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPat
     db.refresh(conversation)
 
     # Hasta ilk kez yazıyor — KVKK Md. 10 aydınlatma yükümlülüğünü yerine getir.
-    # `_emit_kvkk_notice_and_consent` hem sistem mesajı hem ConsentRecord yazar.
-    _emit_kvkk_notice_and_consent(db, clinic, patient, conversation)
+    # Bildirim ile açık rızayı karıştırmamak için kayıt pending/granted=False açılır.
+    _emit_kvkk_notice_and_pending_consent(db, clinic, patient, conversation)
 
     # Hasta için ilk kayıt anında data_expires_at'i de set et (varsa override etme).
     if patient.data_expires_at is None:
@@ -456,18 +439,18 @@ def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPat
     return conversation
 
 
-def _emit_kvkk_notice_and_consent(
+def _emit_kvkk_notice_and_pending_consent(
     db: Session,
     clinic: Clinic,
     patient: ClinicPatient,
     conversation: ClinicConversation,
 ) -> None:
-    """KVKK Md. 10 aydınlatma metnini sistem mesajı olarak yaz + örtük rıza kaydı oluştur.
+    """KVKK Md. 10 aydınlatmasını yaz ve henüz verilmemiş rızayı kaydet.
 
     Hasta WhatsApp/telefon/web üzerinden ilk kez geldiğinde tetiklenir. Mesaj
     `sender=system` ile kaydedilir ki gerçek hasta/asistan dialogundan ayırt edilebilsin.
-    Devam etmesi açık rıza sayılır (TEMPLATE'in son cümlesi); geri çekme `withdrawn_at`
-    işaretlemesiyle yapılır.
+    Salt görüşmeye devam etmek açık rıza sayılmaz. Web/DTMF gibi doğrulanabilir bir
+    aksiyon ayrı endpoint üzerinden bu kaydı granted hale getirmelidir.
     """
     notice_text = _build_kvkk_notice_text(clinic)
     system_message = ClinicMessage(
@@ -489,7 +472,7 @@ def _emit_kvkk_notice_and_consent(
         patient_id=patient.id,
         conversation_id=conversation.id,
         consent_type=ConsentType.DATA_PROCESSING,
-        granted=True,
+        granted=False,
         channel=conversation.channel,
         consent_text_version=KVKK_NOTICE_VERSION,
     )
@@ -516,6 +499,27 @@ def _existing_inbound_message(
         )
         .order_by(ClinicMessage.created_at.desc())
     ).first()
+
+
+def _has_active_cross_border_consent(
+    db: Session,
+    clinic: Clinic,
+    patient: ClinicPatient,
+    conversation: ClinicConversation,
+) -> bool:
+    consent = db.scalars(
+        select(ConsentRecord)
+        .where(
+            ConsentRecord.clinic_id == clinic.id,
+            ConsentRecord.patient_id == patient.id,
+            ConsentRecord.conversation_id == conversation.id,
+            ConsentRecord.consent_type == ConsentType.CROSS_BORDER_TRANSFER,
+            ConsentRecord.granted.is_(True),
+            ConsentRecord.withdrawn_at.is_(None),
+        )
+        .order_by(ConsentRecord.granted_at.desc())
+    ).first()
+    return consent is not None
 
 
 def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None, use_ai: bool = True) -> IngestionResult:
@@ -602,6 +606,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         incoming.requested_persona_id,
         use_ai=use_ai,
         previous_intent=conversation.intent,
+        external_ai_consent=_has_active_cross_border_consent(db, clinic, patient, conversation),
     )
 
     # Multi-intent ve consent sinyallerini AI çıktısı sonrası hesapla.
@@ -811,442 +816,32 @@ def list_shadow_reviews(
     return list(db.scalars(query))
 
 
-def list_doctor_inbox(db: Session, clinic: Clinic, limit: int = 30) -> list[ClinicConversation]:
-    return list(
-        db.scalars(
-            select(ClinicConversation)
-            .options(selectinload(ClinicConversation.patient), selectinload(ClinicConversation.messages))
-            .where(
-                ClinicConversation.clinic_id == clinic.id,
-                ClinicConversation.status.in_(
-                    [
-                        ClinicConversationStatus.WAITING_HUMAN,
-                        ClinicConversationStatus.APPOINTMENT_PENDING,
-                    ]
-                ),
-            )
-            .order_by(ClinicConversation.updated_at.desc())
-            .limit(limit)
-        )
-    )
-
-
-def create_clinical_appointment_from_conversation(
+def list_doctor_inbox(
     db: Session,
     clinic: Clinic,
-    conversation_id: int,
-    department: str,
-    starts_at: datetime | None,
-    duration_minutes: int = 30,
-    visit_reason: str | None = None,
-    notes: str | None = None,
-) -> ClinicalAppointment:
-    conversation = get_clinical_conversation(db, clinic, conversation_id)
-    assigned_doctor = resolve_appointment_doctor(db, clinic, department=department)
-    appointment = ClinicalAppointment(
-        clinic_id=clinic.id,
-        patient_id=conversation.patient_id,
-        conversation_id=conversation.id,
-        assigned_doctor_id=assigned_doctor.id if assigned_doctor else None,
-        department=department.strip() or "Muayene",
-        starts_at=starts_at,
-        ends_at=starts_at + timedelta(minutes=duration_minutes) if starts_at else None,
-        duration_minutes=duration_minutes,
-        visit_reason=visit_reason,
-        status=ClinicalAppointmentStatus.PENDING if starts_at is None else ClinicalAppointmentStatus.CONFIRMED,
-        notes=notes,
-        metadata_json={"created_from": "doctor_inbox"},
-    )
-    conversation.status = ClinicConversationStatus.APPOINTMENT_PENDING if starts_at is None else ClinicConversationStatus.ACTIVE
-    db.add(appointment)
-    db.add(conversation)
-    db.commit()
-    db.refresh(appointment)
-    return appointment
-
-
-def upcoming_clinical_appointments(
-    db: Session,
-    clinic: Clinic,
-    within_minutes: int = 120,
+    limit: int = 30,
     *,
     doctor_id: int | None = None,
-) -> list[ClinicalAppointment]:
-    now = datetime.now(timezone.utc)
+) -> list[ClinicConversation]:
     query = (
-        select(ClinicalAppointment)
-        .options(
-            selectinload(ClinicalAppointment.procedures),
-            selectinload(ClinicalAppointment.assigned_doctor),
-        )
+        select(ClinicConversation)
+        .options(selectinload(ClinicConversation.patient), selectinload(ClinicConversation.messages))
         .where(
-            ClinicalAppointment.clinic_id == clinic.id,
-            ClinicalAppointment.status == ClinicalAppointmentStatus.CONFIRMED,
-            ClinicalAppointment.starts_at.is_not(None),
-            ClinicalAppointment.starts_at >= now,
-            ClinicalAppointment.starts_at <= now + timedelta(minutes=within_minutes),
+            ClinicConversation.clinic_id == clinic.id,
+            ClinicConversation.status.in_(
+                [
+                    ClinicConversationStatus.WAITING_HUMAN,
+                    ClinicConversationStatus.APPOINTMENT_PENDING,
+                ]
+            ),
         )
     )
     if doctor_id is not None:
-        query = query.where(ClinicalAppointment.assigned_doctor_id == doctor_id)
-    return list(
-        db.scalars(
-            query.order_by(ClinicalAppointment.starts_at.asc())
-        )
-    )
+        query = query.join(ShadowReview, ShadowReview.conversation_id == ClinicConversation.id).where(
+            ShadowReview.assigned_doctor_id == doctor_id
+        ).distinct()
+    return list(db.scalars(query.order_by(ClinicConversation.updated_at.desc()).limit(limit)))
 
-
-def recent_clinical_appointments(
-    db: Session,
-    clinic: Clinic,
-    limit: int = 50,
-    *,
-    doctor_id: int | None = None,
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
-) -> list[ClinicalAppointment]:
-    """Operatör paneli için kliniğin son randevuları (tüm statüler), en yeni önce."""
-    query = (
-        select(ClinicalAppointment)
-        .options(
-            selectinload(ClinicalAppointment.procedures),
-            selectinload(ClinicalAppointment.assigned_doctor),
-        )
-        .where(ClinicalAppointment.clinic_id == clinic.id)
-    )
-    if doctor_id is not None:
-        query = query.where(ClinicalAppointment.assigned_doctor_id == doctor_id)
-    if date_from is not None:
-        query = query.where(ClinicalAppointment.starts_at >= date_from)
-    if date_to is not None:
-        query = query.where(ClinicalAppointment.starts_at < date_to)
-    return list(
-        db.scalars(
-            query.order_by(ClinicalAppointment.starts_at.asc().nullslast(), ClinicalAppointment.created_at.desc()).limit(limit)
-        )
-    )
-
-
-def _aware(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-
-
-def _appointment_end(appointment: ClinicalAppointment) -> datetime | None:
-    if appointment.ends_at is not None:
-        return _aware(appointment.ends_at)
-    if appointment.starts_at is None:
-        return None
-    return _aware(appointment.starts_at) + timedelta(minutes=appointment.duration_minutes or 30)
-
-
-def ensure_doctor_schedule_available(
-    db: Session,
-    appointment: ClinicalAppointment,
-    *,
-    starts_at: datetime | None = None,
-    duration_minutes: int | None = None,
-) -> None:
-    start = starts_at if starts_at is not None else appointment.starts_at
-    if start is None:
-        raise ValidationError("Onaylanan randevu için tarih ve saat zorunludur")
-    if appointment.assigned_doctor_id is None:
-        raise ValidationError("Randevu aktif bir hekime atanmalıdır")
-    start = _aware(start)
-    duration = duration_minutes or appointment.duration_minutes or 30
-    end = start + timedelta(minutes=duration)
-    candidates = db.scalars(
-        select(ClinicalAppointment).where(
-            ClinicalAppointment.clinic_id == appointment.clinic_id,
-            ClinicalAppointment.assigned_doctor_id == appointment.assigned_doctor_id,
-            ClinicalAppointment.status == ClinicalAppointmentStatus.CONFIRMED,
-            ClinicalAppointment.id != appointment.id,
-            ClinicalAppointment.starts_at.is_not(None),
-        )
-    ).all()
-    for existing in candidates:
-        existing_start = _aware(existing.starts_at) if existing.starts_at else None
-        existing_end = _appointment_end(existing)
-        if existing_start is not None and existing_end is not None and start < existing_end and end > existing_start:
-            raise ConflictError(
-                "Hekimin bu saat aralığında başka bir onaylı randevusu var",
-                details={
-                    "conflicting_appointment_id": existing.id,
-                    "starts_at": existing_start.isoformat(),
-                    "ends_at": existing_end.isoformat(),
-                },
-            )
-
-
-def set_clinical_appointment_status(
-    db: Session,
-    clinic: Clinic,
-    appointment_id: int,
-    status_value: str,
-    *,
-    doctor_id: int | None = None,
-) -> ClinicalAppointment:
-    """Operatör randevu durumunu günceller (pending → confirmed/cancelled)."""
-    query = select(ClinicalAppointment).where(
-        ClinicalAppointment.id == appointment_id,
-        ClinicalAppointment.clinic_id == clinic.id,
-    )
-    if doctor_id is not None:
-        query = query.where(ClinicalAppointment.assigned_doctor_id == doctor_id)
-    appointment = db.scalars(query).first()
-    if appointment is None:
-        raise NotFoundError("Appointment not found")
-    next_status = ClinicalAppointmentStatus(status_value)
-    if next_status == ClinicalAppointmentStatus.CONFIRMED:
-        ensure_doctor_schedule_available(db, appointment)
-        appointment.ends_at = _aware(appointment.starts_at) + timedelta(minutes=appointment.duration_minutes or 30)
-    appointment.status = next_status
-    db.add(appointment)
-    db.commit()
-    db.refresh(appointment)
-    return appointment
-
-
-def create_manual_clinical_appointment(
-    db: Session,
-    clinic: Clinic,
-    *,
-    full_name: str | None,
-    phone: str,
-    department: str,
-    starts_at: datetime | None,
-    duration_minutes: int,
-    visit_reason: str | None,
-    physician_name: str | None,
-    branch_name: str | None,
-    notes: str | None,
-) -> ClinicalAppointment:
-    """Operatörün panelden (sohbet olmadan) açtığı randevu.
-
-    Mevcut hasta telefon numarasından bulunur, yoksa minimal kayıt açılır.
-    Slot panosundan tıklanan dilim bilgisi metadata_json'a düşer.
-    """
-    normalized_phone = normalize_phone(phone)
-    patient = db.scalars(
-        select(ClinicPatient).where(
-            ClinicPatient.clinic_id == clinic.id, ClinicPatient.phone == normalized_phone
-        )
-    ).first()
-    if patient is None:
-        patient = ClinicPatient(
-            clinic_id=clinic.id,
-            full_name=full_name,
-            phone=normalized_phone,
-            language=clinic.default_language or "tr",
-            source=ClinicChannel.PHONE,
-            external_ref=normalized_phone,
-            metadata_json={},
-        )
-        db.add(patient)
-        db.commit()
-        db.refresh(patient)
-    elif full_name and not patient.full_name:
-        patient.full_name = full_name
-        db.add(patient)
-        db.commit()
-        db.refresh(patient)
-
-    metadata: dict = {"created_by": "operator_panel"}
-    if physician_name:
-        metadata["physician_name"] = physician_name
-    if branch_name:
-        metadata["branch_name"] = branch_name
-
-    assigned_doctor = resolve_appointment_doctor(
-        db,
-        clinic,
-        physician_name=physician_name,
-        department=department,
-    )
-
-    appointment = ClinicalAppointment(
-        clinic_id=clinic.id,
-        patient_id=patient.id,
-        conversation_id=None,
-        assigned_doctor_id=assigned_doctor.id if assigned_doctor else None,
-        department=department,
-        starts_at=starts_at,
-        ends_at=starts_at + timedelta(minutes=duration_minutes) if starts_at else None,
-        duration_minutes=duration_minutes,
-        visit_reason=visit_reason,
-        status=ClinicalAppointmentStatus.PENDING,
-        notes=notes,
-        metadata_json=metadata,
-    )
-    db.add(appointment)
-    db.commit()
-    db.refresh(appointment)
-    return appointment
-
-
-def update_appointment_clinical_details(
-    db: Session,
-    clinic: Clinic,
-    appointment_id: int,
-    *,
-    doctor_id: int | None,
-    starts_at: datetime | None,
-    duration_minutes: int | None,
-    visit_reason: str | None,
-    notes: str | None,
-    procedures: list[dict] | None,
-    fields_set: set[str],
-) -> ClinicalAppointment:
-    query = (
-        select(ClinicalAppointment)
-        .options(selectinload(ClinicalAppointment.procedures), selectinload(ClinicalAppointment.assigned_doctor))
-        .where(ClinicalAppointment.id == appointment_id, ClinicalAppointment.clinic_id == clinic.id)
-    )
-    if doctor_id is not None:
-        query = query.where(ClinicalAppointment.assigned_doctor_id == doctor_id)
-    appointment = db.scalars(query).first()
-    if appointment is None:
-        raise NotFoundError("Appointment not found")
-
-    next_start = starts_at if "starts_at" in fields_set else appointment.starts_at
-    next_duration = duration_minutes if duration_minutes is not None else appointment.duration_minutes
-    if appointment.status == ClinicalAppointmentStatus.CONFIRMED and (
-        "starts_at" in fields_set or "duration_minutes" in fields_set
-    ):
-        ensure_doctor_schedule_available(
-            db,
-            appointment,
-            starts_at=next_start,
-            duration_minutes=next_duration,
-        )
-
-    if "starts_at" in fields_set:
-        appointment.starts_at = starts_at
-    if "duration_minutes" in fields_set and duration_minutes is not None:
-        appointment.duration_minutes = duration_minutes
-    if "visit_reason" in fields_set:
-        appointment.visit_reason = visit_reason.strip() if visit_reason else None
-    if "notes" in fields_set:
-        appointment.notes = notes.strip() if notes else None
-    appointment.ends_at = (
-        _aware(appointment.starts_at) + timedelta(minutes=appointment.duration_minutes)
-        if appointment.starts_at
-        else None
-    )
-
-    if procedures is not None:
-        by_id = {item.id: item for item in appointment.procedures}
-        now = datetime.now(timezone.utc)
-        for index, payload in enumerate(procedures):
-            procedure_id = payload.get("id")
-            if procedure_id is not None:
-                procedure = by_id.get(procedure_id)
-                if procedure is None:
-                    raise ValidationError("İşlem bu randevuya ait değil")
-            else:
-                procedure = ClinicalAppointmentProcedure(
-                    clinic_id=clinic.id,
-                    appointment_id=appointment.id,
-                    name=payload["name"].strip(),
-                )
-            procedure.name = payload["name"].strip()
-            procedure.code = payload.get("code") or None
-            procedure.tooth = payload.get("tooth") or None
-            procedure.notes = payload.get("notes") or None
-            procedure.sort_order = payload.get("sort_order", index)
-            next_procedure_status = ClinicalProcedureStatus(payload.get("status", "planned"))
-            if next_procedure_status == ClinicalProcedureStatus.IN_PROGRESS and procedure.started_at is None:
-                procedure.started_at = now
-            if next_procedure_status == ClinicalProcedureStatus.COMPLETED:
-                procedure.started_at = procedure.started_at or now
-                procedure.completed_at = now
-                procedure.performed_by_doctor_id = doctor_id or appointment.assigned_doctor_id
-            elif next_procedure_status != ClinicalProcedureStatus.COMPLETED:
-                procedure.completed_at = None
-            procedure.status = next_procedure_status
-            db.add(procedure)
-
-    db.add(appointment)
-    db.commit()
-    return db.scalars(
-        select(ClinicalAppointment)
-        .options(selectinload(ClinicalAppointment.procedures), selectinload(ClinicalAppointment.assigned_doctor))
-        .where(ClinicalAppointment.id == appointment.id)
-    ).one()
-
-
-def update_shadow_review(
-    db: Session,
-    clinic: Clinic,
-    current_user: User,
-    review_id: int,
-    status_value: str,
-    final_reply: str | None,
-    *,
-    doctor_id: int | None = None,
-) -> ShadowReview:
-    query = select(ShadowReview).where(ShadowReview.clinic_id == clinic.id, ShadowReview.id == review_id)
-    if doctor_id is not None:
-        query = query.where(ShadowReview.assigned_doctor_id == doctor_id)
-    review = db.scalars(query).first()
-    if review is None:
-        raise NotFoundError("Shadow review not found")
-
-    next_status = ShadowReviewStatus(status_value)
-    if next_status == ShadowReviewStatus.EDITED and not final_reply:
-        raise ValidationError("Edited review requires final_reply")
-
-    review.status = next_status
-    review.final_reply = final_reply or review.draft_reply
-    review.reviewed_by_user_id = current_user.id
-    review.reviewed_at = datetime.now(timezone.utc)
-
-    conversation = get_clinical_conversation(db, clinic, review.conversation_id)
-    if next_status in {ShadowReviewStatus.APPROVED, ShadowReviewStatus.EDITED}:
-        db.add(
-            ClinicMessage(
-                clinic_id=clinic.id,
-                conversation_id=conversation.id,
-                sender=ClinicMessageSender.OPERATOR,
-                content=review.final_reply,
-                language=conversation.language,
-                intent=review.intent,
-                confidence_score=review.confidence_score,
-                metadata_json={"shadow_review_id": review.id, "delivery": "simulated"},
-            )
-        )
-        conversation.status = ClinicConversationStatus.ACTIVE
-    elif next_status == ShadowReviewStatus.REJECTED:
-        conversation.status = ClinicConversationStatus.WAITING_HUMAN
-
-    db.add(review)
-    db.add(conversation)
-    db.commit()
-    db.refresh(review)
-
-    # Log the human-in-the-loop decision so it shows up alongside AI decisions.
-    decision_intent = review.intent.value if hasattr(review.intent, "value") else str(review.intent)
-    record_agent_decision(
-        db,
-        build_decision(
-            agent_type=AgentType.ROUTING,
-            intent=decision_intent,
-            confidence=review.confidence_score,
-            risk=DecisionRisk.HIGH if next_status == ShadowReviewStatus.REJECTED else DecisionRisk.MEDIUM,
-            requires_human=True,
-            action=f"shadow_review.{next_status.value}",
-            reason="operator_review",
-            organization_id=clinic.organization_id,
-            payload={
-                "review_id": review.id,
-                "operator_user_id": current_user.id,
-                "final_reply_used": review.final_reply,
-            },
-        ),
-        clinic_id=clinic.id,
-        conversation_id=conversation.id,
-        user_id=current_user.id,
-    )
-    return review
 
 
 def clinical_metrics(db: Session, clinic: Clinic, *, doctor_id: int | None = None) -> dict:
@@ -1333,114 +928,3 @@ def clinical_metrics(db: Session, clinic: Clinic, *, doctor_id: int | None = Non
         "reminders_due": reminders_due,
         "frustration_events": frustration_events,
     }
-
-
-def _get_clinic_patient(db: Session, clinic: Clinic, patient_id: int) -> ClinicPatient:
-    patient = db.scalars(
-        select(ClinicPatient).where(ClinicPatient.id == patient_id, ClinicPatient.clinic_id == clinic.id)
-    ).first()
-    if patient is None:
-        raise NotFoundError("Patient not found")
-    return patient
-
-
-def create_pre_intake(
-    db: Session,
-    clinic: Clinic,
-    patient_id: int,
-    conversation_id: int | None = None,
-    answers: dict | None = None,
-    is_complete: bool = False,
-) -> PreIntake:
-    patient = _get_clinic_patient(db, clinic, patient_id)
-    if conversation_id is not None:
-        get_clinical_conversation(db, clinic, conversation_id)
-
-    pre_intake = PreIntake(
-        clinic_id=clinic.id,
-        patient_id=patient.id,
-        conversation_id=conversation_id,
-        answers_json=dict(answers or {}),
-        is_complete=is_complete,
-    )
-    db.add(pre_intake)
-    db.commit()
-    db.refresh(pre_intake)
-    return pre_intake
-
-
-def get_pre_intake(db: Session, clinic: Clinic, pre_intake_id: int) -> PreIntake:
-    pre_intake = db.scalars(
-        select(PreIntake).where(PreIntake.id == pre_intake_id, PreIntake.clinic_id == clinic.id)
-    ).first()
-    if pre_intake is None:
-        raise NotFoundError("Pre-intake not found")
-    return pre_intake
-
-
-def list_pre_intakes(
-    db: Session,
-    clinic: Clinic,
-    patient_id: int | None = None,
-    conversation_id: int | None = None,
-    is_complete: bool | None = None,
-    limit: int = 50,
-) -> list[PreIntake]:
-    stmt = select(PreIntake).where(PreIntake.clinic_id == clinic.id)
-    if patient_id is not None:
-        stmt = stmt.where(PreIntake.patient_id == patient_id)
-    if conversation_id is not None:
-        stmt = stmt.where(PreIntake.conversation_id == conversation_id)
-    if is_complete is not None:
-        stmt = stmt.where(PreIntake.is_complete == is_complete)
-    stmt = stmt.order_by(PreIntake.updated_at.desc()).limit(limit)
-    return list(db.scalars(stmt))
-
-
-def update_pre_intake(
-    db: Session,
-    clinic: Clinic,
-    pre_intake_id: int,
-    answers: dict | None = None,
-    is_complete: bool | None = None,
-    replace: bool = False,
-) -> PreIntake:
-    pre_intake = get_pre_intake(db, clinic, pre_intake_id)
-
-    if answers is not None:
-        if replace:
-            pre_intake.answers_json = dict(answers)
-        else:
-            merged = dict(pre_intake.answers_json or {})
-            merged.update(answers)
-            pre_intake.answers_json = merged
-    if is_complete is not None:
-        pre_intake.is_complete = is_complete
-
-    db.add(pre_intake)
-    db.commit()
-    db.refresh(pre_intake)
-
-    answer_count = len(pre_intake.answers_json or {})
-    record_agent_decision(
-        db,
-        build_decision(
-            agent_type=AgentType.FORM,
-            intent="pre_intake_progress",
-            confidence=1.0 if pre_intake.is_complete else 0.5,
-            risk=DecisionRisk.LOW,
-            requires_human=False,
-            action="persist_pre_intake" if pre_intake.is_complete else "ask_next_question",
-            reason="form_complete" if pre_intake.is_complete else "form_in_progress",
-            organization_id=clinic.organization_id,
-            payload={
-                "pre_intake_id": pre_intake.id,
-                "answer_count": answer_count,
-                "is_complete": pre_intake.is_complete,
-                "replace_mode": replace,
-            },
-        ),
-        clinic_id=clinic.id,
-        conversation_id=pre_intake.conversation_id,
-    )
-    return pre_intake

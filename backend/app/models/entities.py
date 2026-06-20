@@ -328,6 +328,31 @@ class ShadowReview(Base):
     assigned_doctor: Mapped["Doctor | None"] = relationship(back_populates="shadow_reviews")
 
 
+class ClinicalModelFeedback(Base):
+    """Human verdict over an AI draft, queued for privacy-safe model improvement.
+
+    The patient message remains referenced instead of copied. Corrections are not
+    treated as immediately trainable: a redaction/approval job must explicitly
+    promote ``training_status`` from ``pending_redaction``.
+    """
+
+    __tablename__ = "clinical_model_feedback"
+    __table_args__ = (UniqueConstraint("review_id", name="uq_clinical_model_feedback_review"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("clinic_conversations.id"), nullable=False, index=True)
+    review_id: Mapped[int] = mapped_column(ForeignKey("shadow_reviews.id"), nullable=False, index=True)
+    patient_message_id: Mapped[int] = mapped_column(ForeignKey("clinic_messages.id"), nullable=False, index=True)
+    reviewed_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    original_reply: Mapped[str] = mapped_column(Text, nullable=False)
+    corrected_reply: Mapped[str | None] = mapped_column(Text)
+    mismatch_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    training_status: Mapped[str] = mapped_column(String(32), default="pending_redaction", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class ClinicalAppointment(Base):
     __tablename__ = "clinical_appointments"
 
