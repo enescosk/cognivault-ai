@@ -21,7 +21,7 @@ Son güncelleme: 2026-06-19
 | İP-5 | Pilot Saha & Klinik Doğrulama | Ay 7–12 | ⬜ Açık |
 | İP-6 | Ticarileştirme & Fikri Mülkiyet | Ay 9–12 | ⬜ Açık |
 
-**🔵 ŞU ANKİ ODAK:** İP-1 / Madde 1.3 — alana özgü Türkçe normalizasyon hattı (argo → kanonik terim).
+**🔵 ŞU ANKİ ODAK:** İP-1 / Madde 1.5 — kalibrasyon katmanı (ECE<0,05).
 
 ---
 
@@ -31,8 +31,8 @@ Son güncelleme: 2026-06-19
 
 - ✅ **1.1** YAPILDI (2026-06-19) Branş + aciliyet ontolojisi tanımlandı — tek doğru kaynak `backend/app/clinical/ontology.py` (10 branş + genel, 3 aciliyet seviyesi). `clinical_ai_service` ontolojiye bağlandı; 40 test geçti (`tests/test_clinical_ontology.py`). Hekim onayına hazır şema.
 - ✅ **1.2** YAPILDI (2026-06-19) Türkçe diş şikâyeti korpusu kuruldu — `backend/app/clinical/corpus/`. Deterministik sentetik üretici (`build.py`) → **546 etiketli senaryo** (11 branş + 3 aciliyet + 4 kanal, dengeli, PII-temiz); 35 vakalık elle küratörlü **golden** değerlendirme seti (`build_golden.py`). Etiketler ontolojiye bağlı (yer-doğruluğu). 13 test (`tests/test_corpus.py`), üretici↔dosya senkron kapısı dahil. KVKK: tamamen sentetik/anonim, gerçek hasta verisi yok.
-- 🔵 **1.3** Alana özgü Türkçe normalizasyon hattı (argo → kanonik terim). Mevcut `agent/parsing.py` + `classify.py` üstüne kur.
-- ⬜ **1.4** Branş yönlendirme modeli — ≥%90 doğruluk hedefi. Mevcut `agent/classify.py` baz alınır.
+- ✅ **1.3** YAPILDI (2026-06-22) Türkçe argo normalizasyon hattı — `app/clinical/normalizer.py`. 35 argo → kanonik terim kuralı (endodonti, restoratif, periodontoloji, pedodonti, ortodonti, çene cerrahisi, implant, estetik, medikal estetik, dermatoloji, acil). `expand_complaint()` ham metni zenginleştirir; `triage()` sarmalayıcı ham metin → branş + aciliyet tek adımda verir. `tests/test_normalizer.py` — 45 test (genişletme kuralları, uçtan uca branş yönlendirme, aciliyet tespiti, yanlış-pozitif koruması). Tüm mevcut testler regresyonsuz.
+- ✅ **1.4** YAPILDI (2026-06-22) Branş yönlendirme modeli — sentetik korpusta **%99.3 doğruluk** (542/546), hedef ≥%90 aşıldı. `match_specialty` skorlama tabanlına yükseltildi (en çok+en uzun eşleşme; normalize tekilleştirme) — "dudak dolgusu"nun "dolgu"ya kapılması gibi alt-dizi çakışmaları çözüldü. Ontoloji anahtar kelimeleri genişletildi (perio: "diş etler"/"kanama"; çene: "çene kırığı"), zamir çakışması yapan dermatoloji "ben" anahtarı kaldırıldı. Normalizer'a kalan argo kuralları eklendi (apse→endodonti, çatladı, kaşınma/mol, termal hassasiyet, çekim varyantları, 20lik genişletme). Yeniden kullanılabilir değerlendirme harness'ı: `app/clinical/evaluate.py` (`python -m app.clinical.evaluate`). Golden set (kasıtlı zor) %62.9 — kalan X→genel_dis kaçışları İP-1.6 çekimser tahminin (insana yükseltme) hedefi, kurala zorla uydurulmadı. Tüm bağımsız testler (ontoloji+korpus+normalizer = 78) geçti.
 - ⬜ **1.5** Kalibrasyon katmanı (confidence calibration) — ECE<0,05 ölç ve raporla.
 - ⬜ **1.6** Çekimser/selective prediction: düşük-güven veya tutarsız kanıtta otomatik insan-yükseltme (conformal prediction eşiği).
 - ⬜ **1.7** Acil-recall ≈ %100 garantili kapsama testi (kaçan acil ≈ 0). Adversarial acil senaryolarıyla doğrula.
@@ -113,3 +113,5 @@ Son güncelleme: 2026-06-19
 - 2026-06-19: Plan oluşturuldu. Mevcut MVP üzerinden İP-2 (zarf), İP-3 (yerel yığın), İP-4 (shadow mode) temel maddeleri YAPILDI işaretlendi. Aktif odak İP-1.1.
 - 2026-06-19: İP-1.1 YAPILDI. `app/clinical/ontology.py` ontoloji modülü eklendi (branş + aciliyet, tek kaynak); `clinical_ai_service` yinelenen tanımlardan arındırılıp ontolojiye bağlandı; `tests/test_clinical_ontology.py` (12 test) eklendi. Odak İP-1.2'ye taşındı.
 - 2026-06-19: İP-1.2 YAPILDI. `app/clinical/corpus/` paketi eklendi: schema (CorpusEntry + JSONL + PII tarama), şablonlar, deterministik üretici (546 senaryo) ve 35 vakalık golden set. `tests/test_corpus.py` (13 test). Tüm paket 168 test geçti, regresyon yok. Odak İP-1.3'e taşındı.
+- 2026-06-22: İP-1.3 YAPILDI. `app/clinical/normalizer.py` eklendi: 35 kural argo → kanonik terim genişletme motoru + `triage()` sarmalayıcı. `tests/test_normalizer.py` (45 test). Odak İP-1.4'e taşındı.
+- 2026-06-22: İP-1.4 YAPILDI. Skorlama tabanlı `match_specialty` + genişletilmiş normalizer/ontoloji → sentetik korpusta %74→%99.3. `app/clinical/evaluate.py` değerlendirme harness'ı eklendi. NOT: çalışma ağacındaki `app/models/entities.py` bozuk (eksik import'lar + kayıp `OutreachDraft` sınıfı) — İP-1.4 dışı, ayrı blocker; servis tarafı testleri (`test_clinical.py`) bu yüzden koşmuyor. Odak İP-1.5'e taşındı.

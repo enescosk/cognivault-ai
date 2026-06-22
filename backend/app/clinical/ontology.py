@@ -165,7 +165,10 @@ SPECIALTY_REGISTRY: tuple[DentalSpecialty, ...] = (
     DentalSpecialty(
         code="periodontoloji",
         display_tr="Periodontoloji",
-        keywords=frozenset({"diş eti", "dis eti", "kanıyor", "kaniyor", "diş etim", "dis etim"}),
+        keywords=frozenset({
+            "diş eti", "dis eti", "diş etler", "dis etler", "diş etim", "dis etim",
+            "kanıyor", "kaniyor", "kanama",
+        }),
         routing_reason="gum_bleeding",
     ),
     DentalSpecialty(
@@ -189,7 +192,9 @@ SPECIALTY_REGISTRY: tuple[DentalSpecialty, ...] = (
     DentalSpecialty(
         code="cene_cerrahisi",
         display_tr="Ağız, Diş ve Çene Cerrahisi",
-        keywords=frozenset({"çekim", "cekim", "20lik", "yirmilik", "gömülü", "gomulu"}),
+        keywords=frozenset({
+            "çekim", "cekim", "20lik", "yirmilik", "gömülü", "gomulu", "çene kırığı", "cene kirigi",
+        }),
         routing_reason="oral_surgery",
     ),
     DentalSpecialty(
@@ -201,7 +206,8 @@ SPECIALTY_REGISTRY: tuple[DentalSpecialty, ...] = (
     DentalSpecialty(
         code="dermatoloji",
         display_tr="Dermatoloji",
-        keywords=frozenset({"akne", "sivilce", "leke", "ben", "egzama", "saç dökülmesi", "sac dokulmesi"}),
+        # "ben" (zamir) ile çakıştığı için bare "ben" yerine bağlamlı normalizer kuralı kullanılır.
+        keywords=frozenset({"akne", "sivilce", "leke", "egzama", "saç dökülmesi", "sac dokulmesi"}),
         routing_reason="dermatology",
         scope=SpecialtyScope.ADJACENT,
     ),
@@ -234,14 +240,29 @@ class SpecialtyMatch:
 
 
 def match_specialty(text: str) -> SpecialtyMatch:
-    """Şikâyet metnini branşa eşler.
+    """Şikâyet metnini branşa eşler (skorlama tabanlı).
 
-    Kayıt sırasına göre ilk eşleşen branş kazanır. Hiçbiri eşleşmezse
-    GENERAL_SPECIALTY döner (is_default=True).
+    Her branş için eşleşen anahtar kelimeler sayılır; skor = (eşleşme sayısı,
+    toplam eşleşen karakter uzunluğu). En yüksek skorlu branş kazanır. Bu,
+    saf "ilk eşleşen kazanır" mantığının aksine, daha uzun/daha spesifik
+    ifadeleri kısa alt-dizi çakışmalarına tercih eder — örn. "dudak dolgusu"
+    (medikal estetik) artık "dolgu" (restoratif) alt-dizisine kapılmaz.
+
+    Beraberlikte kayıt sırası belirleyicidir (DENTAL branşlar ADJACENT'tan
+    önce gelir). Hiçbiri eşleşmezse GENERAL_SPECIALTY döner (is_default=True).
     """
     normalized = normalize_tr(text)
+    best: SpecialtyMatch | None = None
+    best_score = (0, 0)  # (eşleşme sayısı, toplam eşleşen uzunluk)
     for spec in SPECIALTY_REGISTRY:
         hits = tuple(kw for kw in spec.keywords if normalize_tr(kw) in normalized)
-        if hits:
-            return SpecialtyMatch(specialty=spec, matched_keywords=hits)
-    return SpecialtyMatch(specialty=GENERAL_SPECIALTY)
+        if not hits:
+            continue
+        # Normalize edilmiş forma göre tekilleştir — "diş eti" ve "dis eti" gibi
+        # aynı kanonik forma inen varyantlar skoru şişirmesin.
+        distinct = {normalize_tr(kw) for kw in hits}
+        score = (len(distinct), sum(len(n) for n in distinct))
+        if score > best_score:
+            best_score = score
+            best = SpecialtyMatch(specialty=spec, matched_keywords=hits)
+    return best if best is not None else SpecialtyMatch(specialty=GENERAL_SPECIALTY)
