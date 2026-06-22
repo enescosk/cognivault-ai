@@ -1,0 +1,166 @@
+/* CogniVault — UI primitive katmanı.
+   global.css :root token'larını kullanır; yeni renk/font/radius icat ETMEZ.
+   Amaç: yeni ekranlar 50 yeni sınıf yerine bu yeniden kullanılabilir
+   parçaları dizsin. Bkz. frontend/DESIGN_SYSTEM.md */
+
+/* ─── Button ─────────────────────────────────────────────── */
+.ui-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 16px; border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-family: var(--font-display); font-weight: 600; font-size: 0.9rem;
+  letter-spacing: -0.01em; line-height: 1;
+  transition: var(--transition); white-space: nowrap;
+}
+.ui-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ui-btn--sm { padding: 7px 12px; font-size: 0.8rem; }
+.ui-btn--lg { padding: 14px 20px; font-size: 0.95rem; }
+.ui-btn--block { width: 100%; }
+
+.ui-btn--primary { background: var(--accent); color: #050810; }
+.ui-btn--primary:hover:not(:disabled) { background: #90cdf4; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(99,179,237,0.3); }
+.ui-btn--primary:active:not(:disabled) { transform: translateY(0); }
+
+.ui-btn--ghost { background: var(--surface); border-color: var(--border); color: var(--text-2); }
+.ui-btn--ghost:hover:not(:disabled) { border-color: var(--border-active); color: var(--accent); background: var(--surface-active); }
+
+.ui-btn--subtle { background: transparent; color: var(--text-2); }
+.ui-btn--subtle:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+
+.ui-btn--danger { background: var(--red-bg); border-color: rgba(252,129,129,0.25); color: var(--red); }
+.ui-btn--danger:hover:not(:disabled) { background: rgba(252,129,129,0.16); border-color: rgba(252,129,129,0.4); }
+
+/* ─── Card ───────────────────────────────────────────────── */
+.ui-card {
+  padding: 16px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--surface);
+  transition: var(--transition);
+}
+.ui-card--hover:hover { border-color: var(--border-hover); background: var(--surface-hover); }
+.ui-card--accent { border-color: var(--border-active); background: var(--surface-active); }
+.ui-card--pad-sm { padding: 12px; }
+.ui-card--pad-lg { padding: 22px; }
+
+/* ─── Panel (başlık + gövde + footer) ────────────────────── */
+.ui-panel { border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--surface); overflow: hidden; }
+.ui-panel-head { padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ui-panel-title { font-family: var(--font-display); font-weight: 600; font-size: 0.98rem; color: var(--text); letter-spacing: -0.01em; }
+.ui-panel-sub { font-size: 0.78rem; color: var(--text-2); margin-top: 3px; }
+.ui-panel-body { padding: 18px; }
+.ui-panel-foot { padding: 12px 18px; border-top: 1px solid var(--border); font-size: 0.76rem; color: var(--text-3); }
+
+/* ─── Badge ──────────────────────────────────────────────── */
+.ui-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
+  padding: 3px 8px; border-radius: 6px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  border: 1px solid transparent;
+}
+.ui-badge--neutral { background: var(--surface); border-color: var(--border); color: var(--text-2); }
+.ui-badge--accent { background: var(--accent-glow); color: var(--accent); }
+.ui-badge--green  { background: var(--green-bg);  color: var(--green); }
+.ui-badge--amber  { background: var(--amber-bg);  color: var(--amber); }
+.ui-badge--red    { background: var(--red-bg);    color: var(--red); }
+.ui-badge--purple { background: var(--purple-bg); color: var(--purple); }
+
+/* ─── Status dot ─────────────────────────────────────────── */
+.ui-status { display: inline-flex; align-items: center; gap: 7px; font-size: 0.82rem; color: var(--text-2); }
+.ui-dot { width: 8px; height: 8px; border-radius: 99px; flex-shrink: 0; background: var(--text-3); }
+.ui-dot--green  { background: var(--green);  box-shadow: 0 0 8px rgba(104,211,145,0.55); }
+.ui-dot--amber  { background: var(--amber);  box-shadow: 0 0 8px rgba(246,173,85,0.55); }
+.ui-dot--red    { background: var(--red);    box-shadow: 0 0 8px rgba(252,129,129,0.55); }
+.ui-dot--accent { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+.ui-dot--pulse { animation: ui-pulse 1.6s ease-in-out infinite; }
+@keyframes ui-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ─── Field (label + input) ──────────────────────────────── */
+.ui-field { display: flex; flex-direction: column; gap: 7px; }
+.ui-field-label { font-size: 0.8rem; font-weight: 500; color: var(--text-2); letter-spacing: 0.02em; }
+.ui-input {
+  width: 100%; padding: 12px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: rgba(255,255,255,0.03);
+  color: var(--text); font-size: 0.92rem; font-family: var(--font-body);
+  transition: var(--transition); outline: none;
+}
+.ui-input::placeholder { color: var(--text-3); }
+.ui-input:focus { border-color: var(--border-active); background: var(--surface-active); box-shadow: 0 0 0 3px rgba(99,179,237,0.08); }
+.ui-field-hint { font-size: 0.72rem; color: var(--text-3); }
+
+/* ─── helpers ────────────────────────────────────────────── */
+.ui-mono { font-family: var(--font-mono); }
+.ui-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px solid transparent; transition: var(--transition);
+}
+.ui-row--hover:hover { background: var(--surface-hover); }
+.ui-row--active { border-color: var(--border-active); background: var(--surface-active); }
+
+/* ─── Meter (güven / oran çubuğu) ────────────────────────── */
+.ui-meter { flex: 1; height: 6px; min-width: 80px; border-radius: 99px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.ui-meter-fill { height: 100%; border-radius: 99px; transition: width var(--transition); }
+.ui-meter-fill--green { background: var(--green); }
+.ui-meter-fill--amber { background: var(--amber); }
+.ui-meter-fill--red { background: var(--red); }
+
+/* ─── Karar Kartı (ShadowReviewCard) ─────────────────────── */
+.shadow-card { display: flex; flex-direction: column; gap: 12px; }
+.shadow-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.shadow-card-meta { font-size: 0.68rem; color: var(--text-3); }
+.shadow-card-conf { display: flex; align-items: center; gap: 10px; }
+.shadow-card-conf-label { font-size: 0.74rem; color: var(--text-2); }
+.shadow-card-conf-val { font-size: 0.74rem; color: var(--text); min-width: 36px; }
+.shadow-card-reason { font-size: 0.78rem; color: var(--text-2); }
+.shadow-card-reason-k { color: var(--text-3); text-transform: uppercase; font-size: 0.62rem; letter-spacing: 0.05em; font-family: var(--font-mono); margin-right: 6px; }
+.shadow-card-draft { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--radius-sm); background: rgba(183,148,244,0.05); border: 1px solid rgba(183,148,244,0.16); }
+.shadow-card-draft-text { color: var(--text); font-size: 0.9rem; line-height: 1.55; }
+.shadow-card-textarea { min-height: 92px; resize: vertical; }
+.shadow-card-gov { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.shadow-card-gov-redacted { font-size: 0.7rem; color: var(--text-3); padding: 4px 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); }
+.shadow-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Karar Kartı — klinik AÇIK tema: yalnız token'la KARŞILANMAYAN farklar kalır.
+   Metin/güven değeri/gov kenarı/badge renkleri .clinical-view token'larından
+   otomatik geldiği için burada tekrar yazılmaz (eskiden ~10 kural fazlalıktı). */
+.clinical-view .shadow-card { background: #ffffff; border-color: rgba(32,72,67,0.14); }
+.clinical-view .shadow-card-reason-k,
+.clinical-view .shadow-card-meta { color: #94a39e; }
+.clinical-view .shadow-card .ui-meter { background: rgba(32,72,67,0.12); }
+.clinical-view .shadow-card-draft { background: rgba(124,77,201,0.06); border-color: rgba(124,77,201,0.18); }
+.clinical-view .shadow-card-gov-redacted { background: rgba(32,72,67,0.05); border-color: rgba(32,72,67,0.12); color: #5c6f6a; }
+.clinical-view .shadow-card .ui-badge--neutral { background: rgba(32,72,67,0.05); border-color: rgba(32,72,67,0.14); color: #5c6f6a; }
+.clinical-view .shadow-card .ui-badge--accent { background: #e3f1ed; color: #1f6f68; }
+.clinical-view .shadow-card .ui-btn--ghost { background: rgba(32,72,67,0.04); border-color: rgba(32,72,67,0.16); color: #2c423c; }
+.clinical-view .shadow-card .ui-btn--ghost:hover:not(:disabled) { border-color: #1f6f68; color: #1f6f68; background: rgba(31,111,104,0.08); }
+
+/* ─── Karar / Denetim Günlüğü (DecisionLogView) ──────────── */
+.declog { display: flex; flex-direction: column; gap: 10px; }
+.declog-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.declog-title { font-family: var(--font-display); font-weight: 600; font-size: 0.92rem; color: var(--text); }
+.declog-live { font-family: var(--font-mono); font-size: 0.64rem; color: var(--text-3); margin-left: 7px; }
+.declog-filters { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); }
+.declog-filters button { font-family: var(--font-mono); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 4px 7px; border-radius: 6px; color: var(--text-3); transition: var(--transition); }
+.declog-filters button.active { background: var(--surface-active); color: var(--accent); }
+.declog-list { display: flex; flex-direction: column; gap: 7px; }
+.declog-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 11px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); transition: var(--transition); }
+.declog-row:hover { border-color: var(--border-hover); }
+.declog-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.declog-agent { font-size: 0.82rem; color: var(--text); font-weight: 500; }
+.declog-agent small { color: var(--text-3); font-weight: 400; }
+.declog-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-3); }
+.declog-sep { opacity: 0.45; }
+.declog-reason { font-size: 0.74rem; color: var(--text-2); line-height: 1.45; }
+.declog-audit { font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-3); padding: 2px 7px; border-radius: 5px; background: var(--surface-active); border: 1px solid var(--border); align-self: flex-start; }
+.declog-error { font-size: 0.76rem; color: var(--red); }
+.declog-empty { font-size: 0.78rem; color: var(--text-3); }
+
+/* Karar günlüğü — klinik AÇIK tema: token'la karşılanmayan farklar (yarı saydam
+   filtre zemini, hover kenarı, audit teal zemini). Diğer renkler token'dan gelir. */
+.clinical-view .declog-live { color: #94a39e; }
+.clinical-view .declog-filters { background: rgba(255,255,255,0.7); border-color: rgba(32,72,67,0.14); }
+.clinical-view .declog-filters button { color: #728782; }
+.clinical-view .declog-row:hover { border-color: rgba(32,72,67,0.24); }
+.clinical-view .declog-agent small,
+.clinical-view .declog-meta { color: #94a39e; }
+.clinical-view .declog-audit { background: rgba(31,111,104,0.07); border-color: rgba(32,72,67,0.12); color: #5c6f6a; }
