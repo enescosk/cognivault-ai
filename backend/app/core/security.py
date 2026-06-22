@@ -48,31 +48,42 @@ _pwd_context = CryptContext(
 )
 
 
+BCRYPT_MAX_BYTES = 72
+
+
+def _is_legacy_sha256(hashed_password: str) -> bool:
+    """Hash 64 karakterlik hex ise eski SHA-256 kabul edilir."""
+    if len(hashed_password) != LEGACY_SHA256_HEX_LENGTH:
+        return False
+    try:
+        int(hashed_password, 16)
+    except ValueError:
+        return False
+    return True
+
+
 def hash_password(password: str) -> str:
-    """
-    Versioned, production-grade password hashing.
+    """Bcrypt ile şifre hash'ler.
 
-    Argon2id is preferred when the dependency is available. A memory-hard scrypt
-    fallback keeps local/test installs safe even before optional wheels are present.
+    Boş şifre ve bcrypt'in 72 byte sınırını aşan şifreler net `ValueError` ile
+    reddedilir — sessiz truncation'a izin verilmez.
     """
-    if _ARGON2_HASHER is not None:
-        return _ARGON2_HASHER.hash(password)
-
-    salt = os.urandom(16)
-    digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32)
-    return "$".join(
-        [
-            SCRYPT_PREFIX,
-            "n=16384,r=8,p=1",
-            base64.b64encode(salt).decode("ascii"),
-            base64.b64encode(digest).decode("ascii"),
-        ]
-    )
+    if not password:
+        raise ValueError("Şifre boş olamaz.")
+    if len(password.encode("utf-8")) > BCRYPT_MAX_BYTES:
+        raise ValueError(
+            f"Şifre çok uzun: bcrypt en fazla {BCRYPT_MAX_BYTES} byte destekler."
+        )
+    return _pwd_context.hash(password)
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
     if not hashed_password:
         return False
+
+    if _is_legacy_sha256(hashed_password):
+        legacy = hashlib.sha256(password.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(legacy, hashed_password)
 
     if hashed_password.startswith(ARGON2_PREFIX):
         if _ARGON2_HASHER is None:
@@ -100,22 +111,10 @@ def verify_password(password: str, hashed_password: str) -> bool:
         except (KeyError, ValueError, TypeError):
             return False
 
-    if len(hashed_password) == LEGACY_SHA256_HEX_LENGTH:
-        legacy = hashlib.sha256(password.encode("utf-8")).hexdigest()
-        return hmac.compare_digest(legacy, hashed_password)
-
-    return False
-
-
-def password_needs_rehash(hashed_password: str) -> bool:
-    if not hashed_password.startswith(ARGON2_PREFIX):
-        return True
-    if _ARGON2_HASHER is None:
-        return False
     try:
-        return _ARGON2_HASHER.check_needs_rehash(hashed_password)
-    except InvalidHashError:
-        return True
+        return _pwd_context.verify(password, hashed_password)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def needs_rehash(hashed_password: str) -> bool:
@@ -126,6 +125,10 @@ def needs_rehash(hashed_password: str) -> bool:
         return _pwd_context.needs_update(hashed_password)
     except Exception:  # noqa: BLE001
         return True
+
+
+# Geriye dönük uyumluluk için alias.
+password_needs_rehash = needs_rehash
 
 
 def _constant_time_eq(a: str, b: str) -> bool:

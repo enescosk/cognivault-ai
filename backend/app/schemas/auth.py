@@ -1,4 +1,16 @@
-from pydantic import BaseModel, ConfigDict, Field
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def normalize_email(value: str) -> str:
+    normalized = value.strip().lower()
+    if not _EMAIL_RE.match(normalized):
+        raise ValueError("Geçersiz e-posta formatı.")
+    return normalized
 
 
 class LoginRequest(BaseModel):

@@ -17,12 +17,15 @@ def error_response(
 ) -> JSONResponse:
     request_id = current_request_id() or request.headers.get("X-Request-ID")
     payload: dict[str, object] = {
+        # Üst seviye "detail": FastAPI'nin varsayılan hata gövdesiyle geriye dönük
+        # uyumluluk — bazı client'lar ve testler `response.json()["detail"]` okur.
+        "detail": message,
         "error": {
             "code": code,
             "message": message,
             "request_id": request_id,
             "path": request.url.path,
-        }
+        },
     }
     if detail is not None:
         payload["error"]["detail"] = jsonable_encoder(detail)

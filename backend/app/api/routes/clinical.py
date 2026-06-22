@@ -9,10 +9,19 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
-from app.models import ClinicChannel, ClinicConversation, ClinicDoctor, ClinicDoctorSlot, ClinicalAppointment, ShadowReview, ShadowReviewStatus, User
+from app.core.config import get_settings
+from app.core.webhook_security import (
+    signature_required,
+    verify_meta_signature,
+    verify_twilio_signature,
+)
+from app.models import ClinicChannel, ClinicConversation, ClinicDoctor, ClinicDoctorSlot, ClinicPatient, ClinicalAppointment, ShadowReview, ShadowReviewStatus, User
 from app.schemas.clinical import (
     ClinicalAppointmentCreateRequest,
     ClinicalAppointmentResponse,
+    ClinicalAppointmentRow,
+    ClinicalAppointmentStatusUpdate,
+    ClinicalManualAppointmentRequest,
     ClinicDoctorResponse,
     ClinicDoctorSlotResponse,
     ClinicalConversationDetail,

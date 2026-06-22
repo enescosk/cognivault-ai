@@ -15,6 +15,7 @@ from app.clinical.ontology import (
 from app.models import Clinic, ClinicIntent
 from app.services.clinical_compliance_service import build_governance_context, mask_identifiers
 from app.services.clinical_persona_service import ClinicalPersona, choose_persona
+from app.services.clinical_slot_service import build_slot_decision
 from app.services.medical_triage_service import MedicalUrgency, assess_medical_triage, looks_medical
 
 
@@ -118,6 +119,12 @@ def classify_intent(text: str) -> tuple[ClinicIntent, float]:
     normalized_ascii = normalize_tr(text)
     if any(normalize_tr(term) in normalized_ascii for term in EMERGENCY_KEYWORDS):
         return ClinicIntent.MEDICAL_EMERGENCY, 0.99
+    # Açık randevu talebi semptom kelimelerine göre önceliklidir: hasta "randevu
+    # almak istiyorum" diyorsa, mesajda semptom geçse bile (ör. "dolgum düştü,
+    # randevu almak istiyorum") triage'a değil booking akışına gider.
+    explicit_booking = {"randevu", "appointment"}
+    if any(keyword in normalized for keyword in explicit_booking):
+        return ClinicIntent.BOOK_APPOINTMENT, 0.9
     for intent, keywords in INTENT_KEYWORDS:
         hits = [keyword for keyword in keywords if keyword in normalized]
         if hits:
@@ -488,6 +495,31 @@ def _try_runtime_reply(
     )
 
 
+def _attach_governance(result: ClinicalAIResult, governance: dict) -> ClinicalAIResult:
+    """LLM cevabına gizlilik/yönetişim bağlamını ekler ve insan-inceleme bayrağını günceller."""
+    data = {**(result.data or {}), "privacy_guardrail": governance}
+    requires_human_review = result.requires_human_review or not governance["auto_send_allowed"]
+    risk_reason = result.risk_reason
+    if requires_human_review and risk_reason is None:
+        risk_reason = (
+            governance["human_review_reasons"][0]
+            if governance["human_review_reasons"]
+            else "requires_human_review"
+        )
+    return ClinicalAIResult(
+        reply=result.reply,
+        confidence=result.confidence,
+        intent=result.intent,
+        action=result.action,
+        persona_id=result.persona_id,
+        persona_name=result.persona_name,
+        voice=result.voice,
+        requires_human_review=requires_human_review,
+        risk_reason=risk_reason,
+        data=data,
+    )
+
+
 def generate_clinical_reply(
     clinic: Clinic,
     text: str,
@@ -508,7 +540,7 @@ def generate_clinical_reply(
         intent_confidence = 0.78
     persona = choose_persona(intent, requested_persona_id)
 
-    if intent in {ClinicIntent.SYMPTOM_TRIAGE, ClinicIntent.MEDICAL_EMERGENCY} or looks_medical(text):
+    if intent in {ClinicIntent.SYMPTOM_TRIAGE, ClinicIntent.MEDICAL_EMERGENCY}:
         triage = assess_medical_triage(clinic, text, resolved_language)
         if triage.urgency == MedicalUrgency.EMERGENCY:
             intent = ClinicIntent.MEDICAL_EMERGENCY
@@ -538,9 +570,14 @@ def generate_clinical_reply(
             triage_assessment=triage.to_dict(),
         )
 
-    runtime_reply = _try_runtime_reply(clinic, text, resolved_language, intent, persona)
-    if runtime_reply is not None:
-        return runtime_reply
+    governance = build_governance_context(clinic, text, intent, resolved_language).as_dict()
+    intake = extract_clinical_intake(text)
+    slot_decision = build_slot_decision(intake)
+
+    if use_ai:
+        runtime_reply = _try_runtime_reply(clinic, text, resolved_language, intent, persona, governance)
+        if runtime_reply is not None:
+            return runtime_reply
 
     settings = get_settings()
     if use_ai and settings.clinical_ai_enabled:
@@ -617,6 +654,6 @@ def generate_clinical_reply(
         voice=persona.voice,
         requires_human_review=requires_review,
         risk_reason=risk_reason,
-        data={},
+        data={"intake": intake, "slot_decision": slot_decision},
         triage_assessment=None,
     )

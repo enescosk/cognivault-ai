@@ -29,7 +29,7 @@ def authenticate_user(db: Session, email: str, password: str) -> AuthResponse:
         db.commit()
         db.refresh(user)
 
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), organization_id=user.organization_id)
     log_action(
         db,
         user_id=user.id,

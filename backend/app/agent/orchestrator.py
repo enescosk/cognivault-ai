@@ -25,6 +25,24 @@ from app.agent.agents import (
     should_auto_escalate,
     update_frustration_counter,
 )
+from app.agent.context import AgentContext
+from app.agent.policy import (
+    _external_outreach_allowed,
+    _is_customer_chat,
+    _is_enterprise_context,
+    handle_customer_domain_boundary,
+)
+from app.agent.parsing import (
+    _clean_term,
+    _normalize_tr,
+    default_reply,
+    detect_language,
+    infer_place_category,
+    parse_department,
+    parse_phone,
+    parse_preferred_date,
+    parse_slot_selection,
+)
 from app.agent.prompts import build_system_prompt
 from app.core.config import get_settings
 from app.models import AuditResultStatus, ChatSession, MessageSender, User
@@ -66,76 +84,14 @@ def _record_openai_usage(context: AgentContext, response, model: str, agent_type
 # içine taşındı — orchestrator artık sadece bunları import edip dispatch eder.
 
 
-def detect_sentiment(text: str) -> str:
-    """Returns one of: frustrated | urgent | confused | happy | neutral"""
-    lower = text.lower()
-    for sentiment, keywords in _SENTIMENT_RULES:
-        if any(kw in lower for kw in keywords):
-            return sentiment
-    return "neutral"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# COST-AWARE INTENT CLASSIFIER
-# Decides whether to route to AI API or handle locally.
-# Goal: never call a paid API for trivial messages.
-# ─────────────────────────────────────────────────────────────────────────────
-
-_SIMPLE_INTENTS: dict[str, list[str]] = {
-    "greeting":    ["merhaba", "alo", "selam", "hi ", "hello", "hey ", "good morning", "iyi günler"],
-    "smalltalk":   ["nasılsın", "nasilsin", "naber", "ne var ne yok", "how are you", "how's it going"],
-    "thanks":      ["teşekkür", "tesekkur", "sağ ol", "sag ol", "thank you", "thanks", "cheers"],
-    "farewell":    ["görüşürüz", "gorusuruz", "iyi günler", "bye", "goodbye", "see you", "hoşça kal"],
-    "affirmative": ["evet", "tamam", "olur", "tabii", "yes", "sure", "ok", "okay", "yep"],
-}
-
-_SIMPLE_RESPONSES: dict[str, dict[str, str]] = {
-    "greeting": {
-        "tr": "Merhaba! 👋 Size nasıl yardımcı olabilirim?",
-        "en": "Hello! 👋 How can I help you today?",
-    },
-    "smalltalk": {
-        "tr": "İyiyim, teşekkürler! Sen nasılsın? Bugün sana nasıl yardımcı olabilirim?",
-        "en": "I'm doing well, thanks! How are you? What can I help you with today?",
-    },
-    "thanks": {
-        "tr": "Rica ederim! 😊 Başka yardımcı olabileceğim bir şey var mı?",
-        "en": "You're welcome! 😊 Is there anything else I can help you with?",
-    },
-    "farewell": {
-        "tr": "İyi günler! Tekrar görüşmek üzere. 👋",
-        "en": "Take care! Talk to you soon. 👋",
-    },
-}
-
-
-def classify_simple_intent(text: str) -> str | None:
-    """Returns intent name if message is trivially simple, else None."""
-    lower = normalize_for_intent(text)
-    # Very short messages are likely simple
-    if len(lower) > 120:
-        return None
-    for intent, keywords in _SIMPLE_INTENTS.items():
-        normalized_keywords = [normalize_for_intent(kw) for kw in keywords]
-        if any(lower.startswith(kw) or f" {kw}" in lower for kw in normalized_keywords):
-            return intent
-    return None
-
-
-def make_simple_reply(intent: str, language: str, sentiment: str, user_name: str | None) -> str | None:
-    """Returns a canned reply for trivial intents — no API call needed."""
-    template = _SIMPLE_RESPONSES.get(intent, {}).get(language)
-    if not template:
-        return None
-    # Personalise with name if available
-    if user_name and intent == "greeting":
-        first = user_name.split()[0]
-        template = template.replace("Merhaba!", f"Merhaba, {first}!").replace("Hello!", f"Hello, {first}!")
-    # Sentiment overlay
-    if sentiment == "frustrated" and intent not in ("thanks", "farewell"):
-        prefix = "Üzgünüm duyduğuma. " if language == "tr" else "I'm sorry to hear that. "
-        template = prefix + template
-    return template
+# detect_sentiment / classify_simple_intent / make_simple_reply ve ilgili
+# kural tabloları `agent/classify.py` içine taşındı. Orchestrator bunları
+# import edip dispatch eder (geri uyumluluk için isimler aynı).
+from app.agent.classify import (  # noqa: E402
+    classify_simple_intent,
+    detect_sentiment,
+    make_simple_reply,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1321,6 +1277,21 @@ def process_message(context: AgentContext, user_message: str) -> AgentReply:
     """
     language  = detect_language(user_message, context.user.locale)
     sentiment = detect_sentiment(user_message)
+
+    # ── Tier 0: müşteri sohbeti domain sınırı (KVKK + scope kilidi) ──────────
+    # Selamlama/canned tier'ından ÖNCE çalışır; "Merhaba, diş ağrım var" gibi
+    # mesajlar greeting'e düşmeden scope-dışı reddiyle döner.
+    boundary_reply = handle_customer_domain_boundary(context, user_message, language)
+    if boundary_reply:
+        add_message(
+            context.db,
+            session=context.session,
+            sender=MessageSender.ASSISTANT,
+            content=boundary_reply.message,
+            language=boundary_reply.language,
+            metadata_json=boundary_reply.metadata_json or {},
+        )
+        return boundary_reply
 
     # Track frustrated turns for auto-escalation
     current_state = dict(context.session.workflow_state or {})

@@ -7,6 +7,7 @@ import re
 from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
 from app.core.exceptions import NotFoundError, PermissionError, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -554,7 +555,68 @@ def _create_or_update_appointment_draft(
     return appointment
 
 
-def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None) -> IngestionResult:
+def _emit_kvkk_notice_and_consent(
+    db: Session,
+    clinic: Clinic,
+    patient: ClinicPatient,
+    conversation: ClinicConversation,
+) -> None:
+    """KVKK Md. 10 aydınlatma metnini sistem mesajı olarak yaz + örtük rıza kaydı oluştur.
+
+    Hasta WhatsApp/telefon/web üzerinden ilk kez geldiğinde tetiklenir. Mesaj
+    `sender=system` ile kaydedilir ki gerçek hasta/asistan dialogundan ayırt edilebilsin.
+    Devam etmesi açık rıza sayılır; geri çekme `withdrawn_at` işaretlemesiyle yapılır.
+    """
+    notice_text = _build_kvkk_notice_text(clinic)
+    system_message = ClinicMessage(
+        clinic_id=clinic.id,
+        conversation_id=conversation.id,
+        sender=ClinicMessageSender.SYSTEM,
+        content=notice_text,
+        language=patient.language,
+        intent=None,
+        metadata_json={
+            "kvkk_notice": True,
+            "consent_text_version": KVKK_NOTICE_VERSION,
+        },
+    )
+    db.add(system_message)
+
+    consent_row = ConsentRecord(
+        clinic_id=clinic.id,
+        patient_id=patient.id,
+        conversation_id=conversation.id,
+        consent_type=ConsentType.DATA_PROCESSING,
+        granted=True,
+        channel=conversation.channel,
+        consent_text_version=KVKK_NOTICE_VERSION,
+    )
+    db.add(consent_row)
+    db.commit()
+
+
+def _provider_from_channel(channel: ClinicChannel) -> str:
+    if channel == ClinicChannel.WHATSAPP:
+        return "whatsapp"
+    if channel == ClinicChannel.PHONE:
+        return "voice"
+    return channel.value
+
+
+def _existing_inbound_message(
+    db: Session, clinic: Clinic, provider: str, external_id: str
+) -> ClinicMessage | None:
+    return db.scalars(
+        select(ClinicMessage)
+        .where(
+            ClinicMessage.clinic_id == clinic.id,
+            ClinicMessage.external_message_id == external_id,
+        )
+        .order_by(ClinicMessage.created_at.desc())
+    ).first()
+
+
+def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None, use_ai: bool = True) -> IngestionResult:
     clinic = clinic or ensure_default_clinic(db)
 
     if incoming.external_message_id:
@@ -631,7 +693,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
     db.commit()
     db.refresh(message)
 
-    ai_result = generate_clinical_reply(clinic, incoming.body, language, incoming.requested_persona_id)
+    ai_result = generate_clinical_reply(clinic, incoming.body, language, incoming.requested_persona_id, use_ai=use_ai)
     triage = ai_result.triage_assessment or {}
     doctor_summary = (ai_result.data or {}).get("doctor_summary")
     possible_conditions = (ai_result.data or {}).get("possible_conditions", [])
@@ -831,6 +893,127 @@ def get_clinical_conversation(db: Session, clinic: Clinic, conversation_id: int)
     if conversation is None:
         raise NotFoundError("Clinical conversation not found")
     return conversation
+
+
+def create_pre_intake(
+    db: Session,
+    clinic: Clinic,
+    *,
+    patient_id: int,
+    conversation_id: int | None = None,
+    answers: dict | None = None,
+    is_complete: bool = False,
+) -> PreIntake:
+    """Yeni ön-kayıt (pre-intake) formu oluşturur.
+
+    Hasta kliniğe ait değilse 404 (NotFoundError) yükseltir.
+    """
+    patient = db.scalars(
+        select(ClinicPatient).where(
+            ClinicPatient.clinic_id == clinic.id, ClinicPatient.id == patient_id
+        )
+    ).first()
+    if patient is None:
+        raise NotFoundError("Clinic patient not found")
+
+    pre_intake = PreIntake(
+        clinic_id=clinic.id,
+        patient_id=patient_id,
+        conversation_id=conversation_id,
+        answers_json=dict(answers or {}),
+        is_complete=is_complete,
+    )
+    db.add(pre_intake)
+    db.commit()
+    db.refresh(pre_intake)
+    return pre_intake
+
+
+def get_pre_intake(db: Session, clinic: Clinic, pre_intake_id: int) -> PreIntake:
+    pre_intake = db.scalars(
+        select(PreIntake).where(
+            PreIntake.clinic_id == clinic.id, PreIntake.id == pre_intake_id
+        )
+    ).first()
+    if pre_intake is None:
+        raise NotFoundError("Pre-intake not found")
+    return pre_intake
+
+
+def list_pre_intakes(
+    db: Session,
+    clinic: Clinic,
+    *,
+    patient_id: int | None = None,
+    conversation_id: int | None = None,
+    is_complete: bool | None = None,
+    limit: int = 50,
+) -> list[PreIntake]:
+    query = select(PreIntake).where(PreIntake.clinic_id == clinic.id)
+    if patient_id is not None:
+        query = query.where(PreIntake.patient_id == patient_id)
+    if conversation_id is not None:
+        query = query.where(PreIntake.conversation_id == conversation_id)
+    if is_complete is not None:
+        query = query.where(PreIntake.is_complete == is_complete)
+    query = query.order_by(PreIntake.created_at.desc()).limit(limit)
+    return list(db.scalars(query))
+
+
+def update_pre_intake(
+    db: Session,
+    clinic: Clinic,
+    pre_intake_id: int,
+    *,
+    answers: dict | None = None,
+    is_complete: bool | None = None,
+    replace: bool = False,
+) -> PreIntake:
+    """Ön-kayıt formunu günceller.
+
+    `replace=False` (varsayılan): `answers` mevcut yanıtlara birleştirilir.
+    `replace=True`: mevcut yanıtlar tamamen değiştirilir.
+    """
+    pre_intake = get_pre_intake(db, clinic, pre_intake_id)
+
+    if answers is not None:
+        if replace:
+            pre_intake.answers_json = dict(answers)
+        else:
+            merged = dict(pre_intake.answers_json or {})
+            merged.update(answers)
+            pre_intake.answers_json = merged
+
+    if is_complete is not None:
+        pre_intake.is_complete = is_complete
+
+    db.add(pre_intake)
+    db.commit()
+    db.refresh(pre_intake)
+
+    answer_count = len(pre_intake.answers_json or {})
+    record_agent_decision(
+        db,
+        build_decision(
+            agent_type=AgentType.FORM,
+            intent="pre_intake_progress",
+            confidence=1.0 if pre_intake.is_complete else 0.5,
+            risk=DecisionRisk.LOW,
+            requires_human=False,
+            action="persist_pre_intake" if pre_intake.is_complete else "ask_next_question",
+            reason="form_complete" if pre_intake.is_complete else "form_in_progress",
+            organization_id=clinic.organization_id,
+            payload={
+                "pre_intake_id": pre_intake.id,
+                "answer_count": answer_count,
+                "is_complete": pre_intake.is_complete,
+                "replace_mode": replace,
+            },
+        ),
+        clinic_id=clinic.id,
+        conversation_id=pre_intake.conversation_id,
+    )
+    return pre_intake
 
 
 def list_shadow_reviews(db: Session, clinic: Clinic, status_value: ShadowReviewStatus | None = ShadowReviewStatus.PENDING) -> list[ShadowReview]:

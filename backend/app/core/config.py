@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     meta_access_token: str = ""
     meta_phone_number_id: str = ""
     meta_app_secret: str = ""
+    clinical_webhook_signature_required: bool = False
+    clinical_webhook_base_url: str = ""
     intelligence_external_enabled: bool = False
     intelligence_allowed_sources: str = "manual,website,google_places,x_api,reddit_api"
     intelligence_max_results_per_job: int = 25
@@ -160,10 +162,6 @@ class Settings(BaseSettings):
     @property
     def intelligence_allowed_source_list(self) -> list[str]:
         return [source.strip() for source in self.intelligence_allowed_sources.split(",") if source.strip()]
-
-    @property
-    def is_production(self) -> bool:
-        return self.app_env.strip().lower() in {"prod", "production"}
 
     def validate_runtime_safety(self) -> None:
         weak_secrets = {"change-me-in-production", "replace-me", "secret", ""}

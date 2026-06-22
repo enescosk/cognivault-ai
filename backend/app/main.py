@@ -11,13 +11,39 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import appointments, audit, auth, chat, enterprise, knowledge, users, voice
+from app.api.routes import (
+    agents,
+    ai,
+    appointments,
+    audit,
+    auth,
+    billing,
+    chat,
+    clinic_admin,
+    clinical,
+    enterprise,
+    intelligence,
+    knowledge,
+    public,
+    quality,
+    users,
+    voice,
+)
+from app.api.dependencies import get_db
 from app.core.config import get_settings
 from app.core.errors import error_response
+from app.core.exceptions import DomainError
 from app.core.health import readiness_report
-from app.core.observability import RequestContextMiddleware
+from app.core.observability import (
+    MetricsTimer,
+    RequestContextMiddleware,
+    configure_logging,
+    http_requests_total,
+    render_metrics,
+)
 from app.core.rate_limit import limiter
 from app.db.bootstrap import initialize_database
+from fastapi import Response
 from sqlalchemy.orm import Session
 
 configure_logging()
@@ -157,6 +183,26 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return error_response(request, status_code=exc.status_code, code=code, message=message)
 
 
+@app.exception_handler(DomainError)
+async def domain_error_handler(request: Request, exc: DomainError):
+    code = {
+        400: "bad_request",
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        409: "conflict",
+        422: "validation_error",
+        502: "upstream_error",
+    }.get(exc.http_status, "domain_error")
+    return error_response(
+        request,
+        status_code=exc.http_status,
+        code=code,
+        message=exc.message,
+        detail=exc.details or None,
+    )
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return error_response(
@@ -187,6 +233,13 @@ app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(enterprise.router, prefix=settings.api_prefix)
 app.include_router(knowledge.router, prefix=settings.api_prefix)
+app.include_router(clinical.router, prefix=settings.api_prefix)
+app.include_router(clinic_admin.router, prefix=settings.api_prefix)
+app.include_router(public.router, prefix=settings.api_prefix)
+app.include_router(intelligence.router, prefix=settings.api_prefix)
+app.include_router(agents.router, prefix=settings.api_prefix)
+app.include_router(billing.router, prefix=settings.api_prefix)
+app.include_router(quality.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")
@@ -202,6 +255,29 @@ def readiness(db: Session = Depends(get_db)) -> dict:
 @app.get("/health/live")
 def liveness() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
+
+
+@app.get("/healthz")
+def healthz() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz(db: Session = Depends(get_db)) -> dict:
+    try:
+        db.execute(text("SELECT 1"))
+        database = "ok"
+        status = "ok"
+    except Exception:  # noqa: BLE001
+        database = "fail"
+        status = "fail"
+    return {"status": status, "checks": {"database": database}}
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    body, content_type = render_metrics()
+    return Response(content=body, media_type=content_type)
 
 
 @app.get("/")
