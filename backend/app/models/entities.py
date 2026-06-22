@@ -113,6 +113,7 @@ class ClinicIntent(str, Enum):
     ASK_INSURANCE = "ask_insurance"
     ASK_LOCATION = "ask_location"
     ASK_WORKING_HOURS = "ask_working_hours"
+    SYMPTOM_TRIAGE = "symptom_triage"
     MEDICAL_EMERGENCY = "medical_emergency"
     GENERAL_QUESTION = "general_question"
     UNKNOWN = "unknown"
@@ -319,6 +320,47 @@ class ShadowReview(Base):
     reviewed_by: Mapped["User"] = relationship()
 
 
+class ClinicDoctor(Base):
+    __tablename__ = "clinic_doctors"
+    __table_args__ = (UniqueConstraint("clinic_id", "email", name="uq_clinic_doctor_email"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    branch_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_branches.id"))
+    full_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    specialty: Mapped[str] = mapped_column(String(140), nullable=False)
+    title: Mapped[str] = mapped_column(String(80), default="Dr.", nullable=False)
+    bio: Mapped[str | None] = mapped_column(Text)
+    avatar_url: Mapped[str | None] = mapped_column(String(500))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    clinic: Mapped["Clinic"] = relationship()
+    branch: Mapped["ClinicBranch"] = relationship()
+    slots: Mapped[list["ClinicDoctorSlot"]] = relationship(back_populates="doctor", cascade="all, delete-orphan")
+
+
+class ClinicDoctorSlot(Base):
+    __tablename__ = "clinic_doctor_slots"
+    __table_args__ = (UniqueConstraint("doctor_id", "start_time", name="uq_doctor_slot_start"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("clinic_doctors.id"), nullable=False, index=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_booked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    doctor: Mapped["ClinicDoctor"] = relationship(back_populates="slots")
+
+
 class ClinicalAppointment(Base):
     __tablename__ = "clinical_appointments"
 
@@ -327,6 +369,8 @@ class ClinicalAppointment(Base):
     patient_id: Mapped[int] = mapped_column(ForeignKey("clinic_patients.id"), nullable=False, index=True)
     conversation_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_conversations.id"))
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_branches.id"))
+    doctor_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_doctors.id"), index=True)
+    slot_id: Mapped[int | None] = mapped_column(ForeignKey("clinic_doctor_slots.id"), index=True)
     department: Mapped[str] = mapped_column(String(140), nullable=False)
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[ClinicalAppointmentStatus] = mapped_column(
@@ -339,6 +383,9 @@ class ClinicalAppointment(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+    doctor: Mapped["ClinicDoctor"] = relationship()
+    slot: Mapped["ClinicDoctorSlot"] = relationship()
 
 
 class ClinicalSlotOffer(Base):

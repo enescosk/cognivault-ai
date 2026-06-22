@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+import re
 from urllib.parse import parse_qs
+from zoneinfo import ZoneInfo
 
 from app.core.exceptions import NotFoundError, PermissionError, ValidationError
 from sqlalchemy import func, select
@@ -17,8 +19,10 @@ from app.models import (
     ClinicChannel,
     ClinicConversation,
     ClinicConversationStatus,
-    ClinicIntent,
+    ClinicDoctor,
+    ClinicDoctorSlot,
     ClinicMembership,
+    ClinicIntent,
     ClinicMessage,
     ClinicMessageSender,
     ClinicPatient,
@@ -101,6 +105,7 @@ class IngestionResult:
     action: str
     reply: str | None = None
     shadow_review: ShadowReview | None = None
+    appointment: ClinicalAppointment | None = None
 
 
 def normalize_phone(value: str) -> str:
@@ -361,69 +366,195 @@ def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPat
     return conversation
 
 
-def _emit_kvkk_notice_and_consent(
+def _clinic_timezone(clinic: Clinic) -> ZoneInfo:
+    try:
+        return ZoneInfo(clinic.timezone or "Europe/Istanbul")
+    except Exception:
+        return ZoneInfo("Europe/Istanbul")
+
+
+def _has_appointment_signal(text: str, intent: ClinicIntent) -> bool:
+    lowered = text.lower()
+    if intent == ClinicIntent.BOOK_APPOINTMENT:
+        return True
+    appointment_terms = {
+        "randevu",
+        "muayene",
+        "kontrol",
+        "doktor görebilir",
+        "doktor gorebilir",
+        "hekim görebilir",
+        "hekim gorebilir",
+        "yarın gelebilir",
+        "yarin gelebilir",
+        "bugün gelebilir",
+        "bugun gelebilir",
+    }
+    return any(term in lowered for term in appointment_terms)
+
+
+def _infer_department(text: str) -> str:
+    lowered = text.lower()
+    if any(term in lowered for term in ("implant", "dis", "diş", "kanal", "dolgu", "yirmilik", "20lik", "diş taşı", "dis tasi")):
+        if "implant" in lowered:
+            return "Implant degerlendirme"
+        if "kanal" in lowered:
+            return "Endodonti / kanal tedavisi"
+        if "dolgu" in lowered:
+            return "Restoratif dis tedavisi"
+        if "diş taşı" in lowered or "dis tasi" in lowered:
+            return "Dis tasi temizligi"
+        return "Dis hekimligi muayenesi"
+    if any(term in lowered for term in ("dermatoloji", "cilt", "ben kontrol", "leke", "dokuntu", "döküntü")):
+        return "Dermatoloji muayenesi"
+    if any(term in lowered for term in ("botoks", "estetik", "mezoterapi", "dolgu")):
+        return "Estetik gorusme"
+    return "Muayene"
+
+
+def _next_weekday(base: datetime, target_weekday: int) -> datetime:
+    days_ahead = (target_weekday - base.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    return base + timedelta(days=days_ahead)
+
+
+def _infer_requested_start(text: str, clinic: Clinic) -> tuple[datetime | None, list[str]]:
+    lowered = text.lower()
+    tz = _clinic_timezone(clinic)
+    now = datetime.now(tz)
+    base_date: datetime | None = None
+    inferred_fields: list[str] = []
+
+    if "yarın" in lowered or "yarin" in lowered:
+        base_date = now + timedelta(days=1)
+        inferred_fields.append("day")
+    elif "bugün" in lowered or "bugun" in lowered:
+        base_date = now
+        inferred_fields.append("day")
+    else:
+        weekdays = {
+            "pazartesi": 0,
+            "salı": 1,
+            "sali": 1,
+            "çarşamba": 2,
+            "carsamba": 2,
+            "perşembe": 3,
+            "persembe": 3,
+            "cuma": 4,
+            "cumartesi": 5,
+        }
+        for label, weekday in weekdays.items():
+            if label in lowered:
+                base_date = _next_weekday(now, weekday)
+                inferred_fields.append("weekday")
+                break
+
+    hour: int | None = None
+    minute = 0
+    for time_match in re.finditer(r"(?:saat\s*)?(\d{1,2})(?:[:.](\d{2}))?", lowered):
+        candidate = int(time_match.group(1))
+        if 7 <= candidate <= 21:
+            hour = candidate
+            minute = int(time_match.group(2) or 0)
+            break
+    if hour is None and base_date is not None:
+        hour = 10
+        inferred_fields.append("time_defaulted")
+
+    if base_date is None or hour is None:
+        return None, inferred_fields
+
+    requested = datetime.combine(base_date.date(), time(hour=hour, minute=minute), tzinfo=tz)
+    if requested <= now:
+        requested = requested + timedelta(days=1)
+    return requested.astimezone(timezone.utc), inferred_fields
+
+
+def _appointment_draft_payload(appointment: ClinicalAppointment, missing_fields: list[str] | None = None) -> dict:
+    return {
+        "id": appointment.id,
+        "department": appointment.department,
+        "starts_at": appointment.starts_at.isoformat() if appointment.starts_at else None,
+        "status": appointment.status.value,
+        "missing_fields": missing_fields or (appointment.metadata_json or {}).get("missing_fields", []),
+        "source": (appointment.metadata_json or {}).get("created_from", "conversation"),
+    }
+
+
+def _find_conversation_appointment(db: Session, clinic: Clinic, conversation: ClinicConversation) -> ClinicalAppointment | None:
+    return db.scalars(
+        select(ClinicalAppointment)
+        .where(
+            ClinicalAppointment.clinic_id == clinic.id,
+            ClinicalAppointment.conversation_id == conversation.id,
+            ClinicalAppointment.status.in_([ClinicalAppointmentStatus.PENDING, ClinicalAppointmentStatus.CONFIRMED]),
+        )
+        .order_by(ClinicalAppointment.created_at.desc())
+    ).first()
+
+
+def _create_or_update_appointment_draft(
     db: Session,
     clinic: Clinic,
     patient: ClinicPatient,
     conversation: ClinicConversation,
-) -> None:
-    """KVKK Md. 10 aydınlatma metnini sistem mesajı olarak yaz + örtük rıza kaydı oluştur.
+    message: ClinicMessage,
+    text: str,
+    intent: ClinicIntent,
+    doctor_summary: str | None,
+) -> ClinicalAppointment | None:
+    if intent == ClinicIntent.MEDICAL_EMERGENCY or not _has_appointment_signal(text, intent):
+        return None
 
-    Hasta WhatsApp/telefon/web üzerinden ilk kez geldiğinde tetiklenir. Mesaj
-    `sender=system` ile kaydedilir ki gerçek hasta/asistan dialogundan ayırt edilebilsin.
-    Devam etmesi açık rıza sayılır (TEMPLATE'in son cümlesi); geri çekme `withdrawn_at`
-    işaretlemesiyle yapılır.
-    """
-    notice_text = _build_kvkk_notice_text(clinic)
-    system_message = ClinicMessage(
-        clinic_id=clinic.id,
-        conversation_id=conversation.id,
-        sender=ClinicMessageSender.SYSTEM,
-        content=notice_text,
-        language=patient.language,
-        intent=None,
-        metadata_json={
-            "kvkk_notice": True,
-            "consent_text_version": KVKK_NOTICE_VERSION,
-        },
-    )
-    db.add(system_message)
+    requested_start, inferred_fields = _infer_requested_start(text, clinic)
+    missing_fields: list[str] = []
+    if requested_start is None:
+        missing_fields.append("preferred_time")
+    if not patient.full_name:
+        missing_fields.append("patient_name")
 
-    consent_row = ConsentRecord(
+    existing = _find_conversation_appointment(db, clinic, conversation)
+    if existing is not None and existing.status == ClinicalAppointmentStatus.CONFIRMED:
+        conversation.metadata_json = {
+            **(conversation.metadata_json or {}),
+            "appointment_draft": _appointment_draft_payload(existing),
+        }
+        return existing
+
+    metadata = {
+        "created_from": "ai_conversation_draft",
+        "source_message_id": message.id,
+        "patient_phrase": text[:500],
+        "missing_fields": missing_fields,
+        "inferred_fields": inferred_fields,
+        "doctor_summary": doctor_summary,
+    }
+
+    appointment = existing or ClinicalAppointment(
         clinic_id=clinic.id,
         patient_id=patient.id,
         conversation_id=conversation.id,
-        consent_type=ConsentType.DATA_PROCESSING,
-        granted=True,
-        channel=conversation.channel,
-        consent_text_version=KVKK_NOTICE_VERSION,
+        department=_infer_department(text),
+        status=ClinicalAppointmentStatus.PENDING,
+        metadata_json={},
     )
-    db.add(consent_row)
-    db.commit()
+    appointment.department = _infer_department(text)
+    appointment.starts_at = requested_start
+    appointment.status = ClinicalAppointmentStatus.PENDING
+    appointment.notes = doctor_summary or f"Hasta talebi: {text[:500]}"
+    appointment.metadata_json = {**(appointment.metadata_json or {}), **metadata}
+    db.add(appointment)
+    db.flush()
+
+    conversation.metadata_json = {
+        **(conversation.metadata_json or {}),
+        "appointment_draft": _appointment_draft_payload(appointment, missing_fields),
+    }
+    return appointment
 
 
-def _provider_from_channel(channel: ClinicChannel) -> str:
-    if channel == ClinicChannel.WHATSAPP:
-        return "whatsapp"
-    if channel == ClinicChannel.PHONE:
-        return "voice"
-    return channel.value
-
-
-def _existing_inbound_message(
-    db: Session, clinic: Clinic, provider: str, external_id: str
-) -> ClinicMessage | None:
-    return db.scalars(
-        select(ClinicMessage)
-        .where(
-            ClinicMessage.clinic_id == clinic.id,
-            ClinicMessage.external_message_id == external_id,
-        )
-        .order_by(ClinicMessage.created_at.desc())
-    ).first()
-
-
-def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None, use_ai: bool = True) -> IngestionResult:
+def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clinic: Clinic | None = None) -> IngestionResult:
     clinic = clinic or ensure_default_clinic(db)
 
     if incoming.external_message_id:
@@ -500,24 +631,21 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
     db.commit()
     db.refresh(message)
 
-    ai_result = generate_clinical_reply(clinic, incoming.body, language, incoming.requested_persona_id, use_ai=use_ai)
-
-    # Multi-intent ve consent sinyallerini AI çıktısı sonrası hesapla.
-    # Primary intent ai_result.intent'ten geliyor; secondary'leri ondan çıkarıyoruz.
-    secondary_intents = detect_multi_intents(incoming.body, ai_result.intent)
-    governance_dict = (ai_result.data or {}).get("privacy_guardrail") or {}
-    consent_signal = derive_consent_signal(governance_dict)
-
-    # Patient message metadata'sını intent listesi ve consent ile zenginleştir.
-    # JSON mutation: SQLAlchemy MutableDict bunu izler ama emin olmak için explicit set.
-    enriched_patient_metadata = {
+    ai_result = generate_clinical_reply(clinic, incoming.body, language, incoming.requested_persona_id)
+    triage = ai_result.triage_assessment or {}
+    doctor_summary = (ai_result.data or {}).get("doctor_summary")
+    possible_conditions = (ai_result.data or {}).get("possible_conditions", [])
+    message.intent = ai_result.intent
+    message.confidence_score = ai_result.confidence
+    message.metadata_json = {
         **(message.metadata_json or {}),
-        "intents": [ai_result.intent.value, *secondary_intents] if secondary_intents else [ai_result.intent.value],
-        "kvkk_consent": consent_signal,
+        "persona_id": ai_result.persona_id,
+        "persona_name": ai_result.persona_name,
+        "voice": ai_result.voice,
+        "triage": triage or None,
+        "doctor_summary": doctor_summary,
+        "possible_conditions": possible_conditions,
     }
-    message.metadata_json = enriched_patient_metadata
-    db.add(message)
-
     conversation.intent = ai_result.intent
     conversation.confidence_score = ai_result.confidence
     conversation.metadata_json = {
@@ -526,11 +654,20 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         "last_persona_name": ai_result.persona_name,
         "last_voice": ai_result.voice,
         "last_channel": incoming.channel.value,
-        # Bölüm C — KVKK consent durumu sohbet seviyesinde
-        "kvkk_consent": consent_signal,
-        # Son sentiment skoru — trajectory ileri analiz için
-        "last_patient_sentiment": patient_sentiment,
+        "last_urgency": triage.get("urgency"),
+        "doctor_summary": doctor_summary,
+        "possible_conditions": possible_conditions,
     }
+    appointment = _create_or_update_appointment_draft(
+        db,
+        clinic,
+        patient,
+        conversation,
+        message,
+        incoming.body,
+        ai_result.intent,
+        doctor_summary,
+    )
 
     if detect_frustration(incoming.body):
         db.add(
@@ -563,8 +700,12 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
                 "voice": ai_result.voice,
                 "channel": incoming.channel.value,
                 "doctor_inbox": True,
+                "triage": triage or None,
+                "doctor_summary": doctor_summary,
+                "possible_conditions": possible_conditions,
             },
         )
+        db.add(message)
         db.add(conversation)
         db.add(review)
         db.commit()
@@ -597,6 +738,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
             message=message,
             action="shadow_review",
             shadow_review=review,
+            appointment=appointment,
         )
 
     # Faz 2 — Asistan mesajı için research-driven sinyaller.
@@ -625,16 +767,14 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
             "persona_name": ai_result.persona_name,
             "voice": ai_result.voice,
             "channel": incoming.channel.value,
-            # Bölüm B#1 — UI'da kırmızı kenar + ⚠ tetikleyen alan
-            "hallucination_risk": hallucination_risk,
-            "hallucination_reason": hallucination_reason,
-            # Bölüm A6 — EmergencyBanner'ın "112 yönlendirildi mi" rozetinin beslendiği alan
-            "emergency_intent": is_emergency_intent,
-            "emergency_routed": routed_to_112,
-            # Patient message ile aynı consent imzası — audit/forensic için kopyalı
-            "kvkk_consent": consent_signal,
+            "triage": triage or None,
+            "doctor_summary": doctor_summary,
+            "possible_conditions": possible_conditions,
         },
     )
+    if appointment is not None:
+        conversation.status = ClinicConversationStatus.APPOINTMENT_PENDING
+    db.add(message)
     db.add(assistant_message)
     db.add(conversation)
     db.commit()
@@ -666,6 +806,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         message=message,
         action="auto_reply",
         reply=ai_result.reply,
+        appointment=appointment,
     )
 
 
@@ -726,19 +867,58 @@ def create_clinical_appointment_from_conversation(
     department: str,
     starts_at: datetime | None,
     notes: str | None = None,
+    doctor_id: int | None = None,
+    slot_id: int | None = None,
 ) -> ClinicalAppointment:
     conversation = get_clinical_conversation(db, clinic, conversation_id)
-    appointment = ClinicalAppointment(
-        clinic_id=clinic.id,
-        patient_id=conversation.patient_id,
-        conversation_id=conversation.id,
-        department=department.strip() or "Muayene",
-        starts_at=starts_at,
-        status=ClinicalAppointmentStatus.PENDING if starts_at is None else ClinicalAppointmentStatus.CONFIRMED,
-        notes=notes,
-        metadata_json={"created_from": "doctor_inbox"},
-    )
-    conversation.status = ClinicConversationStatus.APPOINTMENT_PENDING if starts_at is None else ClinicConversationStatus.ACTIVE
+    appointment = _find_conversation_appointment(db, clinic, conversation)
+    if appointment is None:
+        appointment = ClinicalAppointment(
+            clinic_id=clinic.id,
+            patient_id=conversation.patient_id,
+            conversation_id=conversation.id,
+            metadata_json={},
+        )
+
+    # If slot_id is given, book the slot and derive starts_at / doctor_id
+    if slot_id is not None:
+        slot = db.get(ClinicDoctorSlot, slot_id)
+        if slot is None or slot.clinic_id != clinic.id:
+            raise HTTPException(status_code=404, detail="Slot not found")
+        if slot.is_booked or slot.is_blocked:
+            raise HTTPException(status_code=409, detail="Slot is not available")
+        slot.is_booked = True
+        db.add(slot)
+        appointment.slot_id = slot.id
+        appointment.doctor_id = slot.doctor_id
+        appointment.starts_at = slot.start_time
+        doctor_id = slot.doctor_id
+    else:
+        appointment.starts_at = starts_at
+
+    if doctor_id is not None:
+        doctor = db.get(ClinicDoctor, doctor_id)
+        if doctor is None or doctor.clinic_id != clinic.id:
+            raise HTTPException(status_code=404, detail="Doctor not found")
+        appointment.doctor_id = doctor_id
+        if not department or department == "Muayene":
+            department = doctor.specialty
+
+    appointment.department = department.strip() or appointment.department or "Muayene"
+    appointment.status = ClinicalAppointmentStatus.PENDING if appointment.starts_at is None else ClinicalAppointmentStatus.CONFIRMED
+    appointment.notes = notes
+    appointment.metadata_json = {
+        **(appointment.metadata_json or {}),
+        "created_from": (appointment.metadata_json or {}).get("created_from", "doctor_inbox"),
+        "confirmed_from": "doctor_inbox" if appointment.starts_at is not None else None,
+    }
+    conversation.status = ClinicConversationStatus.APPOINTMENT_PENDING if appointment.starts_at is None else ClinicConversationStatus.ACTIVE
+    db.add(appointment)
+    db.flush()
+    conversation.metadata_json = {
+        **(conversation.metadata_json or {}),
+        "appointment_draft": _appointment_draft_payload(appointment),
+    }
     db.add(appointment)
     db.add(conversation)
     db.commit()
@@ -929,6 +1109,10 @@ def update_shadow_review(
 
 
 def clinical_metrics(db: Session, clinic: Clinic) -> dict:
+    def review_urgency(review: ShadowReview) -> str | None:
+        triage = (review.metadata_json or {}).get("triage")
+        return triage.get("urgency") if isinstance(triage, dict) else None
+
     today_start = datetime.combine(datetime.now(timezone.utc).date(), time.min, tzinfo=timezone.utc)
     total_conversations = db.scalar(select(func.count(ClinicConversation.id)).where(ClinicConversation.clinic_id == clinic.id)) or 0
     conversations_today = (
@@ -940,14 +1124,25 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
         )
         or 0
     )
-    pending_shadow = (
-        db.scalar(
-            select(func.count(ShadowReview.id)).where(
+    pending_review_items = list(
+        db.scalars(
+            select(ShadowReview).where(
                 ShadowReview.clinic_id == clinic.id,
                 ShadowReview.status == ShadowReviewStatus.PENDING,
             )
         )
-        or 0
+    )
+    pending_shadow = len(pending_review_items)
+    triage_reviews = sum(1 for item in pending_review_items if item.intent in {ClinicIntent.SYMPTOM_TRIAGE, ClinicIntent.MEDICAL_EMERGENCY})
+    emergency_reviews = sum(
+        1
+        for item in pending_review_items
+        if review_urgency(item) == "emergency"
+    )
+    same_day_reviews = sum(
+        1
+        for item in pending_review_items
+        if review_urgency(item) == "same_day"
     )
     doctor_inbox_count = (
         db.scalar(
@@ -965,6 +1160,16 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
             select(func.count(ClinicConversation.id)).where(
                 ClinicConversation.clinic_id == clinic.id,
                 ClinicConversation.channel == ClinicChannel.PHONE,
+                ClinicConversation.created_at >= today_start,
+            )
+        )
+        or 0
+    )
+    whatsapp_threads_today = (
+        db.scalar(
+            select(func.count(ClinicConversation.id)).where(
+                ClinicConversation.clinic_id == clinic.id,
+                ClinicConversation.channel == ClinicChannel.WHATSAPP,
                 ClinicConversation.created_at >= today_start,
             )
         )
@@ -1004,8 +1209,12 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
         "conversations_today": conversations_today,
         "total_conversations": total_conversations,
         "pending_shadow_reviews": pending_shadow,
+        "triage_reviews": triage_reviews,
+        "emergency_reviews": emergency_reviews,
+        "same_day_reviews": same_day_reviews,
         "doctor_inbox_count": doctor_inbox_count,
         "phone_calls_today": phone_calls_today,
+        "whatsapp_threads_today": whatsapp_threads_today,
         "auto_reply_rate": round(assistant_messages / patient_messages, 2) if patient_messages else 0.0,
         "appointments_pending": appointments_pending,
         "reminders_due": reminders_due,
@@ -1013,112 +1222,53 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
     }
 
 
-def _get_clinic_patient(db: Session, clinic: Clinic, patient_id: int) -> ClinicPatient:
-    patient = db.scalars(
-        select(ClinicPatient).where(ClinicPatient.id == patient_id, ClinicPatient.clinic_id == clinic.id)
-    ).first()
-    if patient is None:
-        raise NotFoundError("Patient not found")
-    return patient
+# ── Doctor & Slot queries ───────────────────────────────────────────────────────
 
 
-def create_pre_intake(
-    db: Session,
-    clinic: Clinic,
-    patient_id: int,
-    conversation_id: int | None = None,
-    answers: dict | None = None,
-    is_complete: bool = False,
-) -> PreIntake:
-    patient = _get_clinic_patient(db, clinic, patient_id)
-    if conversation_id is not None:
-        get_clinical_conversation(db, clinic, conversation_id)
-
-    pre_intake = PreIntake(
-        clinic_id=clinic.id,
-        patient_id=patient.id,
-        conversation_id=conversation_id,
-        answers_json=dict(answers or {}),
-        is_complete=is_complete,
+def list_clinic_doctors(db: Session, clinic: Clinic) -> list[ClinicDoctor]:
+    return list(
+        db.scalars(
+            select(ClinicDoctor)
+            .where(ClinicDoctor.clinic_id == clinic.id, ClinicDoctor.is_active.is_(True))
+            .order_by(ClinicDoctor.specialty, ClinicDoctor.full_name)
+        )
     )
-    db.add(pre_intake)
-    db.commit()
-    db.refresh(pre_intake)
-    return pre_intake
 
 
-def get_pre_intake(db: Session, clinic: Clinic, pre_intake_id: int) -> PreIntake:
-    pre_intake = db.scalars(
-        select(PreIntake).where(PreIntake.id == pre_intake_id, PreIntake.clinic_id == clinic.id)
-    ).first()
-    if pre_intake is None:
-        raise NotFoundError("Pre-intake not found")
-    return pre_intake
-
-
-def list_pre_intakes(
+def list_doctor_available_slots(
     db: Session,
     clinic: Clinic,
-    patient_id: int | None = None,
-    conversation_id: int | None = None,
-    is_complete: bool | None = None,
-    limit: int = 50,
-) -> list[PreIntake]:
-    stmt = select(PreIntake).where(PreIntake.clinic_id == clinic.id)
-    if patient_id is not None:
-        stmt = stmt.where(PreIntake.patient_id == patient_id)
-    if conversation_id is not None:
-        stmt = stmt.where(PreIntake.conversation_id == conversation_id)
-    if is_complete is not None:
-        stmt = stmt.where(PreIntake.is_complete == is_complete)
-    stmt = stmt.order_by(PreIntake.updated_at.desc()).limit(limit)
-    return list(db.scalars(stmt))
+    doctor_id: int,
+    date_str: str | None = None,
+) -> list[ClinicDoctorSlot]:
+    from datetime import date as date_type
 
+    doctor = db.get(ClinicDoctor, doctor_id)
+    if doctor is None or doctor.clinic_id != clinic.id:
+        raise HTTPException(status_code=404, detail="Doctor not found")
 
-def update_pre_intake(
-    db: Session,
-    clinic: Clinic,
-    pre_intake_id: int,
-    answers: dict | None = None,
-    is_complete: bool | None = None,
-    replace: bool = False,
-) -> PreIntake:
-    pre_intake = get_pre_intake(db, clinic, pre_intake_id)
+    if date_str:
+        try:
+            target_date = date_type.fromisoformat(date_str)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format, use YYYY-MM-DD")
+    else:
+        target_date = datetime.now(timezone.utc).date()
 
-    if answers is not None:
-        if replace:
-            pre_intake.answers_json = dict(answers)
-        else:
-            merged = dict(pre_intake.answers_json or {})
-            merged.update(answers)
-            pre_intake.answers_json = merged
-    if is_complete is not None:
-        pre_intake.is_complete = is_complete
+    day_start = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
+    day_end = datetime.combine(target_date, time.max, tzinfo=timezone.utc)
 
-    db.add(pre_intake)
-    db.commit()
-    db.refresh(pre_intake)
-
-    answer_count = len(pre_intake.answers_json or {})
-    record_agent_decision(
-        db,
-        build_decision(
-            agent_type=AgentType.FORM,
-            intent="pre_intake_progress",
-            confidence=1.0 if pre_intake.is_complete else 0.5,
-            risk=DecisionRisk.LOW,
-            requires_human=False,
-            action="persist_pre_intake" if pre_intake.is_complete else "ask_next_question",
-            reason="form_complete" if pre_intake.is_complete else "form_in_progress",
-            organization_id=clinic.organization_id,
-            payload={
-                "pre_intake_id": pre_intake.id,
-                "answer_count": answer_count,
-                "is_complete": pre_intake.is_complete,
-                "replace_mode": replace,
-            },
-        ),
-        clinic_id=clinic.id,
-        conversation_id=pre_intake.conversation_id,
+    return list(
+        db.scalars(
+            select(ClinicDoctorSlot)
+            .options(selectinload(ClinicDoctorSlot.doctor))
+            .where(
+                ClinicDoctorSlot.doctor_id == doctor_id,
+                ClinicDoctorSlot.clinic_id == clinic.id,
+                ClinicDoctorSlot.start_time >= day_start,
+                ClinicDoctorSlot.start_time <= day_end,
+                ClinicDoctorSlot.is_blocked.is_(False),
+            )
+            .order_by(ClinicDoctorSlot.start_time)
+        )
     )
-    return pre_intake

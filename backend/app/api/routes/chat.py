@@ -1,16 +1,15 @@
 import json
+import logging
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
-from sqlalchemy.orm import Session
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from app.core.rate_limit import limiter
 
 from app.agent.orchestrator import AgentContext, process_message, stream_openai_agent
 from app.api.dependencies import get_current_user, get_db
-from app.db.session import SessionLocal
 from app.models import AuditResultStatus, MessageSender, User
 from app.schemas.chat import (
     ChatSessionCreateRequest,
@@ -30,6 +29,7 @@ from app.services.chat_service import (
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/sessions", response_model=list[ChatSessionSummary])
@@ -132,7 +132,9 @@ def send_message(
     )
 
 @router.post("/sessions/{session_id}/messages/stream")
+@limiter.limit("20/minute")
 def stream_message(
+    request: Request,
     session_id: int,
     payload: SendMessageRequest,
     db: Session = Depends(get_db),
@@ -175,11 +177,12 @@ def stream_message(
     current_user_id = current_user.id
     language = "tr" if current_user.locale == "tr" else "en"
     content = payload.content
+    StreamSessionLocal = sessionmaker(bind=db.get_bind(), autocommit=False, autoflush=False)
 
     def event_stream():
         # FastAPI closes request-scoped dependencies before a long-lived stream
         # finishes, so the SSE worker owns its own DB session.
-        stream_db = SessionLocal()
+        stream_db = StreamSessionLocal()
         try:
             stream_user = stream_db.scalars(
                 select(User).options(selectinload(User.role)).where(User.id == current_user_id)
@@ -195,8 +198,12 @@ def stream_message(
             # Stream bitti — başlığı workflow_state ile yeniden dene
             updated = get_session(stream_db, session_id, stream_user)
             maybe_update_title(stream_db, updated, content, updated.workflow_state)
-        except Exception:  # noqa: BLE001
-            yield f"data: {json.dumps({'t': 'err', 'v': 'Mesaj işlenirken backend tarafında hata oluştu. Lütfen tekrar deneyin.'}, ensure_ascii=False)}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "chat_stream_failed",
+                extra={"session_id": session_id, "user_id": current_user_id, "error": str(exc)},
+            )
+            yield f"data: {json.dumps({'t': 'err', 'code': 'stream_failed', 'v': 'Mesaj işlenirken backend tarafında hata oluştu. Lütfen tekrar deneyin.'}, ensure_ascii=False)}\n\n"
         finally:
             stream_db.close()
 

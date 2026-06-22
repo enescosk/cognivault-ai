@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from app.ai.text_understanding import fuzzy_contains, normalize_for_intent
+
 
 OUTREACH_ACTION_WORDS = [
     "görüşme",
@@ -89,6 +91,17 @@ KNOWN_COMPANIES: list[tuple[str, str]] = [
 
 KNOWN_COMPANY_NAMES = {canonical for _, canonical in KNOWN_COMPANIES}
 
+INTERNAL_SUPPORT_TERMS = [
+    "teknik destek",
+    "technical support",
+    "billing operations",
+    "fatura islemleri",
+    "onboarding",
+    "kurulum",
+    "compliance advisory",
+    "uyum danismanligi",
+]
+
 
 KNOWN_LOCATIONS = [
     "ataşehir",
@@ -148,6 +161,13 @@ def clean_term(value: str) -> str:
 def has_external_action(text: str) -> bool:
     normalized = normalize_tr(text)
     return any(normalize_tr(word) in normalized for word in OUTREACH_ACTION_WORDS)
+
+
+def is_internal_support_request(text: str) -> bool:
+    normalized = normalize_for_intent(text)
+    if not fuzzy_contains(normalized, INTERNAL_SUPPORT_TERMS, threshold=0.80):
+        return False
+    return fuzzy_contains(normalized, ["randevu", "appointment", "gorusme", "toplanti", "destek"], threshold=0.82)
 
 
 def infer_company(text: str) -> str | None:
@@ -237,6 +257,8 @@ def build_search_query(company: str | None, category: str | None, location: str 
 
 def extract_external_request_terms(text: str) -> dict | None:
     if not text.strip() or not has_external_action(text):
+        return None
+    if is_internal_support_request(text):
         return None
 
     company = infer_company(text)

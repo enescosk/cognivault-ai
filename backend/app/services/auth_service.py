@@ -2,7 +2,7 @@ from app.core.exceptions import AuthenticationError, ConflictError, UpstreamErro
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.security import create_access_token, hash_password, needs_rehash, verify_password
+from app.core.security import create_access_token, hash_password, password_needs_rehash, verify_password
 from app.models import AuditResultStatus, Role, RoleName, User
 from app.schemas.auth import AuthResponse, UserResponse
 from app.services.audit_service import log_action
@@ -23,16 +23,13 @@ def authenticate_user(db: Session, email: str, password: str) -> AuthResponse:
         )
         raise AuthenticationError("Invalid credentials")
 
-    # SHA-256 → bcrypt opportunistic upgrade. Kullanıcı şifresini değiştirmek
-    # zorunda kalmadan otomatik geçer; ilk başarılı login sonrası hash güçlenir.
-    if needs_rehash(user.hashed_password):
-        try:
-            user.hashed_password = hash_password(password)
-            db.commit()
-        except Exception:  # noqa: BLE001 — upgrade başarısızsa login'i bozma
-            db.rollback()
+    if password_needs_rehash(user.hashed_password):
+        user.hashed_password = hash_password(password)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
-    token = create_access_token(str(user.id), organization_id=user.organization_id)
+    token = create_access_token(str(user.id))
     log_action(
         db,
         user_id=user.id,

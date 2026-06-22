@@ -3,31 +3,29 @@ import { useEffect, useState } from "react";
 import {
   createSession,
   deleteSession,
+  getAICapabilities,
   getAppointments,
   getAuditLogs,
   getMetrics,
+  getQualityReport,
   getSession,
   listSessions,
   listUsers,
   streamMessage,
 } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
-import type { Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, User } from "../types/api";
+import type { AICapabilities, Appointment, AuditLog, ChatSessionDetail, ChatSessionSummary, Metrics, QualityReport, User } from "../types/api";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { AppointmentPanel } from "./AppointmentPanel";
 import { AppointmentsPage } from "./AppointmentsPage";
+import { AppointmentNotes } from "./AppointmentNotes";
 import { AdminPanel } from "./AdminPanel";
 import { ChatWindow } from "./ChatWindow";
 import { ClinicalPanel } from "./ClinicalPanel";
-import { ClinicAdminPanel } from "./ClinicAdminPanel";
-import { ClinicalPlayground } from "./ClinicalPlayground";
-import { DecisionLogView } from "./DecisionLogView";
-import { UsageCostCard } from "./UsageCostCard";
-import { ErrorBoundary } from "./ErrorBoundary";
+import { CustomerDashboard } from "./CustomerDashboard";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
-import { showToast } from "./ui/Toast";
+import { SystemHealthPanel } from "./SystemHealthPanel";
 
 interface DashboardProps {
   /**
@@ -47,6 +45,8 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [capabilities, setCapabilities] = useState<AICapabilities | null>(null);
+  const [quality, setQuality] = useState<QualityReport | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -55,7 +55,7 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
   const [activeTools, setActiveTools] = useState<string[]>([]);  // şu an çalışan tool'lar
   const [isThinking, setIsThinking] = useState(false);            // LLM düşünüyor mu
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "appointments" | "clinical" | "clinic-admin">(defaultView ?? "chat");
+  const [view, setView] = useState<"dashboard" | "chat" | "appointments" | "notes" | "clinical">("dashboard");
 
   const role = user?.role.name ?? "customer";
   const isCustomer = role === "customer";
@@ -77,15 +77,19 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
     setLoading(true);
     setError(null);
     try {
-      const [sessionList, auditEntries, appointmentList, metricSummary] = await Promise.all([
+      const [sessionList, auditEntries, appointmentList, metricSummary, aiCaps, qualityReport] = await Promise.all([
         listSessions(token),
         getAuditLogs(token),
         getAppointments(token),
-        getMetrics(token)
+        getMetrics(token),
+        getAICapabilities(token),
+        getQualityReport(token),
       ]);
       setLogs(auditEntries);
       setAppointments(appointmentList);
       setMetrics(metricSummary);
+      setCapabilities(aiCaps);
+      setQuality(qualityReport);
       if (role === "operator" || role === "admin") {
         listUsers(token).then(setUsers).catch(() => {});
       }
@@ -115,7 +119,7 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
         setSelectedSession(created);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Dashboard failed to load");
+      setError(err instanceof Error ? err.message : "Klinik paneli yuklenemedi");
     } finally {
       setLoading(false);
     }
@@ -234,7 +238,7 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
   }, [error]);
 
   if (!user) return null;
-  if (loading && !selectedSession) return <div className="loading-shell">Loading workspace...</div>;
+  if (loading && !selectedSession) return <div className="loading-shell">Medikal komuta merkezi yukleniyor...</div>;
 
   const isClinicalView = view === "clinical" && (isOperator || isAdmin);
 
@@ -252,33 +256,37 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
         onSelectSession={(id) => { setView(isCustomer ? "chat" : "clinical"); if (isCustomer) handleSelectSession(id); }}
         onNewSession={() => { if (isCustomer) { setView("chat"); handleNewSession(); } else { setView("clinical"); } }}
         onDeleteSession={handleDeleteSession}
+        onViewDashboard={() => setView("dashboard")}
         onViewAppointments={() => setView("appointments")}
-        onViewClinical={() => { setView("clinical"); navigate("/operator"); }}
-        onViewClinicAdmin={() => { setView("clinic-admin"); navigate("/operator/admin"); }}
+        onViewNotes={() => setView("notes")}
+        onViewClinical={() => setView("clinical")}
         onLogout={logout}
       />
       <main className="main-panel">
-        {!isClinicalView ? (
-          <ErrorBoundary scope="Metrics"><MetricsBar metrics={metrics} appointments={appointments} role={role} /></ErrorBoundary>
-        ) : null}
+        {!isClinicalView ? <MetricsBar metrics={metrics} appointments={appointments} role={role} /> : null}
+        <SystemHealthPanel capabilities={capabilities} quality={quality} view={view} />
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        {view === "clinic-admin" && isAdmin ? (
-          <ErrorBoundary scope="Clinic Admin">
-            <ClinicAdminPanel token={token ?? ""} />
-          </ErrorBoundary>
-        ) : isClinicalView ? (
-          <ErrorBoundary scope="Clinical">
+        <div className="view-stage" key={view}>
+          {isClinicalView ? (
             <ClinicalPanel token={token ?? ""} />
-          </ErrorBoundary>
-        ) : view === "appointments" && isCustomer ? (
-          <ErrorBoundary scope="Randevular">
+          ) : view === "dashboard" && isCustomer ? (
+            <CustomerDashboard
+              appointments={appointments}
+              sessions={sessions}
+              metrics={metrics}
+              onStartChat={() => { setView("chat"); handleNewSession(); }}
+              onViewAppointments={() => setView("appointments")}
+              onViewNotes={() => setView("notes")}
+              onViewConversations={() => setView("chat")}
+            />
+          ) : view === "notes" && isCustomer ? (
+            <AppointmentNotes />
+          ) : view === "appointments" && isCustomer ? (
             <AppointmentsPage appointments={appointments} />
-          </ErrorBoundary>
-        ) : (
-          <ErrorBoundary scope="Sohbet">
-            <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} activeTools={activeTools} isThinking={isThinking} token={token ?? ""} onSend={handleSend} />
-          </ErrorBoundary>
-        )}
+          ) : (
+            <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
+          )}
+        </div>
       </main>
       {isCustomer && (
         <ErrorBoundary scope="Randevu paneli">

@@ -2,33 +2,30 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import agents, appointments, audit, auth, billing, chat, clinical, enterprise, intelligence, public as public_routes, users, voice, clinic_admin
+from app.api.routes import ai, appointments, audit, auth, chat, clinical, enterprise, intelligence, quality, users, voice
+from app.api.dependencies import get_db
 from app.core.config import get_settings
-from app.core.observability import (
-    MetricsTimer,
-    configure_logging,
-    http_requests_total,
-    render_metrics,
-)
+from app.core.errors import error_response
+from app.core.health import readiness_report
+from app.core.observability import RequestContextMiddleware
 from app.core.rate_limit import limiter
-from app.db.schema import ensure_schema_up_to_date
-from app.db.session import SessionLocal
-from app.seed.data import seed_database
-from app.services.agents import bootstrap_agent_registry
+from app.db.bootstrap import initialize_database
+from sqlalchemy.orm import Session
 
 configure_logging()
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+settings.validate_runtime_safety()
 
 # Production fail-fast: JWT_SECRET zayıfsa uygulamayı başlatma.
 # Mesaj, operatöre nasıl güçlü secret üreteceğini anlatır.
@@ -116,33 +113,15 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Şema kurulumu — sadece dev'de Alembic head'e taşır.
-    # Production'da deploy pipeline `alembic upgrade head`'i kendisi koşar;
-    # uygulama startup'ı DB şemasına dokunmaz.
-    ensure_schema_up_to_date()
-    # Production guard — demo kullanıcıları (ayse, admin@…) prod'da YARATILMAMALI.
-    # SEED_DEMO_DATA=true bile olsa, ENVIRONMENT=production ise atla + uyarı logla.
-    if settings.seed_demo_data and settings.is_production:
-        logger.warning(
-            "SECURITY: SEED_DEMO_DATA=true but ENVIRONMENT=%r — demo users + sample "
-            "data will NOT be created. Disable SEED_DEMO_DATA in prod env.",
-            settings.environment,
-        )
-    elif settings.seed_demo_data:
-        db = SessionLocal()
-        try:
-            seed_database(db)
-        finally:
-            db.close()
-    bootstrap_agent_registry()
+    initialize_database(settings)
     yield
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
-
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(MetricsMiddleware)
 app.add_middleware(RequestIDMiddleware)
@@ -163,39 +142,45 @@ app.add_middleware(
 )
 
 
-# DomainError → HTTPException — servis katmanı HTTP'yi bilmek zorunda değil.
-# Her domain hatası kendi `http_status`'unu taşır, burada tek noktadan tutarlı
-# JSON formatına çevirir.
-from app.core.exceptions import DomainError
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    message = str(exc.detail) if exc.detail else "Request failed"
+    code = {
+        400: "bad_request",
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        409: "conflict",
+        422: "validation_error",
+        429: "rate_limited",
+        503: "service_unavailable",
+    }.get(exc.status_code, "http_error")
+    return error_response(request, status_code=exc.status_code, code=code, message=message)
 
 
-@app.exception_handler(DomainError)
-async def domain_error_handler(request: Request, exc: DomainError):
-    return JSONResponse(
-        status_code=exc.http_status,
-        content={
-            "error": exc.__class__.__name__,
-            "detail": exc.message,
-            **({"context": exc.details} if exc.details else {}),
-        },
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return error_response(
+        request,
+        status_code=422,
+        code="validation_error",
+        message="Request validation failed",
+        detail=exc.errors(),
     )
 
 
-@app.exception_handler(404)
-async def not_found_handler(request: Request, exc):
-    return JSONResponse(status_code=404, content={"error": "Not found", "detail": str(exc.detail)})
-
-
-@app.exception_handler(403)
-async def forbidden_handler(request: Request, exc):
-    return JSONResponse(status_code=403, content={"error": "Forbidden", "detail": str(exc.detail)})
-
-
-@app.exception_handler(401)
-async def unauthorized_handler(request: Request, exc):
-    return JSONResponse(status_code=401, content={"error": "Unauthorized", "detail": str(exc.detail)})
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("unhandled_exception", extra={"path": request.url.path})
+    return error_response(
+        request,
+        status_code=500,
+        code="internal_error",
+        message="Unexpected backend error",
+    )
 
 app.include_router(auth.router, prefix=settings.api_prefix)
+app.include_router(ai.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(chat.router, prefix=settings.api_prefix)
 app.include_router(appointments.router, prefix=settings.api_prefix)
@@ -204,11 +189,7 @@ app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(enterprise.router, prefix=settings.api_prefix)
 app.include_router(intelligence.router, prefix=settings.api_prefix)
 app.include_router(clinical.router, prefix=settings.api_prefix)
-app.include_router(agents.router, prefix=settings.api_prefix)
-app.include_router(billing.router, prefix=settings.api_prefix)
-app.include_router(public_routes.router, prefix=settings.api_prefix)
-app.include_router(clinic_admin.router, prefix=settings.api_prefix)
-
+app.include_router(quality.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")
@@ -216,45 +197,14 @@ def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/healthz")
-def liveness_probe() -> dict[str, str]:
-    """Kubernetes-style liveness probe — only fails if the process is broken."""
-
-    return {"status": "ok"}
+@app.get("/health/ready")
+def readiness(db: Session = Depends(get_db)) -> dict:
+    return readiness_report(db)
 
 
-@app.get("/readyz")
-def readiness_probe() -> JSONResponse:
-    """Readiness probe — verifies the database is reachable.
-
-    Returns 200 with the dependency status JSON when everything is up; 503 if
-    the DB check fails. Useful for load-balancer or k8s readiness gating.
-    """
-
-    checks: dict[str, str] = {}
-    overall_ok = True
-    db = SessionLocal()
-    try:
-        db.execute(text("SELECT 1"))
-        checks["database"] = "ok"
-    except Exception as exc:  # noqa: BLE001
-        overall_ok = False
-        checks["database"] = f"failed: {exc.__class__.__name__}"
-        logger.error("readyz database check failed", extra={"error": str(exc)})
-    finally:
-        db.close()
-
-    body = {"status": "ok" if overall_ok else "degraded", "checks": checks}
-    return JSONResponse(content=body, status_code=200 if overall_ok else 503)
-
-
-@app.get("/metrics")
-def prometheus_metrics() -> Response:
-    """Prometheus scrape endpoint. No auth (standard for /metrics) — scope it to
-    the metrics network or behind an ingress allowlist in production."""
-
-    body, content_type = render_metrics()
-    return Response(content=body, media_type=content_type)
+@app.get("/health/live")
+def liveness() -> dict[str, str]:
+    return {"status": "ok", "service": settings.app_name}
 
 
 @app.get("/")
@@ -263,6 +213,7 @@ def root() -> dict[str, str]:
         "name": settings.app_name,
         "status": "ok",
         "health": "/health",
+        "readiness": "/health/ready",
         "api_prefix": settings.api_prefix,
-        "frontend_hint": "Open http://localhost:5173 for the web app.",
+        "frontend_hint": "Open http://127.0.0.1:5200 for the web app.",
     }

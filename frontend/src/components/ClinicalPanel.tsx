@@ -1,31 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  createClinicalAppointment,
   getClinicalConversation,
-  getClinicalComplianceProfile,
+  getClinicalDoctors,
   getClinicalOverview,
-  getClinicalPatentDossier,
-  getClinicalSlotBoard,
-  listClinicalAppointments,
-  createManualClinicalAppointment,
+  getDoctorSlots,
+  getUpcomingClinicalAppointments,
   simulateVoiceCall,
   simulateWhatsAppMessage,
   updateClinicalAppointmentStatus,
   updateShadowReview,
 } from "../api/client";
 import type {
-  ClinicalAppointmentRow,
-  ClinicalComplianceProfile,
+  ClinicalAppointment,
+  ClinicDoctor,
+  ClinicDoctorSlot,
   ClinicalConversationDetail,
   ClinicalConversationSummary,
+  ClinicalMessage,
   ClinicalOverview,
-  ClinicalPatentDossier,
-  ClinicalSlotBoard,
-  ClinicalSlotItem,
   ShadowReview,
 } from "../types/api";
 
 const trDateTime = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
+const trTime = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit" });
 
 type ClinicalPanelProps = {
   token: string;
@@ -33,6 +32,31 @@ type ClinicalPanelProps = {
 
 type PersonaId = "selin" | "arzu" | "can";
 type ChannelMode = "phone" | "whatsapp";
+type WorkspaceView = "reception" | "doctor" | "owner";
+type PossibleCondition = {
+  label?: string;
+  rationale?: string;
+  urgency?: string;
+  confidence?: number;
+};
+type TriageInfo = {
+  urgency?: string;
+  red_flags?: string[];
+  possible_conditions?: PossibleCondition[];
+  recommended_action?: string;
+  doctor_summary?: string;
+  follow_up_questions?: string[];
+  safety_disclaimer?: string;
+  source?: string;
+};
+type AppointmentDraft = {
+  id?: number;
+  department?: string;
+  starts_at?: string | null;
+  status?: string;
+  missing_fields?: string[];
+  source?: string;
+};
 
 const personaCards: Array<{
   id: PersonaId;
@@ -40,80 +64,190 @@ const personaCards: Array<{
   title: string;
   voice: string;
   description: string;
+  guardrail: string;
 }> = [
   {
     id: "selin",
     name: "Selin",
     title: "Randevu resepsiyonisti",
-    voice: "Sıcak ve hızlı",
-    description: "Diş taşı, implant kontrolü, dermatoloji ve genel muayene randevularını toplar.",
+    voice: "Sicak, hizli, net",
+    description: "Telefon veya WhatsApp'tan gelen randevu talebini toparlar, eksik bilgiyi sorar.",
+    guardrail: "Medikal tavsiye vermez; belirti gelirse Can'a devreder.",
   },
   {
     id: "arzu",
     name: "Arzu",
     title: "Sigorta ve klinik operasyon",
-    voice: "Net ve güven veren",
-    description: "Fiyat, SGK, özel sigorta, ödeme ve şube bilgilerini kontrollü cevaplar.",
+    voice: "Guven veren, prosedurel",
+    description: "Fiyat, SGK, ozel sigorta, sube ve operasyon sorularini kontrollu cevaplar.",
+    guardrail: "Kesin fiyat veya kapsam sozu vermez; politika verisi yoksa onaya dusurur.",
   },
   {
     id: "can",
     name: "Can",
-    title: "Medikal güvenlik",
-    voice: "Sakin ve ciddi",
-    description: "Acil veya riskli ifadeleri yakalar, doktora öncelikli not düşer.",
+    title: "Medikal guvenlik sorumlusu",
+    voice: "Sakin, ciddi, hekim odakli",
+    description: "Belirti, aciliyet, kirmizi bayrak ve doktor brifini olusturur.",
+    guardrail: "Tani koymaz; olasi kategorileri doktor onayi icin ayirir.",
+  },
+];
+
+const quickScenarios: Array<{
+  label: string;
+  channel: ChannelMode;
+  persona: PersonaId;
+  patient: string;
+  phone: string;
+  body: string;
+}> = [
+  {
+    label: "Diş ağrısı + şişlik",
+    channel: "phone",
+    persona: "can",
+    patient: "Melis Hasta",
+    phone: "+90 555 707 80 90",
+    body: "Dis agrim ve sislik var, implant bolgesi de agriyor. Bugun doktor gorebilir mi?",
+  },
+  {
+    label: "Randevu toplama",
+    channel: "whatsapp",
+    persona: "selin",
+    patient: "Ayse Hasta",
+    phone: "+90 555 111 22 33",
+    body: "Yarin dis tasi temizligi icin musait randevu var mi?",
+  },
+  {
+    label: "Sigorta sorusu",
+    channel: "whatsapp",
+    persona: "arzu",
+    patient: "Mehmet Hasta",
+    phone: "+90 555 222 44 55",
+    body: "Implant muayenesinde tamamlayici sigorta veya SGK geciyor mu?",
+  },
+  {
+    label: "Acil red flag",
+    channel: "phone",
+    persona: "can",
+    patient: "Acil Hasta",
+    phone: "+90 555 404 50 60",
+    body: "Gogsumde agri var ve nefes darligi yasiyorum, ne yapmaliyim?",
   },
 ];
 
 const roleCards = [
   {
-    title: "1. Karşılama",
-    metric: "Telefon / WhatsApp",
-    text: "Hasta uygulama indirmez. Kliniği arar veya WhatsApp yazar; AI kimlik, şikayet ve tercih bilgilerini toplar.",
+    id: "reception" as WorkspaceView,
+    title: "Resepsiyon",
+    metric: "Canli hasta masasi",
+    text: "Arama ve WhatsApp tek kuyrukta toplanir; eksik bilgiler ve randevu aksiyonlari gorunur.",
   },
   {
-    title: "2. Klinik routing",
-    metric: "Niyet ve branş",
-    text: "Halk ağzındaki şikayet Endodonti, Periodontoloji, Pedodonti veya genel muayene gibi aksiyona çevrilir.",
+    id: "doctor" as WorkspaceView,
+    title: "Doktor",
+    metric: "Medikal brif",
+    text: "Sadece anlamli hasta ozetleri, aciliyet ve kirmizi bayrak bilgisi doktor ekranina duser.",
   },
   {
-    title: "3. Randevu",
-    metric: "Takvim",
-    text: "Eksik gün, saat, şube ve hekim bilgisi tamamlanır; uygun slot oluşunca resepsiyon onayına düşer.",
-  },
-  {
-    title: "4. Güvenlik",
-    metric: "Doktor onayı",
-    text: "Acil, belirsiz veya klinik risk taşıyan cevaplar otomatik gönderilmez; insan onayına alınır.",
+    id: "owner" as WorkspaceView,
+    title: "Klinik sahibi",
+    metric: "Doluluk & guven",
+    text: "Kacan temas, doktor onayi, auto reply orani ve randevu uyarilari tek yerde izlenir.",
   },
 ];
 
-const routingCards = [
-  { label: "Arka dişim zonkluyor", value: "Endodonti", text: "Kanal tedavisi ihtimali, ağrı önceliği ve yakın slot önerisi." },
-  { label: "Diş etim kanıyor", value: "Periodontoloji", text: "Diş eti şikayeti, kanama şiddeti ve aciliyet kontrolü." },
-  { label: "Çocuğumun dolgusu düştü", value: "Pedodonti", text: "Çocuk hasta akışı, veli bilgisi ve uygun hekim yönlendirmesi." },
-  { label: "İmplant kontrolüm var", value: "İmplantoloji", text: "Kontrol randevusu, işlem geçmişi ve hekim tercihi toplama." },
+const architectureLanes = [
+  { title: "Telefon", text: "Twilio Voice gelen aramayi webhook'a tasir; ses metne cevrilir." },
+  { title: "WhatsApp", text: "Twilio Sandbox ile MVP, Meta Cloud API ile production kanalina gecis." },
+  { title: "Clinical AI", text: "Intent, persona, structured triyaj, confidence ve safety karar katmani." },
+  { title: "Doctor Inbox", text: "Riskli veya belirsiz cevap insana duser; doktor onayi kayit altina alinir." },
+  { title: "DB & Audit", text: "Hasta, mesaj, randevu, shadow review ve reminder verisi iliskili saklanir." },
 ];
 
-const integrationCards = [
-  { title: "HBYS / Klinik yazılımı", text: "Hasta kartı, hekim takvimi, slot ve randevu durumları tek pipeline'a bağlanır." },
-  { title: "KVKK kayıt izi", text: "Açık rıza, mesaj geçmişi, insan onayı ve outbound bildirimler denetlenebilir tutulur." },
-  { title: "Ses kalitesi", text: "Arka plan gürültüsü, aksan, yarım cümle ve yaşlı hasta konuşmaları için tekrar-sorma stratejisi." },
-];
+function getTriage(value: Record<string, unknown> | null | undefined): TriageInfo | null {
+  const triage = value?.triage;
+  if (!triage || typeof triage !== "object") return null;
+  return triage as TriageInfo;
+}
+
+function getConditions(value: Array<Record<string, unknown>> | undefined, fallback?: TriageInfo | null): PossibleCondition[] {
+  if (value?.length) return value as PossibleCondition[];
+  return fallback?.possible_conditions ?? [];
+}
+
+function getAppointmentDraft(value: Record<string, unknown> | null | undefined): AppointmentDraft | null {
+  if (!value || typeof value !== "object") return null;
+  return value as AppointmentDraft;
+}
+
+function formatUrgency(value?: string | null) {
+  const labels: Record<string, string> = {
+    emergency: "Acil",
+    same_day: "Ayni gun",
+    soon: "Yakin takip",
+    routine: "Rutin",
+    admin: "Operasyon",
+  };
+  return labels[value ?? ""] ?? (value ? value.replace(/_/g, " ") : "Rutin");
+}
+
+function urgencyTone(value?: string | null) {
+  if (value === "emergency") return "critical";
+  if (value === "same_day") return "warning";
+  if (value === "soon") return "attention";
+  return "stable";
+}
+
+function lastPatientMessage(conversation: ClinicalConversationDetail | null): ClinicalMessage | null {
+  return [...(conversation?.messages ?? [])].reverse().find((message) => message.sender === "patient") ?? null;
+}
+
+function getConversationTriage(conversation: ClinicalConversationDetail | null): TriageInfo | null {
+  const patientMessage = lastPatientMessage(conversation);
+  return getTriage(patientMessage?.metadata_json) ?? null;
+}
+
+function percent(value?: number | null) {
+  return `${Math.round((value ?? 0) * 100)}%`;
+}
+
+function toDatetimeLocal(date: Date) {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function appointmentLabel(value?: string | null) {
+  if (!value) return "Saat secilmedi";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Saat secilmedi";
+  return trDateTime.format(date);
+}
+
+function datetimeLocalFromIso(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return toDatetimeLocal(date);
+}
 
 export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [overview, setOverview] = useState<ClinicalOverview | null>(null);
-  const [complianceProfile, setComplianceProfile] = useState<ClinicalComplianceProfile | null>(null);
-  const [patentDossier, setPatentDossier] = useState<ClinicalPatentDossier | null>(null);
-  const [slotBoard, setSlotBoard] = useState<ClinicalSlotBoard | null>(null);
-  const [appointments, setAppointments] = useState<ClinicalAppointmentRow[]>([]);
+  const [upcomingAppointments, setUpcomingAppointments] = useState<ClinicalAppointment[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<ClinicalConversationDetail | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("doctor");
   const [phone, setPhone] = useState("+90 555 111 22 33");
   const [patientName, setPatientName] = useState("Ayse Hasta");
   const [body, setBody] = useState("Arka disim zonkluyor, yarin icin dis hekimi randevusu almak istiyorum.");
   const [channel, setChannel] = useState<ChannelMode>("phone");
-  const [personaId, setPersonaId] = useState<PersonaId>("selin");
+  const [personaId, setPersonaId] = useState<PersonaId>("can");
+  const [department, setDepartment] = useState("Dis hekimligi muayenesi");
+  const [appointmentAt, setAppointmentAt] = useState(toDatetimeLocal(new Date(Date.now() + 90 * 60000)));
   const [editingReviewId, setEditingReviewId] = useState<number | null>(null);
   const [editedReply, setEditedReply] = useState("");
+  const [doctors, setDoctors] = useState<ClinicDoctor[]>([]);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
+  const [doctorSlots, setDoctorSlots] = useState<ClinicDoctorSlot[]>([]);
+  const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null);
+  const [slotDate, setSlotDate] = useState(new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,21 +260,23 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
     void loadClinical();
   }, [token]);
 
+  useEffect(() => {
+    const draft = getAppointmentDraft(selectedConversation?.appointment_draft);
+    if (draft?.department) setDepartment(draft.department);
+    if (draft?.starts_at) setAppointmentAt(datetimeLocalFromIso(draft.starts_at));
+  }, [selectedConversation?.id]);
+
   async function loadClinical(nextConversationId?: number) {
     setError(null);
     try {
-      const [data, compliance, patent, slots, appointmentRows] = await Promise.all([
+      const [data, appointments, doctorList] = await Promise.all([
         getClinicalOverview(token),
-        getClinicalComplianceProfile(token),
-        getClinicalPatentDossier(token),
-        getClinicalSlotBoard(token),
-        listClinicalAppointments(token),
+        getUpcomingClinicalAppointments(token, 1440).catch(() => []),
+        getClinicalDoctors(token).catch(() => []),
       ]);
       setOverview(data);
-      setComplianceProfile(compliance);
-      setPatentDossier(patent);
-      setSlotBoard(slots);
-      setAppointments(appointmentRows);
+      setUpcomingAppointments(appointments);
+      setDoctors(doctorList);
       const id = nextConversationId ?? selectedConversation?.id ?? data.doctor_inbox[0]?.id ?? data.conversations[0]?.id;
       if (id) {
         setSelectedConversation(await getClinicalConversation(id, token));
@@ -150,6 +286,14 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function applyScenario(scenario: (typeof quickScenarios)[number]) {
+    setChannel(scenario.channel);
+    setPersonaId(scenario.persona);
+    setPatientName(scenario.patient);
+    setPhone(scenario.phone);
+    setBody(scenario.body);
   }
 
   async function handleSimulate() {
@@ -206,63 +350,46 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
     }
   }
 
-  async function openAppointmentDetail(row: ClinicalAppointmentRow) {
-    setDetailAppointment(row);
-    setDetailConversation(null);
-    if (row.conversation_id) {
-      try {
-        setDetailConversation(await getClinicalConversation(row.conversation_id, token));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Konuşma yüklenemedi");
-      }
+  async function loadDoctorSlots(doctorId: number, date?: string) {
+    try {
+      const slots = await getDoctorSlots(doctorId, token, date);
+      setDoctorSlots(slots);
+    } catch {
+      setDoctorSlots([]);
     }
   }
 
-  async function handleManualBooking(input: {
-    full_name: string;
-    phone: string;
-    notes?: string;
-  }): Promise<boolean> {
-    if (!activeSlot) return false;
+  async function handleDoctorSelect(doctorId: number) {
+    setSelectedDoctorId(doctorId);
+    setSelectedSlotId(null);
+    const doc = doctors.find((d) => d.id === doctorId);
+    if (doc) setDepartment(doc.specialty);
+    await loadDoctorSlots(doctorId, slotDate);
+  }
+
+  async function handleSlotDateChange(date: string) {
+    setSlotDate(date);
+    if (selectedDoctorId) await loadDoctorSlots(selectedDoctorId, date);
+  }
+
+  async function createAppointmentFromSelection() {
+    if (!selectedConversation) return;
     setBusy(true);
     setError(null);
     try {
-      const slot = activeSlot;
-      const [startTime] = slot.time_range.split("-").map((part) => part.trim());
-      // date_label TR formatlı; gerçek datetime üretmek için bugünün tarihini
-      // baz alıyoruz (demo amaçlı — production'da slot.starts_at gelecek).
-      const now = new Date();
-      const [hh, mm] = (startTime ?? "09:00").split(":").map(Number);
-      const starts = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh || 9, mm || 0);
-      const newRow = await createManualClinicalAppointment(token, {
-        full_name: input.full_name.trim() || null,
-        phone: input.phone.trim(),
-        department: slot.department,
-        starts_at: starts.toISOString(),
-        physician_name: slot.doctor,
-        notes: input.notes?.trim() || null,
+      await createClinicalAppointment(token, {
+        conversation_id: selectedConversation.id,
+        department,
+        doctor_id: selectedDoctorId ?? undefined,
+        slot_id: selectedSlotId ?? undefined,
+        starts_at: selectedSlotId ? undefined : (appointmentAt ? new Date(appointmentAt).toISOString() : null),
+        notes: selectedConversation.doctor_summary ?? getConversationTriage(selectedConversation)?.doctor_summary,
       });
-      setAppointments((rows) => [newRow, ...rows]);
-      return true;
+      setSelectedSlotId(null);
+      await loadClinical(selectedConversation.id);
+      if (selectedDoctorId) await loadDoctorSlots(selectedDoctorId, slotDate);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Randevu oluşturulamadı");
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleAppointmentStatus(
-    appointment: ClinicalAppointmentRow,
-    status: "confirmed" | "cancelled",
-  ) {
-    setBusy(true);
-    setError(null);
-    try {
-      const updated = await updateClinicalAppointmentStatus(token, appointment.id, status);
-      setAppointments((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Randevu durumu güncellenemedi");
+      setError(err instanceof Error ? err.message : "Randevu olusturulamadi");
     } finally {
       setBusy(false);
     }
@@ -273,78 +400,66 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const conversations = overview?.conversations ?? [];
   const doctorInbox = overview?.doctor_inbox ?? [];
   const reviews = overview?.shadow_reviews ?? [];
-
   const selectedPersona = useMemo(
     () => personaCards.find((persona) => persona.id === personaId) ?? personaCards[0],
     [personaId],
   );
+  const selectedTriage = getConversationTriage(selectedConversation);
+  const selectedConditions = getConditions(selectedConversation?.possible_conditions, selectedTriage);
+  const selectedDraft = getAppointmentDraft(selectedConversation?.appointment_draft);
+  const selectedUrgency = selectedTriage?.urgency ?? selectedConversation?.last_urgency;
+  const emergencyCount = metrics?.emergency_reviews ?? reviews.filter((review) => getTriage(review.metadata_json)?.urgency === "emergency").length;
+  const sameDayCount = metrics?.same_day_reviews ?? reviews.filter((review) => getTriage(review.metadata_json)?.urgency === "same_day").length;
+  const autoReplyPercent = percent(metrics?.auto_reply_rate);
 
   if (loading && !overview) {
-    return <div className="clinical-panel clinical-panel--loading">Klinik operasyon kokpiti hazırlanıyor...</div>;
+    return <div className="clinical-panel clinical-panel--loading">Medikal komuta merkezi hazirlaniyor...</div>;
   }
 
   return (
     <div className="clinical-panel boutique-clinic-panel">
-      <div className="clinic-tabbar" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "ops"}
-          className={tab === "ops" ? "active" : ""}
-          onClick={() => setTab("ops")}
-        >
-          Operasyon
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "appointments"}
-          className={tab === "appointments" ? "active" : ""}
-          onClick={() => setTab("appointments")}
-        >
-          Randevular
-          {pendingAppointmentCount > 0 ? <span className="clinic-tab-badge">{pendingAppointmentCount}</span> : null}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "pitch"}
-          className={tab === "pitch" ? "active" : ""}
-          onClick={() => setTab("pitch")}
-        >
-          Sunum
-        </button>
-      </div>
+      <section className="clinic-command-hero">
+        <div className="clinic-hero-main">
+          <div className="clinical-kicker">CogniVault Medical OS</div>
+          <h2>Ozel klinikler ve dis hekimleri icin AI hasta karşilama merkezi</h2>
+          <p>
+            Telefonu, WhatsApp'i, medikal triyaji, doktor onayini ve randevu uyarilarini tek guvenli is akişinda birleştiren butik klinik operasyon paneli.
+          </p>
+          <div className="hero-signal-row" aria-label="Sistem durumu">
+            <span>Voice intake aktif</span>
+            <span>Shadow Mode zorunlu</span>
+            <span>Teşhis yok, doktor onayi var</span>
+          </div>
+        </div>
+        <div className="clinic-hero-safety">
+          <span>Bugunku guvenlik kuyrugu</span>
+          <strong>{metrics?.pending_shadow_reviews ?? 0}</strong>
+          <p>{emergencyCount} acil, {sameDayCount} ayni gun doktor degerlendirmesi bekliyor.</p>
+          <div className="safety-meter">
+            <i style={{ width: `${Math.min(100, Math.max(12, (metrics?.auto_reply_rate ?? 0) * 100))}%` }} />
+          </div>
+          <small>Auto reply orani: {autoReplyPercent}</small>
+        </div>
+      </section>
 
       {error ? <div className="error-box clinical-error">{error}</div> : null}
 
       {tab === "ops" ? (
         <>
       <section className="clinic-metric-strip">
-        <ClinicalMetric label="Bugünkü hasta teması" value={metrics?.conversations_today ?? 0} />
-        <ClinicalMetric label="Telefon araması" value={metrics?.phone_calls_today ?? 0} />
-        <ClinicalMetric label="Doktor ekranında" value={metrics?.doctor_inbox_count ?? 0} tone="warning" />
-        <ClinicalMetric label="Yaklaşan uyarı" value={metrics?.reminders_due ?? 0} tone="success" />
-        <ClinicalMetric label="Doktor onayı" value={metrics?.pending_shadow_reviews ?? 0} tone="danger" />
+        <ClinicalMetric label="Hasta temasi" value={metrics?.conversations_today ?? 0} hint="Bugun gelen telefon + WhatsApp" />
+        <ClinicalMetric label="Telefon" value={metrics?.phone_calls_today ?? 0} hint={`WhatsApp: ${metrics?.whatsapp_threads_today ?? 0}`} />
+        <ClinicalMetric label="Doctor Inbox" value={metrics?.doctor_inbox_count ?? 0} tone="warning" hint="Insan onayi bekleyen hasta" />
+        <ClinicalMetric label="Randevu adayi" value={metrics?.appointments_pending ?? 0} tone="success" hint="Konusmadan cikan taslak" />
+        <ClinicalMetric label="Medikal triyaj" value={metrics?.triage_reviews ?? 0} tone="danger" hint="Acil / ayni gun klinik kontrol" />
       </section>
 
-      <section className="clinic-lab-grid clinic-lab-grid--single">
-        <TestLab
-          slotBoard={slotBoard}
-          onPick={(message) => {
-            setBody(message);
-            setPatientName("Test Hasta");
-            setPhone("+90 555 777 88 99");
-          }}
-        />
-      </section>
-
-      <section className="clinic-workspace-grid">
-        <div className="clinic-card clinic-call-card">
+      <section className="clinic-control-grid">
+        <div className="clinic-card intake-console">
           <div className="clinical-card-top">
             <div>
-              <span>Hasta girişi</span>
-              <h3>Hasta konuşmasını simüle et</h3>
+              <span>AI Reception Desk</span>
+              <h3>Hasta girisini yonet</h3>
             </div>
             <b>{selectedPersona.name}</b>
           </div>
@@ -372,21 +487,172 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
             ))}
           </div>
 
+          <div className="persona-active-brief">
+            <span>{selectedPersona.voice}</span>
+            <p>{selectedPersona.guardrail}</p>
+          </div>
+
           <div className="clinical-form">
-            <input value={patientName} onChange={(event) => setPatientName(event.target.value)} placeholder="Hasta adı" />
-            <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+90..." />
-            <textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Hastanın söylediği medikal talep" />
+            <div className="form-pair">
+              <input value={patientName} onChange={(event) => setPatientName(event.target.value)} placeholder="Hasta adi" />
+              <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+90..." />
+            </div>
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Hastanin soyledigi medikal talep" />
             <button type="button" onClick={handleSimulate} disabled={busy || !body.trim()}>
               Talebi klinik akışa düşür
             </button>
           </div>
+
+          <div className="scenario-row">
+            {quickScenarios.map((scenario) => (
+              <button key={scenario.label} type="button" onClick={() => applyScenario(scenario)}>
+                {scenario.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="clinic-card doctor-inbox-card">
+        <div className="clinic-card doctor-cockpit">
+          <div className="clinical-card-top">
+            <div>
+              <span>Doctor Cockpit</span>
+              <h3>{selectedConversation?.patient.full_name ?? selectedConversation?.patient.phone ?? "Hasta sec"}</h3>
+            </div>
+            <strong className={`urgency-pill ${urgencyTone(selectedUrgency)}`}>{formatUrgency(selectedUrgency)}</strong>
+          </div>
+
+          <div className="patient-brief-grid">
+            <article>
+              <span>Kanal</span>
+              <strong>{selectedConversation?.channel ?? "hazir"}</strong>
+            </article>
+            <article>
+              <span>Intent</span>
+              <strong>{selectedConversation?.intent?.replace(/_/g, " ") ?? "bekliyor"}</strong>
+            </article>
+            <article>
+              <span>Confidence</span>
+              <strong>{percent(selectedConversation?.confidence_score)}</strong>
+            </article>
+            <article>
+              <span>Randevu</span>
+              <strong>{selectedDraft ? appointmentLabel(selectedDraft.starts_at) : "aday yok"}</strong>
+            </article>
+          </div>
+
+          <div className="doctor-summary-panel">
+            <span>Doktora dusen brif</span>
+            <p>
+              {selectedTriage?.doctor_summary
+                ?? selectedConversation?.doctor_summary
+                ?? "Hasta secildiginde AI tarafindan uretilen medikal ozet, aciliyet ve takip sorulari burada gorunur."}
+            </p>
+            <div className="condition-chip-row">
+              {selectedConditions.length ? selectedConditions.slice(0, 4).map((item, index) => (
+                <b key={`${item.label ?? "condition"}-${index}`}>{item.label ?? "olasi kategori"}</b>
+              )) : <b>Doktor degerlendirmesi bekleniyor</b>}
+            </div>
+          </div>
+
+          <div className="clinical-message-list patient-timeline">
+            {selectedConversation?.messages.length ? (
+              selectedConversation.messages.map((message) => {
+                const triage = getTriage(message.metadata_json);
+                const conditions = getConditions(undefined, triage);
+                return (
+                  <article key={message.id} className={`clinical-message ${message.sender}`}>
+                    <div>
+                      <span>{message.sender}</span>
+                      <span>{trDateTime.format(new Date(message.created_at))}</span>
+                    </div>
+                    <p>{message.content}</p>
+                    {message.intent ? (
+                      <small>
+                        {message.intent} · {percent(message.confidence_score)} ·{" "}
+                        {String(message.metadata_json?.persona_name ?? message.metadata_json?.channel ?? "")}
+                      </small>
+                    ) : null}
+                    {triage ? (
+                      <div className="triage-strip">
+                        <b>{formatUrgency(triage.urgency)}</b>
+                        <span>{conditions.slice(0, 2).map((item) => item.label).filter(Boolean).join(" · ") || "Doktor degerlendirmesi"}</span>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })
+            ) : (
+              <div className="clinical-empty">Hasta secildiginde arama ve mesaj gecmisi burada gorunur.</div>
+            )}
+          </div>
+        </div>
+
+        <aside className="clinic-card action-rail">
+          <div className="clinical-card-top">
+            <div>
+              <span>Clinic Actions</span>
+              <h3>Onay, randevu, uyari</h3>
+            </div>
+          </div>
+
+          <div className="appointment-composer">
+            <span>{selectedDraft ? "Konusmadan cikan randevu adayi" : "Randevuya cevir"}</span>
+            {selectedDraft ? (
+              <div className="appointment-draft-card">
+                <b>{selectedDraft.department ?? "Muayene"}</b>
+                <strong>{appointmentLabel(selectedDraft.starts_at)}</strong>
+                <small>
+                  {(selectedDraft.missing_fields ?? []).length
+                    ? `Eksik: ${(selectedDraft.missing_fields ?? []).join(", ")}`
+                    : "AI konuşmadan randevu adayını çıkardı."}
+                </small>
+              </div>
+            ) : null}
+            <input value={department} onChange={(event) => setDepartment(event.target.value)} placeholder="Bolum / islem" />
+            <input type="datetime-local" value={appointmentAt} onChange={(event) => setAppointmentAt(event.target.value)} />
+            <button type="button" onClick={createAppointmentFromSelection} disabled={busy || !selectedConversation}>
+              {selectedDraft ? "Randevuyu onayla" : "Randevu olustur"}
+            </button>
+          </div>
+
+          <div className="reminder-stack">
+            <div className="rail-title">
+              <span>Yaklasan randevular</span>
+              <b>{upcomingAppointments.length}</b>
+            </div>
+            {upcomingAppointments.length ? upcomingAppointments.slice(0, 4).map((appointment) => (
+              <article key={appointment.id} className="reminder-card">
+                <strong>{appointment.department}</strong>
+                <span>{appointmentLabel(appointment.starts_at)}</span>
+              </article>
+            )) : <div className="clinical-empty compact">Yaklasan uyari yok.</div>}
+          </div>
+
+          <div className="shadow-mini-list">
+            <div className="rail-title">
+              <span>Doktor onayi</span>
+              <b>{reviews.length}</b>
+            </div>
+            {reviews.length ? reviews.slice(0, 3).map((review) => {
+              const triage = getTriage(review.metadata_json);
+              return (
+                <button key={review.id} type="button" className="shadow-mini-card" onClick={() => void loadClinical(review.conversation_id)}>
+                  <strong>{formatUrgency(triage?.urgency)}</strong>
+                  <span>{review.intent.replace(/_/g, " ")} · {review.persona_name ?? "AI"}</span>
+                  <p>{review.draft_reply}</p>
+                </button>
+              );
+            }) : <div className="clinical-empty compact">Onay bekleyen cevap yok.</div>}
+          </div>
+        </aside>
+      </section>
+
+      <section className="clinic-split-grid">
+        <div className="clinic-card">
           <div className="clinical-card-top">
             <div>
               <span>Doctor Inbox</span>
-              <h3>İnsan onayı bekleyenler</h3>
+              <h3>Oncelikli hasta kuyrugu</h3>
             </div>
           </div>
           <ConversationList
@@ -397,61 +663,175 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           />
         </div>
 
-        <div className="clinic-card live-chart-card">
+        <div className="clinic-card review-studio">
           <div className="clinical-card-top">
             <div>
-              <span>Canlı hasta kaydı</span>
-              <h3>{selectedConversation?.patient.full_name ?? "Hasta seç"}</h3>
+              <span>Shadow Mode</span>
+              <h3>Riskli veya belirsiz cevaplar</h3>
             </div>
-            <strong className={`clinical-status ${selectedConversation?.status === "waiting_human" ? "danger" : ""}`}>
-              {selectedConversation?.status ?? "hazir"}
-            </strong>
           </div>
-          <div className="clinical-message-list">
-            {selectedConversation?.messages.length ? (
-              selectedConversation.messages.map((message) => (
-                <article key={message.id} className={`clinical-message ${message.sender}`}>
-                  <div>
-                    <span>{message.sender}</span>
-                    <span>{trDateTime.format(new Date(message.created_at))}</span>
+          <div className="clinical-review-list">
+            {reviews.length ? reviews.map((review) => {
+              const triage = getTriage(review.metadata_json);
+              const conditions = getConditions(review.metadata_json?.possible_conditions as Array<Record<string, unknown>> | undefined, triage);
+              return (
+                <article key={review.id} className="clinical-review">
+                  <div className="clinical-review-top">
+                    <strong>{review.intent.replace(/_/g, " ")}</strong>
+                    <span>{review.channel ?? "medical"} · {review.persona_name ?? "AI"} · {percent(review.confidence_score)}</span>
                   </div>
-                  <p>{message.content}</p>
-                  {message.intent ? (
-                    <small>
-                      {message.intent} · {Math.round((message.confidence_score ?? 0) * 100)}% ·{" "}
-                      {String(message.metadata_json?.persona_name ?? message.metadata_json?.channel ?? "")}
-                    </small>
+                  {triage ? (
+                    <div className="doctor-brief">
+                      <b>Aciliyet: {formatUrgency(triage.urgency)}</b>
+                      <p>{triage.doctor_summary ?? String(review.metadata_json?.doctor_summary ?? "")}</p>
+                      <span>{conditions.slice(0, 3).map((item) => item.label).filter(Boolean).join(" · ") || "Olasi kategori yok"}</span>
+                    </div>
                   ) : null}
+                  <p>{review.draft_reply}</p>
+                  <small>{review.risk_reason}</small>
+                  {editingReviewId === review.id ? (
+                    <textarea value={editedReply} onChange={(event) => setEditedReply(event.target.value)} />
+                  ) : null}
+                  <div className="clinical-review-actions">
+                    <button type="button" onClick={() => void decideReview(review, "approved")} disabled={busy}>Onayla</button>
+                    <button type="button" onClick={() => { setEditingReviewId(review.id); setEditedReply(review.draft_reply); }} disabled={busy}>Duzenle</button>
+                    {editingReviewId === review.id ? (
+                      <button type="button" onClick={() => void decideReview(review, "edited")} disabled={busy || !editedReply.trim()}>Duzenlemeyi gonder</button>
+                    ) : null}
+                    <button type="button" className="danger" onClick={() => void decideReview(review, "rejected")} disabled={busy}>Reddet</button>
+                  </div>
                 </article>
-              ))
-            ) : (
-              <div className="clinical-empty">Hasta seçildiğinde arama ve mesaj geçmişi burada görünür.</div>
-            )}
+              );
+            }) : <div className="clinical-empty">Doktor onayi bekleyen kayit yok.</div>}
           </div>
         </div>
       </section>
 
-      <DoctorScreen
-        selectedConversation={selectedConversation}
-        reviews={reviews}
-        slotBoard={slotBoard}
-        busy={busy}
-        editingReviewId={editingReviewId}
-        editedReply={editedReply}
-        onEditReply={setEditedReply}
-        onStartEdit={(review) => {
-          setEditingReviewId(review.id);
-          setEditedReply(review.draft_reply);
-        }}
-        onDecide={(review, status) => void decideReview(review, status)}
-      />
+      <section className="clinic-product-grid">
+        <div className="clinic-card role-workspace-card">
+          <div className="clinical-card-top">
+            <div>
+              <span>Kullanici deneyimi</span>
+              <h3>Her rol icin ayri ekran mantigi</h3>
+            </div>
+          </div>
+          <div className="workspace-tabs">
+            {roleCards.map((role) => (
+              <button key={role.id} type="button" className={workspaceView === role.id ? "active" : ""} onClick={() => setWorkspaceView(role.id)}>
+                {role.title}
+              </button>
+            ))}
+          </div>
+          {roleCards.filter((role) => role.id === workspaceView).map((role) => (
+            <article key={role.id} className="role-focus-card">
+              <span>{role.metric}</span>
+              <strong>{role.title}</strong>
+              <p>{role.text}</p>
+            </article>
+          ))}
+        </div>
+
+        <div className="clinic-card">
+          <div className="clinical-card-top">
+            <div>
+              <span>AI sesleri</span>
+              <h3>Medikal persona seti</h3>
+            </div>
+          </div>
+          <div className="persona-detail-list">
+            {personaCards.map((persona) => (
+              <article key={persona.id} className={persona.id === personaId ? "active" : ""}>
+                <strong>{persona.name}</strong>
+                <span>{persona.voice}</span>
+                <p>{persona.description}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="clinic-card doctors-card">
+          <div className="clinical-card-top">
+            <div>
+              <span>Klinik kadrosu</span>
+              <h3>Doktorlar ve musait slotlar</h3>
+            </div>
+          </div>
+          {doctors.length === 0 ? (
+            <div className="clinical-empty">Doktor bilgisi bulunamadi.</div>
+          ) : (
+            <div className="doctors-grid">
+              {doctors.map((doc) => (
+                <button
+                  key={doc.id}
+                  type="button"
+                  className={`doctor-card-btn ${selectedDoctorId === doc.id ? "active" : ""}`}
+                  onClick={() => handleDoctorSelect(doc.id)}
+                >
+                  <strong>{doc.title} {doc.full_name}</strong>
+                  <span className="doctor-specialty">{doc.specialty}</span>
+                  {doc.bio && <p className="doctor-bio">{doc.bio}</p>}
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedDoctorId && (
+            <div className="slots-section">
+              <div className="slots-date-picker">
+                <label>Tarih: </label>
+                <input type="date" value={slotDate} onChange={(e) => handleSlotDateChange(e.target.value)} />
+              </div>
+              {doctorSlots.length === 0 ? (
+                <div className="clinical-empty">Bu tarihte musait slot yok.</div>
+              ) : (
+                <div className="slots-grid">
+                  {doctorSlots.map((slot) => (
+                    <button
+                      key={slot.id}
+                      type="button"
+                      disabled={slot.is_booked}
+                      className={`slot-btn ${slot.is_booked ? "booked" : ""} ${selectedSlotId === slot.id ? "selected" : ""}`}
+                      onClick={() => {
+                        setSelectedSlotId(slot.id);
+                        setAppointmentAt(slot.start_time);
+                      }}
+                    >
+                      {trTime.format(new Date(slot.start_time))}
+                      {slot.is_booked && " ✕"}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="clinic-card architecture-card">
+          <div className="clinical-card-top">
+            <div>
+              <span>Urun mimarisi</span>
+              <h3>Kanal → AI → Doktor → Randevu</h3>
+            </div>
+          </div>
+          <div className="architecture-lanes">
+            {architectureLanes.map((lane, index) => (
+              <article key={lane.title}>
+                <b>{index + 1}</b>
+                <div>
+                  <strong>{lane.title}</strong>
+                  <p>{lane.text}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <section className="clinic-bottom-grid">
         <div className="clinic-card">
           <div className="clinical-card-top">
             <div>
-              <span>Tüm akış</span>
-              <h3>Hasta temasları</h3>
+              <span>Tum hasta akisi</span>
+              <h3>Klinik temaslari</h3>
             </div>
           </div>
           <ConversationList
@@ -462,35 +842,20 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
           />
         </div>
 
-        <div className="clinic-card">
+        <div className="clinic-card database-contract-card">
           <div className="clinical-card-top">
             <div>
-              <span>Doktor onayı</span>
-              <h3>Riskli veya belirsiz cevaplar</h3>
+              <span>Veri sozlesmesi</span>
+              <h3>Backend ve DB omurgasi</h3>
             </div>
           </div>
-          <div className="clinical-review-list">
-            {reviews.length ? reviews.map((review) => (
-              <article key={review.id} className="clinical-review">
-                <div className="clinical-review-top">
-                  <strong>{review.intent.replace(/_/g, " ")}</strong>
-                  <span>{review.channel ?? "medical"} · {review.persona_name ?? "AI"} · {Math.round(review.confidence_score * 100)}%</span>
-                </div>
-                <p>{review.draft_reply}</p>
-                <small>{review.risk_reason}</small>
-                {editingReviewId === review.id ? (
-                  <textarea value={editedReply} onChange={(event) => setEditedReply(event.target.value)} />
-                ) : null}
-                <div className="clinical-review-actions">
-                  <button type="button" onClick={() => void decideReview(review, "approved")} disabled={busy}>Onayla</button>
-                  <button type="button" onClick={() => { setEditingReviewId(review.id); setEditedReply(review.draft_reply); }} disabled={busy}>Düzenle</button>
-                  {editingReviewId === review.id ? (
-                    <button type="button" onClick={() => void decideReview(review, "edited")} disabled={busy || !editedReply.trim()}>Düzenlemeyi gönder</button>
-                  ) : null}
-                  <button type="button" className="danger" onClick={() => void decideReview(review, "rejected")} disabled={busy}>Reddet</button>
-                </div>
-              </article>
-            )) : <div className="clinical-empty">Doktor onayı bekleyen kayıt yok.</div>}
+          <div className="db-contract-grid">
+            <article><span>patients</span><strong>Telefon, dil, kanal, kaynak</strong></article>
+            <article><span>conversations</span><strong>Intent, status, confidence, urgency</strong></article>
+            <article><span>messages</span><strong>Raw payload + persona + triage</strong></article>
+            <article><span>shadow_reviews</span><strong>Doktor onayi ve karar izi</strong></article>
+            <article><span>appointments</span><strong>Pending / confirmed randevu akisi</strong></article>
+            <article><span>frustration_logs</span><strong>Risk, sikayet, kalite sinyali</strong></article>
           </div>
         </div>
       </section>
@@ -1176,130 +1541,66 @@ function ConversationList({
   return (
     <div className="clinical-conversation-list">
       {conversations.map((conversation) => (
-        <button
+        <ConversationRow
           key={conversation.id}
-          type="button"
-          className={`clinical-conversation-row ${conversation.doctor_inbox ? "doctor" : ""} ${selectedId === conversation.id ? "selected" : ""}`}
-          onClick={() => void onSelect(conversation)}
-        >
-          <strong>{conversation.patient.full_name ?? conversation.patient.phone}</strong>
-          <span>
-            {conversation.channel} · {conversation.persona_name ?? "AI"} · {conversation.intent?.replace(/_/g, " ") ?? "niyet bekleniyor"}
-          </span>
-          <p>{conversation.last_message_preview ?? "Henüz mesaj yok"}</p>
-        </button>
+          conversation={conversation}
+          selected={selectedId === conversation.id}
+          onSelect={onSelect}
+        />
       ))}
     </div>
   );
 }
 
-function AppointmentDetailModal({
-  appointment,
+function ConversationRow({
   conversation,
-  onClose,
+  selected,
+  onSelect,
 }: {
-  appointment: ClinicalAppointmentRow;
-  conversation: ClinicalConversationDetail | null;
-  onClose: () => void;
+  conversation: ClinicalConversationSummary;
+  selected: boolean;
+  onSelect: (conversation: ClinicalConversationSummary) => void;
 }) {
-  const phoneDigits = appointment.patient_phone ? appointment.patient_phone.replace(/[^\d+]/g, "") : null;
-  const waNumber = phoneDigits ? phoneDigits.replace(/^\+/, "") : null;
+  const draft = getAppointmentDraft(conversation.appointment_draft);
   return (
-    <div className="slot-modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="slot-modal appointment-detail-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="slot-modal-head">
-          <div>
-            <span>Randevu detayı</span>
-            <h3>{appointment.patient_name ?? `Hasta #${appointment.patient_id}`}</h3>
-            <p>
-              {appointment.department}
-              {appointment.physician_name ? ` · ${appointment.physician_name}` : ""}
-              {appointment.branch_name ? ` · ${appointment.branch_name}` : ""}
-            </p>
-          </div>
-          <button type="button" className="slot-modal-close" onClick={onClose} aria-label="Kapat">×</button>
-        </div>
-
-        <div className="appointment-detail-meta">
-          <article>
-            <span>Saat</span>
-            <strong>
-              {appointment.starts_at
-                ? trDateTime.format(new Date(appointment.starts_at))
-                : "—"}
-            </strong>
-          </article>
-          <article>
-            <span>Durum</span>
-            <strong className={`appointment-request-badge ${appointment.status}`}>
-              {APPOINTMENT_STATUS_LABELS[appointment.status] ?? appointment.status}
-            </strong>
-          </article>
-          <article>
-            <span>Telefon</span>
-            <strong>{appointment.patient_phone ?? "—"}</strong>
-          </article>
-        </div>
-
-        {phoneDigits ? (
-          <div className="appointment-detail-contact">
-            <a href={`tel:${phoneDigits}`}>📞 Ara</a>
-            {waNumber ? (
-              <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
-            ) : null}
-          </div>
-        ) : null}
-
-        {appointment.notes ? (
-          <div className="appointment-detail-notes">
-            <span>Not</span>
-            <p>{appointment.notes}</p>
-          </div>
-        ) : null}
-
-        <div className="appointment-detail-history">
-          <h4>Sohbet geçmişi</h4>
-          {appointment.conversation_id ? (
-            conversation ? (
-              conversation.messages.length ? (
-                <ul>
-                  {conversation.messages.map((message) => (
-                    <li key={message.id} className={`appointment-detail-message ${message.sender}`}>
-                      <small>
-                        {message.sender === "patient"
-                          ? "Hasta"
-                          : message.sender === "assistant"
-                          ? "AI"
-                          : message.sender === "operator"
-                          ? "Operatör"
-                          : "Sistem"}
-                        {" · "}
-                        {trDateTime.format(new Date(message.created_at))}
-                      </small>
-                      <p>{message.content}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="clinical-empty">Bu sohbette mesaj yok.</div>
-              )
-            ) : (
-              <div className="clinical-empty">Sohbet yükleniyor…</div>
-            )
-          ) : (
-            <div className="clinical-empty">Bu randevu operatör tarafından panelden açıldı.</div>
-          )}
-        </div>
-      </div>
-    </div>
+    <button
+      type="button"
+      className={`clinical-conversation-row ${conversation.doctor_inbox ? "doctor" : ""} ${selected ? "selected" : ""}`}
+      onClick={() => void onSelect(conversation)}
+    >
+      <strong>{conversation.patient.full_name ?? conversation.patient.phone}</strong>
+      <span>
+        {conversation.channel} · {conversation.persona_name ?? "AI"} · {conversation.intent?.replace(/_/g, " ") ?? "intent pending"}
+      </span>
+      {draft ? (
+        <em>Randevu adayi · {draft.department ?? "Muayene"} · {appointmentLabel(draft.starts_at)}</em>
+      ) : conversation.last_urgency ? (
+        <em>
+          {formatUrgency(conversation.last_urgency)} ·{" "}
+          {(conversation.possible_conditions ?? []).slice(0, 2).map((item) => String(item.label ?? "")).filter(Boolean).join(" · ") || "doktor ozeti hazir"}
+        </em>
+      ) : null}
+      <p>{conversation.doctor_summary ?? conversation.last_message_preview ?? "No messages yet"}</p>
+    </button>
   );
 }
 
-function ClinicalMetric({ label, value, tone }: { label: string; value: string | number; tone?: "success" | "warning" | "danger" }) {
+function ClinicalMetric({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  hint?: string;
+  tone?: "success" | "warning" | "danger";
+}) {
   return (
     <div className={`clinical-metric ${tone ?? ""}`}>
       <span>{label}</span>
       <strong>{value}</strong>
+      {hint ? <small>{hint}</small> : null}
     </div>
   );
 }

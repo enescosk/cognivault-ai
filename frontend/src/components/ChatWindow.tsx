@@ -249,8 +249,8 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
     <div className="chat-panel">
       <div className="chat-header">
         <div className="chat-header-left">
-          <div className="chat-title">{session?.title ?? "Agent Workspace"}</div>
-          <div className="chat-subtitle">Kurumsal randevu akışı · Yetki kontrollü · Denetlenebilir</div>
+          <div className="chat-title">{session?.title ?? "Hasta Gorusmesi"}</div>
+          <div className="chat-subtitle">Medikal hasta akisi · guvenli triyaj · randevu yonlendirme</div>
         </div>
         <div className="chat-badges">
           <span className="chat-badge">
@@ -297,7 +297,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
                 )}
                 <div className="message-bubble">
                   <div className="message-meta">
-                    <span className="message-sender">{isUser ? user.full_name : "Cognivault AI"}</span>
+                    <span className="message-sender">{isUser ? user.full_name : "CogniVault Medical"}</span>
                     <span className="message-time">{trDateTime.format(new Date(msg.created_at))}</span>
                     {/* Sesli okuma butonu — sadece AI mesajlarında */}
                     {!isUser && (
@@ -333,7 +333,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
                   {intelligenceActivity && (
                     <div className="intelligence-card">
                       <div className="intelligence-card-header">
-                        <span className="intelligence-label">External Intelligence</span>
+                        <span className="intelligence-label">Klinik veri kontrolu</span>
                         <span className="status-badge pending">Arama Hazırlığı</span>
                       </div>
                       <div className="intelligence-company">{intelligenceActivity.company}</div>
@@ -451,7 +451,7 @@ export function ChatWindow({ session, user, sending, pendingMessage, streamingCo
             </div>
             <div className="message-bubble">
               <div className="message-meta">
-                <span className="message-sender">Cognivault AI</span>
+                <span className="message-sender">CogniVault Medical</span>
               </div>
               {streamingContent !== null && streamingContent !== "" ? (
                 /* Token'lar akıyor — metin büyüyor + yanıp sönen imleç */

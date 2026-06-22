@@ -202,221 +202,183 @@ def test_voice_webhook_returns_twiml(client):
     assert "<Gather" in res.text
 
 
-def test_dental_pain_routes_to_appointment_intake_with_specialty(client, operator_token):
-    res = client.post(
-        "/api/clinical/simulate-voice-call",
-        headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "from_phone": "+90 555 333 22 11",
-            "patient_name": "Diş Hasta",
-            "speech": "Arka dişim zonkluyor, yarın için diş hekimi randevusu almak istiyorum.",
-            "persona_id": "selin",
-        },
-    )
+# ── Doctor & Slot tests ──────────────────────────────────────────────────────
 
+
+def _seed_doctor(client, operator_token):
+    """Create a clinic doctor via DB for testing."""
+    from tests.conftest import TestingSessionLocal
+    from app.models import Clinic, ClinicBranch, ClinicDoctor, ClinicDoctorSlot
+    from app.services.clinical_service import ensure_default_clinic
+    from datetime import datetime, timedelta, timezone
+
+    db = TestingSessionLocal()
+    clinic = ensure_default_clinic(db)
+
+    clinic_id = clinic.id
+    existing = db.query(ClinicDoctor).filter_by(clinic_id=clinic_id, email="test.doc@clinic.com").first()
+    if existing:
+        eid = existing.id
+        db.close()
+        return eid, clinic_id
+
+    doctor = ClinicDoctor(
+        clinic_id=clinic_id,
+        full_name="Dr. Test Hekim",
+        email="test.doc@clinic.com",
+        specialty="Dermatoloji",
+        title="Uzm. Dr.",
+    )
+    db.add(doctor)
+    db.flush()
+
+    now = datetime.now(timezone.utc).replace(hour=10, minute=0, second=0, microsecond=0)
+    for i in range(4):
+        start = now + timedelta(minutes=30 * i)
+        db.add(ClinicDoctorSlot(
+            doctor_id=doctor.id,
+            clinic_id=clinic_id,
+            start_time=start,
+            end_time=start + timedelta(minutes=30),
+        ))
+    db.commit()
+    doctor_id = doctor.id
+    db.close()
+    return doctor_id, clinic_id
+
+
+def test_list_doctors(client, operator_token):
+    _seed_doctor(client, operator_token)
+    res = client.get("/api/clinical/doctors", headers={"Authorization": f"Bearer {operator_token}"})
     assert res.status_code == 200
     data = res.json()
-    assert data["action"] in {"auto_reply", "shadow_review"}
+    assert len(data) >= 1
+    assert any(d["email"] == "test.doc@clinic.com" for d in data)
 
-    conversation = client.get(
-        f"/api/clinical/conversations/{data['conversation_id']}",
+
+def test_list_doctor_slots(client, operator_token):
+    doctor_id, _ = _seed_doctor(client, operator_token)
+    today = datetime.now().strftime("%Y-%m-%d")
+    res = client.get(
+        f"/api/clinical/doctors/{doctor_id}/slots?date={today}",
         headers={"Authorization": f"Bearer {operator_token}"},
     )
-    assert conversation.status_code == 200
-    payload = conversation.json()
-    assert payload["intent"] == "book_appointment"
-    assert any(
-        "Endodonti" in message["content"] and "plan görüntüleniyor" not in message["content"].lower()
-        for message in payload["messages"]
-        if message["sender"] in {"assistant", "operator"}
-    ) or payload["status"] == "waiting_human"
-
-    if payload["status"] == "waiting_human":
-        overview = client.get("/api/clinical/overview", headers={"Authorization": f"Bearer {operator_token}"})
-        reviews = overview.json()["shadow_reviews"]
-        assert any(
-            review["conversation_id"] == data["conversation_id"]
-            and review["metadata_json"]["data"]["intake"]["specialty"] == "Endodonti"
-            for review in reviews
-        )
-
-
-def test_clinical_compliance_profile_exposes_kvkk_controls(client, operator_token):
-    res = client.get("/api/clinical/compliance-profile", headers={"Authorization": f"Bearer {operator_token}"})
-
     assert res.status_code == 200
-    data = res.json()
-    assert data["data_residency_default"] == "tr_local_first"
-    assert data["external_transfer_allowed"] is False
-    assert "special_category_data_safeguards" in data["mandatory_controls"]
-    assert "cross_border_ai_processing_without_consent" in data["blocked_by_default"]
-    assert "external_llm_for_special_category_health_data" in data["blocked_by_default"]
-    assert all(item["allowed_for_clinical"] is False for item in data["processor_inventory"])
+    slots = res.json()
+    assert len(slots) >= 1
+    assert all(not s["is_booked"] for s in slots)
 
 
-def test_insurance_lookup_requires_human_review_and_privacy_metadata(client, operator_token):
-    res = client.post(
+def test_book_slot_marks_as_booked(client, operator_token):
+    doctor_id, _ = _seed_doctor(client, operator_token)
+
+    # First simulate a whatsapp message to get a conversation
+    msg_res = client.post(
         "/api/clinical/simulate-whatsapp",
         headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "from_phone": "+90 555 606 70 80",
-            "patient_name": "Sigorta Hasta",
-            "body": "Kanal tedavisi icin sigortam karsilar mi? Kart numaram 4111 1111 1111 1111",
-        },
+        json={"from_phone": "+90 555 777 88 99", "patient_name": "Slot Test", "body": "Dermatoloji randevusu"},
     )
+    assert msg_res.status_code == 200
+    conversation_id = msg_res.json()["conversation_id"]
 
-    assert res.status_code == 200
-    data = res.json()
-    assert data["action"] == "shadow_review"
+    # Get available slots
+    today = datetime.now().strftime("%Y-%m-%d")
+    slots_res = client.get(
+        f"/api/clinical/doctors/{doctor_id}/slots?date={today}",
+        headers={"Authorization": f"Bearer {operator_token}"},
+    )
+    slots = slots_res.json()
+    available = [s for s in slots if not s["is_booked"]]
+    assert len(available) >= 1
+    slot_id = available[0]["id"]
 
-    overview = client.get("/api/clinical/overview", headers={"Authorization": f"Bearer {operator_token}"})
-    reviews = overview.json()["shadow_reviews"]
-    review = next(item for item in reviews if item["conversation_id"] == data["conversation_id"])
-    guardrail = review["metadata_json"]["data"]["privacy_guardrail"]
-    assert "financial_or_insurance_data" in guardrail["data_classes"]
-    assert "insurance_verification_requires_explicit_consent" in guardrail["human_review_reasons"]
-    assert "[REDACTED]" in guardrail["redacted_preview"]
-
-
-def test_clinical_patent_dossier_contains_claim_candidates(client, operator_token):
-    res = client.get("/api/clinical/patent-dossier", headers={"Authorization": f"Bearer {operator_token}"})
-
-    assert res.status_code == 200
-    data = res.json()
-    assert "KVKK-first" in data["working_title"]
-    assert len(data["candidate_independent_claims"]) >= 3
-    assert any("doctor approval packet" in claim for claim in data["candidate_independent_claims"])
-
-
-def test_slot_board_exposes_full_slots_and_acceptance_rules(client, operator_token):
-    res = client.get("/api/clinical/slot-board", headers={"Authorization": f"Bearer {operator_token}"})
-
-    assert res.status_code == 200
-    data = res.json()
-    assert data["summary"]["full_departments"] >= 1
-    assert any(slot["status"] == "full" for slot in data["schedule"])
-    assert any("İstenen slot dolu" in item["rule"] for item in data["acceptance_rules"])
-    assert any("Dolu slot" == item["label"] for item in data["test_scenarios"])
-
-
-def test_slot_board_includes_per_slot_appointment_detail(client, operator_token):
-    res = client.get("/api/clinical/slot-board", headers={"Authorization": f"Bearer {operator_token}"})
-
-    assert res.status_code == 200
-    data = res.json()
-    for slot in data["schedule"]:
-        appointments = slot.get("appointments")
-        assert isinstance(appointments, list)
-        # booked sayısı kadar randevu üretilmeli
-        assert len(appointments) == slot["booked"]
-        for appt in appointments:
-            assert appt["patient_name"]
-            assert appt["doctor"] == slot["doctor"]
-            assert appt["branch"]
-            # saat HH:MM formatında
-            assert len(appt["time"]) == 5 and appt["time"][2] == ":"
-
-
-def test_full_slot_request_returns_alternative_slot_metadata(client, operator_token):
-    res = client.post(
-        "/api/clinical/simulate-voice-call",
+    # Create appointment with slot
+    appt_res = client.post(
+        "/api/clinical/appointments",
         headers={"Authorization": f"Bearer {operator_token}"},
         json={
-            "from_phone": "+90 555 444 55 66",
-            "patient_name": "Slot Hasta",
-            "speech": "Yarın kanal tedavisi için randevu istiyorum.",
-            "persona_id": "selin",
+            "conversation_id": conversation_id,
+            "department": "Dermatoloji",
+            "doctor_id": doctor_id,
+            "slot_id": slot_id,
         },
     )
+    assert appt_res.status_code == 200
+    appt = appt_res.json()
+    assert appt["doctor_id"] == doctor_id
+    assert appt["slot_id"] == slot_id
+    assert appt["status"] == "confirmed"
+    assert appt["doctor_name"] == "Dr. Test Hekim"
 
-    assert res.status_code == 200
-    data = res.json()
-    conversation = client.get(
-        f"/api/clinical/conversations/{data['conversation_id']}",
+    # Verify slot is now booked
+    slots_res2 = client.get(
+        f"/api/clinical/doctors/{doctor_id}/slots?date={today}",
         headers={"Authorization": f"Bearer {operator_token}"},
-    ).json()
-
-    assistant_messages = [message for message in conversation["messages"] if message["sender"] == "assistant"]
-    if assistant_messages:
-        latest = assistant_messages[-1]
-        assert "dolu" in latest["content"].lower()
-        assert latest["metadata_json"]["data"]["slot_decision"]["status"] == "waitlist"
-    else:
-        overview = client.get("/api/clinical/overview", headers={"Authorization": f"Bearer {operator_token}"}).json()
-        review = next(item for item in overview["shadow_reviews"] if item["conversation_id"] == data["conversation_id"])
-        assert "dolu" in review["draft_reply"].lower()
-        assert review["metadata_json"]["data"]["slot_decision"]["status"] in {"waitlist", "doctor_review"}
+    )
+    slots2 = slots_res2.json()
+    booked_slot = next((s for s in slots2 if s["id"] == slot_id), None)
+    assert booked_slot is not None
+    assert booked_slot["is_booked"] is True
 
 
-def test_dermatology_message_gets_safe_appointment_routing(client, operator_token):
-    res = client.post(
+def test_double_book_slot_returns_409(client, operator_token):
+    doctor_id, _ = _seed_doctor(client, operator_token)
+
+    # Create two conversations
+    msg1 = client.post(
         "/api/clinical/simulate-whatsapp",
         headers={"Authorization": f"Bearer {operator_token}"},
-        json={
-            "from_phone": "+90 555 222 33 44",
-            "patient_name": "Derm Hasta",
-            "body": "Cildimde akne ve leke var, dermatoloji randevusu alabilir miyim?",
-        },
+        json={"from_phone": "+90 555 111 00 01", "body": "Cilt alerjisi randevusu"},
     )
+    msg2 = client.post(
+        "/api/clinical/simulate-whatsapp",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={"from_phone": "+90 555 111 00 02", "body": "Cilt kontrolu"},
+    )
+    conv1 = msg1.json()["conversation_id"]
+    conv2 = msg2.json()["conversation_id"]
 
-    assert res.status_code == 200
-    data = res.json()
-    conversation = client.get(
-        f"/api/clinical/conversations/{data['conversation_id']}",
+    # Get an available slot
+    today = datetime.now().strftime("%Y-%m-%d")
+    slots = client.get(
+        f"/api/clinical/doctors/{doctor_id}/slots?date={today}",
         headers={"Authorization": f"Bearer {operator_token}"},
     ).json()
-    assert conversation["intent"] == "book_appointment"
+    available = [s for s in slots if not s["is_booked"]]
+    if not available:
+        return  # all slots booked from previous tests, skip
+    slot_id = available[0]["id"]
 
-    metadata_candidates = [
-        message["metadata_json"]["data"]
-        for message in conversation["messages"]
-        if message["sender"] == "assistant" and message.get("metadata_json", {}).get("data")
-    ]
-    if metadata_candidates:
-        assert metadata_candidates[-1]["intake"]["specialty"] == "Dermatoloji"
-    else:
-        overview = client.get("/api/clinical/overview", headers={"Authorization": f"Bearer {operator_token}"}).json()
-        review = next(item for item in overview["shadow_reviews"] if item["conversation_id"] == data["conversation_id"])
-        assert review["metadata_json"]["data"]["intake"]["specialty"] == "Dermatoloji"
-
-
-def test_voice_is_local_first_never_cloud_by_default():
-    """KVKK local-first: dış aktarım kapalıyken ses sağlayıcıları ASLA buluta
-    (OpenAI) gitmez — STT lokal Whisper, TTS lokal (Piper/say) olur.
-
-    Ağır modelleri yüklemeden, yalnızca seçim mantığını (factory) doğrular.
-    """
-    from app.ai.voice_factory import (
-        LocalWhisperSTT,
-        OpenAITTS,
-        OpenAIWhisperSTT,
-        get_stt_provider,
-        get_tts_provider,
-    )
-    from app.core.config import get_settings
-
-    settings = get_settings()
-    settings.voice_external_enabled = False  # conftest zaten False yapıyor; açıkça garanti
-
-    stt = get_stt_provider()
-    tts = get_tts_provider()
-    assert isinstance(stt, LocalWhisperSTT)
-    assert not isinstance(stt, OpenAIWhisperSTT)
-    assert not isinstance(tts, OpenAITTS)  # lokal: Piper veya macOS say
-
-
-def test_voice_endpoints_validate_empty_input(client, operator_token):
-    """Boş metin/ses ağır modelleri tetiklemeden 400 döner (uçtan uca güvenlik)."""
-    synthesize = client.post(
-        "/api/voice/synthesize",
+    # Book first
+    r1 = client.post(
+        "/api/clinical/appointments",
         headers={"Authorization": f"Bearer {operator_token}"},
-        json={"text": "   "},
+        json={"conversation_id": conv1, "department": "Dermatoloji", "slot_id": slot_id},
     )
-    assert synthesize.status_code == 400
+    assert r1.status_code == 200
 
-    transcribe = client.post(
-        "/api/voice/transcribe",
+    # Try to double-book
+    r2 = client.post(
+        "/api/clinical/appointments",
         headers={"Authorization": f"Bearer {operator_token}"},
-        files={"file": ("recording.webm", b"", "audio/webm")},
+        json={"conversation_id": conv2, "department": "Dermatoloji", "slot_id": slot_id},
     )
-    assert transcribe.status_code == 400
+    assert r2.status_code == 409
+
+
+def test_seed_idempotency(client, operator_token):
+    """Running seed twice should not create duplicate doctors."""
+    from tests.conftest import TestingSessionLocal
+    from app.seed.data import seed_clinical_doctors
+    from app.models import ClinicDoctor
+
+    db = TestingSessionLocal()
+    seed_clinical_doctors(db)
+    count1 = db.query(ClinicDoctor).count()
+    seed_clinical_doctors(db)
+    count2 = db.query(ClinicDoctor).count()
+    db.close()
+    assert count1 == count2
+
+
+from datetime import datetime

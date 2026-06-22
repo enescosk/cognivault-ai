@@ -4,53 +4,46 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
+import logging
 import re
 
 from fastapi import HTTPException
-from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from app.agent.classify import (
-    CUSTOMER_MEDICAL_TERMS as _CUSTOMER_MEDICAL_TERMS,
-    ENTERPRISE_APPOINTMENT_TERMS as _ENTERPRISE_APPOINTMENT_TERMS,
-    classify_simple_intent,
-    detect_sentiment,
-    make_simple_reply,
+from app.ai.anthropic_runtime import (
+    anthropic_enabled,
+    build_cached_system,
+    convert_history_to_anthropic,
+    get_anthropic_runtime,
+    stream_anthropic_agent,
+    tool_specs_anthropic,
 )
-from app.agent.context import AgentContext
-from app.agent.policy import (
-    _external_outreach_allowed,
-    _is_customer_chat,
-    _is_enterprise_context,
-    handle_customer_domain_boundary,
-)
-from app.agent.parsing import (
-    _clean_term,
-    _normalize_tr,
-    default_reply,
-    detect_language,
-    infer_place_category,
-    parse_department,
-    parse_phone,
-    parse_preferred_date,
-    parse_slot_selection,
+from app.ai.runtime import select_llm_runtime
+from app.ai.text_understanding import fuzzy_contains, normalize_for_intent
+from app.agent.agents import (
+    escalation_offer_message,
+    should_auto_escalate,
+    update_frustration_counter,
 )
 from app.agent.prompts import build_system_prompt
 from app.core.config import get_settings
-from app.models import ChatSession, MessageSender, RoleName, User
+from app.models import AuditResultStatus, ChatSession, MessageSender, User
 from app.schemas.chat import AgentReply
 from app.schemas.appointment import AppointmentConfirmationCard
 from app.services.appointment_service import format_slot_label
+from app.services.audit_service import log_action
 from app.services.chat_service import add_message, update_workflow_state
 from app.schemas.validation import safe_outreach_terms
 from app.services.external_intent_service import extract_external_request_terms
 from app.services.intelligence_service import discover_company_contact_for_agent
 from app.services.llm_usage import extract_openai_usage, record_llm_usage
 from app.services.notification_service import send_appointment_confirmation
-from app.tools.registry import execute_tool, tool_specs, tool_specs_anthropic
+from app.tools.registry import execute_tool, tool_specs
 
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
+MAX_TOOL_ITERATIONS = 6
 
 
 def _record_openai_usage(context: AgentContext, response, model: str, agent_type: str) -> None:
@@ -73,8 +66,76 @@ def _record_openai_usage(context: AgentContext, response, model: str, agent_type
 # içine taşındı — orchestrator artık sadece bunları import edip dispatch eder.
 
 
-# _is_customer_chat, _is_enterprise_context, _external_outreach_allowed ve
-# handle_customer_domain_boundary `agent/policy.py`'a taşındı (üstte import).
+def detect_sentiment(text: str) -> str:
+    """Returns one of: frustrated | urgent | confused | happy | neutral"""
+    lower = text.lower()
+    for sentiment, keywords in _SENTIMENT_RULES:
+        if any(kw in lower for kw in keywords):
+            return sentiment
+    return "neutral"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COST-AWARE INTENT CLASSIFIER
+# Decides whether to route to AI API or handle locally.
+# Goal: never call a paid API for trivial messages.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SIMPLE_INTENTS: dict[str, list[str]] = {
+    "greeting":    ["merhaba", "alo", "selam", "hi ", "hello", "hey ", "good morning", "iyi günler"],
+    "smalltalk":   ["nasılsın", "nasilsin", "naber", "ne var ne yok", "how are you", "how's it going"],
+    "thanks":      ["teşekkür", "tesekkur", "sağ ol", "sag ol", "thank you", "thanks", "cheers"],
+    "farewell":    ["görüşürüz", "gorusuruz", "iyi günler", "bye", "goodbye", "see you", "hoşça kal"],
+    "affirmative": ["evet", "tamam", "olur", "tabii", "yes", "sure", "ok", "okay", "yep"],
+}
+
+_SIMPLE_RESPONSES: dict[str, dict[str, str]] = {
+    "greeting": {
+        "tr": "Merhaba! 👋 Size nasıl yardımcı olabilirim?",
+        "en": "Hello! 👋 How can I help you today?",
+    },
+    "smalltalk": {
+        "tr": "İyiyim, teşekkürler! Sen nasılsın? Bugün sana nasıl yardımcı olabilirim?",
+        "en": "I'm doing well, thanks! How are you? What can I help you with today?",
+    },
+    "thanks": {
+        "tr": "Rica ederim! 😊 Başka yardımcı olabileceğim bir şey var mı?",
+        "en": "You're welcome! 😊 Is there anything else I can help you with?",
+    },
+    "farewell": {
+        "tr": "İyi günler! Tekrar görüşmek üzere. 👋",
+        "en": "Take care! Talk to you soon. 👋",
+    },
+}
+
+
+def classify_simple_intent(text: str) -> str | None:
+    """Returns intent name if message is trivially simple, else None."""
+    lower = normalize_for_intent(text)
+    # Very short messages are likely simple
+    if len(lower) > 120:
+        return None
+    for intent, keywords in _SIMPLE_INTENTS.items():
+        normalized_keywords = [normalize_for_intent(kw) for kw in keywords]
+        if any(lower.startswith(kw) or f" {kw}" in lower for kw in normalized_keywords):
+            return intent
+    return None
+
+
+def make_simple_reply(intent: str, language: str, sentiment: str, user_name: str | None) -> str | None:
+    """Returns a canned reply for trivial intents — no API call needed."""
+    template = _SIMPLE_RESPONSES.get(intent, {}).get(language)
+    if not template:
+        return None
+    # Personalise with name if available
+    if user_name and intent == "greeting":
+        first = user_name.split()[0]
+        template = template.replace("Merhaba!", f"Merhaba, {first}!").replace("Hello!", f"Hello, {first}!")
+    # Sentiment overlay
+    if sentiment == "frustrated" and intent not in ("thanks", "farewell"):
+        prefix = "Üzgünüm duyduğuma. " if language == "tr" else "I'm sorry to hear that. "
+        template = prefix + template
+    return template
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,9 +193,69 @@ def _compress_history(messages: list) -> list[dict]:
     return [summary_block] + verbatim
 
 
-# detect_language, parse_preferred_date, parse_phone, parse_department,
-# parse_slot_selection, _normalize_tr, infer_place_category, _clean_term ve
-# default_reply `agent/parsing.py`'a taşındı; yukarıda import edildi.
+def detect_language(text: str, fallback: str = "en") -> str:
+    normalized = normalize_for_intent(text)
+    turkish_markers = [
+        "ş", "ğ", "ı", "ç", "ö", "ü",
+        "randevu", "merhaba", "yardim", "bugun", "yarin", "icin",
+        "destek", "baglanti", "baglan", "calismiyor", "calismio",
+        "cozulmeli", "fatura", "odeme", "ucret", "uyum",
+    ]
+    return "tr" if any(marker in text.lower() or marker in normalized for marker in turkish_markers) or fallback == "tr" else "en"
+
+
+def parse_preferred_date(text: str) -> str | None:
+    """Türkçe/kısa tarih ifadelerini YYYY-MM-DD'ye çevirir."""
+    from datetime import date, timedelta
+    today = date.today()
+    lower = text.lower()
+
+    if "bugün" in lower or "today" in lower:
+        return today.isoformat()
+    normalized = normalize_for_intent(text)
+    if "bugun" in normalized or "today" in normalized:
+        return today.isoformat()
+    if "yarın" in lower or "tomorrow" in lower or "yarin" in normalized:
+        return (today + timedelta(days=1)).isoformat()
+
+    # "Gün.Ay" veya "Gün/Ay" formatları → bu yıl
+    match = re.search(r"\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b", text)
+    if match:
+        day, month = int(match.group(1)), int(match.group(2))
+        year = int(match.group(3)) if match.group(3) else today.year
+        if year < 100:
+            year += 2000
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            pass
+
+    # Gün adları
+    days_tr = {"pazartesi": 0, "salı": 1, "çarşamba": 2, "perşembe": 3, "cuma": 4, "cumartesi": 5, "pazar": 6}
+    for name, weekday in days_tr.items():
+        if name in lower or normalize_for_intent(name) in normalized:
+            delta = (weekday - today.weekday()) % 7 or 7
+            return (today + timedelta(days=delta)).isoformat()
+    return None
+
+
+def parse_phone(text: str) -> str | None:
+    match = re.search(r"(\+?\d[\d\s()-]{8,}\d)", text)
+    return match.group(1).strip() if match else None
+
+
+def parse_department(text: str) -> str | None:
+    normalized = normalize_for_intent(text)
+    candidates = {
+        "onboarding desk": ["onboarding", "kurulum", "baslangic", "devreye alma", "kurulum destegi"],
+        "technical support": ["technical", "support", "teknik", "destek", "tekink", "destk", "issue", "ariza", "calismiyor", "calismio", "baglanamiyorum"],
+        "billing operations": ["billing", "invoice", "payment", "fatura", "ftra", "ftr", "odeme", "ucret", "tahsilat"],
+        "compliance advisory": ["compliance", "legal", "uyum", "denetim", "policy", "kvk", "gdpr", "sozlesme"],
+    }
+    for department, keywords in candidates.items():
+        if fuzzy_contains(normalized, keywords, threshold=0.80):
+            return department.title()
+    return None
 
 
 _OUTREACH_KEYWORDS = [
@@ -374,115 +495,56 @@ def handle_company_outreach_request(context: AgentContext, user_message: str, la
 # parse_slot_selection ve default_reply parsing.py'a taşındı
 
 
-def anthropic_enabled() -> bool:
-    return bool(settings.anthropic_api_key)
+def _dispatch_appointment_confirmation_once(
+    context: AgentContext,
+    result: dict,
+    language: str,
+) -> None:
+    confirmation_code = str(result.get("confirmation_code") or "")
+    if not confirmation_code:
+        return
+
+    state = dict(context.session.workflow_state or {})
+    sent = set(state.get("sent_notification_keys") or [])
+    idempotency_key = f"appointment_confirmation:{confirmation_code}:{context.user.id}"
+    if idempotency_key in sent:
+        return
+
+    delivered = send_appointment_confirmation(
+        to_email=context.user.email,
+        full_name=context.user.full_name,
+        confirmation_code=confirmation_code,
+        department=result["department"],
+        scheduled_at=str(result["scheduled_at"]),
+        location=result["location"],
+        contact_phone=result["contact_phone"],
+        purpose=result.get("purpose", ""),
+        language=language,
+    )
+    sent.add(idempotency_key)
+    state["sent_notification_keys"] = sorted(sent)
+    update_workflow_state(context.db, context.session, state)
+    log_action(
+        context.db,
+        user_id=context.user.id,
+        session_id=context.session.id,
+        action_type="notification.appointment_confirmation",
+        explanation="Appointment confirmation notification dispatched",
+        result_status=AuditResultStatus.SUCCESS if delivered else AuditResultStatus.FAILURE,
+        success=delivered,
+        details={"confirmation_code": confirmation_code, "idempotency_key": idempotency_key},
+    )
 
 
 def openai_enabled() -> bool:
-    return bool(settings.openai_api_key)
-
-
-def run_anthropic_agent(context: AgentContext, user_message: str, language: str) -> AgentReply:
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    system_prompt = build_system_prompt() + "\n\n" + json.dumps({
-        "workflow_state": context.session.workflow_state,
-        "current_user": {
-            "id": context.user.id,
-            "role": context.user.role.name.value,
-            "locale": context.user.locale,
-        },
-    })
-
-    # Geçmiş mesajları Anthropic formatına çevir
-    history: list[dict] = []
-    for item in context.session.messages[-10:]:
-        if item.sender == MessageSender.TOOL:
-            continue
-        role = "user" if item.sender == MessageSender.USER else "assistant"
-        history.append({"role": role, "content": item.content})
-    history.append({"role": "user", "content": user_message})
-
-    for _ in range(6):
-        response = client.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=1024,
-            system=system_prompt,
-            messages=history,
-            tools=tool_specs_anthropic(),  # type: ignore[arg-type]
-        )
-
-        # Tool use var mı?
-        tool_uses = [b for b in response.content if b.type == "tool_use"]
-        text_blocks = [b for b in response.content if b.type == "text"]
-        assistant_text = text_blocks[0].text if text_blocks else ""
-
-        if not tool_uses:
-            # Sadece metin yanıtı
-            return AgentReply(message=assistant_text, language=language, outcome="needs_input")
-
-        # Tool use yanıtını history'ye ekle
-        history.append({"role": "assistant", "content": response.content})  # type: ignore[arg-type]
-
-        # Tool'ları çalıştır ve sonuçları topla
-        tool_results = []
-        confirmation_card = None
-
-        for tool_use in tool_uses:
-            result = execute_tool(
-                context.db,
-                name=tool_use.name,
-                arguments=json.dumps(tool_use.input),
-                current_user=context.user,
-                session=context.session,
-            )
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tool_use.id,
-                "content": json.dumps(result),
-            })
-
-            if tool_use.name == "create_appointment":
-                confirmation_card = AppointmentConfirmationCard(
-                    confirmation_code=result["confirmation_code"],
-                    department=result["department"],
-                    scheduled_at=result["scheduled_at"],
-                    location=result["location"],
-                    contact_phone=result["contact_phone"],
-                    status=result["status"],
-                )
-
-        history.append({"role": "user", "content": tool_results})
-
-        if confirmation_card:
-            # Randevu oluşturuldu — bir sonraki döngüde AI onay mesajı üretecek
-            # Ama hemen dönmek için bir tur daha çalıştır
-            final = client.messages.create(
-                model=settings.anthropic_model,
-                max_tokens=512,
-                system=system_prompt,
-                messages=history,
-                tools=tool_specs_anthropic(),  # type: ignore[arg-type]
-            )
-            final_text_blocks = [b for b in final.content if b.type == "text"]
-            final_text = final_text_blocks[0].text if final_text_blocks else default_reply(
-                language,
-                "Randevunuz oluşturuldu.",
-                "Your appointment has been created.",
-            )
-            return AgentReply(
-                message=final_text,
-                language=language,
-                outcome="completed",
-                confirmation_card=confirmation_card,
-            )
-
-    raise HTTPException(status_code=502, detail="The AI agent could not complete the request")
+    return select_llm_runtime() is not None
 
 
 def run_openai_agent(context: AgentContext, user_message: str, language: str) -> AgentReply:
-    client = OpenAI(api_key=settings.openai_api_key)
+    runtime = select_llm_runtime()
+    if runtime is None:
+        raise HTTPException(status_code=503, detail="No OpenAI-compatible LLM runtime is configured")
+    client = runtime.client
 
     # Kullanıcı bağlamını sistem promptuna ekle.
     # user_phone: AI'ın "kayıtlı numaraya onay göndereyim mi?" akışını tetikler.
@@ -501,7 +563,7 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
         {"role": "system", "content": ctx_block},
     ]
 
-    # Sadece kullanıcı ve asistan mesajlarını geçmişe ekle (tool mesajları OpenAI'da tool_call_id gerektiriyor)
+    # Sadece kullanıcı ve asistan mesajlarını geçmişe ekle (tool mesajları OpenAI-compatible tool_call_id gerektiriyor)
     for item in context.session.messages[-12:]:
         if item.sender == MessageSender.USER:
             history.append({"role": "user", "content": item.content})
@@ -511,9 +573,9 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
 
     history.append({"role": "user", "content": user_message})
 
-    for _ in range(6):
+    for _ in range(MAX_TOOL_ITERATIONS):
         response = client.chat.completions.create(
-            model=settings.openai_model,
+            model=runtime.model,
             messages=history,
             tools=tool_specs(),
             tool_choice="auto",
@@ -573,23 +635,12 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
                         contact_phone=result["contact_phone"],
                         status=result["status"],
                     )
-                    # Kullanıcıya bildirim gönder
-                    send_appointment_confirmation(
-                        to_email=context.user.email,
-                        full_name=context.user.full_name,
-                        confirmation_code=result["confirmation_code"],
-                        department=result["department"],
-                        scheduled_at=str(scheduled_at_val),
-                        location=result["location"],
-                        contact_phone=result["contact_phone"],
-                        purpose=result.get("purpose", ""),
-                        language=language,
-                    )
+                    _dispatch_appointment_confirmation_once(context, result, language)
 
             # Randevu oluşturulduysa AI'ın güzel onay mesajı yazmasına izin ver
             if confirmation_card:
                 final = client.chat.completions.create(
-                    model=settings.openai_model,
+                    model=runtime.model,
                     messages=history,
                     temperature=0.65,
                 )
@@ -618,13 +669,13 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
 #
 # Mimari:
 #   Faz 1 — Tool Loop   (non-streaming, hızlı JSON turları)
-#     OpenAI'a "tool_choice=auto" ile sor.
+#     OpenAI-compatible runtime'a "tool_choice=auto" ile sor.
 #     Tool call gelirse çalıştır, history'e ekle, tekrar sor.
 #     Bu turlar text üretmez, sadece araç çağırır → ortalama <300ms/tur.
 #
 #   Faz 2 — Stream      (streaming, "tool_choice=none")
 #     Tüm tool'lar tamamlandı, artık sadece metin üretiliyor.
-#     "tool_choice=none" ile OpenAI'ı kilitleyip gerçek SSE stream'i başlat.
+#     "tool_choice=none" ile runtime'ı kilitleyip gerçek SSE stream'i başlat.
 #     Her token chunk → SSE event → frontend'de anlık görünür.
 #
 # Yield formatı (JSON satır başına):
@@ -716,17 +767,7 @@ def _execute_tool_calls(
                 contact_phone=result["contact_phone"],
                 status=result["status"],
             )
-            send_appointment_confirmation(
-                to_email=context.user.email,
-                full_name=context.user.full_name,
-                confirmation_code=result["confirmation_code"],
-                department=result["department"],
-                scheduled_at=str(scheduled_at_val),
-                location=result["location"],
-                contact_phone=result["contact_phone"],
-                purpose=result.get("purpose", ""),
-                language=context.user.locale,
-            )
+            _dispatch_appointment_confirmation_once(context, result, context.user.locale)
 
     return history, confirmation_card
 
@@ -750,24 +791,25 @@ def stream_openai_agent(
     def _sse(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-    boundary_reply = handle_customer_domain_boundary(context, user_message, language)
-    if boundary_reply:
-        full_text = boundary_reply.message
-        words = re.findall(r"\S+\s*", full_text)
-        for word in words:
+    # Sentiment escalation check (mirrors process_message logic for streaming path)
+    current_state = dict(context.session.workflow_state or {})
+    current_state = update_frustration_counter(current_state, detect_sentiment(user_message))
+    update_workflow_state(context.db, context.session, current_state)
+    if should_auto_escalate(current_state, detect_sentiment(user_message)):
+        offer = escalation_offer_message(language)
+        current_state["consecutive_frustrated_turns"] = 0
+        update_workflow_state(context.db, context.session, current_state)
+        for word in re.findall(r"\S+\s*", offer):
             yield _sse({"t": "tk", "v": word})
         add_message(
-            context.db,
-            session=context.session,
-            sender=MessageSender.ASSISTANT,
-            content=full_text,
-            language=language,
-            metadata_json=boundary_reply.metadata_json or {},
+            context.db, session=context.session, sender=MessageSender.ASSISTANT,
+            content=offer, language=language,
+            metadata_json={"tier": "escalation_stream"},
         )
         yield _sse({"t": "done", "card": None})
         return
 
-    outreach_reply = handle_company_outreach_request(context, user_message, language) if _external_outreach_allowed(context) else None
+    outreach_reply = handle_company_outreach_request(context, user_message, language)
     if outreach_reply:
         full_text = outreach_reply.message
         words = re.findall(r"\S+\s*", full_text)
@@ -784,36 +826,110 @@ def stream_openai_agent(
         yield _sse({"t": "done", "card": None})
         return
 
-    if not openai_enabled():
-        reply = run_fallback_agent(context, user_message, language)
-        full_text = reply.message
-        words = re.findall(r"\S+\s*", full_text)
+    # Try Anthropic streaming when preferred/auto and key is configured
+    settings = get_settings()
+    preferred = settings.preferred_agent_provider.strip().lower()
+    anthropic_rt = get_anthropic_runtime() if anthropic_enabled() and preferred in {"auto", "anthropic"} else None
+    if anthropic_rt is not None:
+        user_phone_display = context.user.phone or ""
+        ctx_block = (
+            f"[Session context] User: {context.user.full_name} | "
+            f"Role: {context.user.role.name.value} | Locale: {context.user.locale} | "
+            f"phone: {user_phone_display} | "
+            f"Workflow: {json.dumps(context.session.workflow_state or {}, ensure_ascii=False)}"
+        )
+        system_blocks = build_cached_system(build_system_prompt(), ctx_block)
+        oai_history = _build_history(context, user_message)
+        anthropic_messages = convert_history_to_anthropic(oai_history)
+        if not anthropic_messages or anthropic_messages[-1]["role"] != "user":
+            anthropic_messages.append({"role": "user", "content": user_message})
+
+        def _exec_tool_for_anthropic(*, name: str, arguments: str):
+            result = execute_tool(
+                context.db, name=name, arguments=arguments,
+                current_user=context.user, session=context.session,
+            )
+            card = None
+            if name == "create_appointment":
+                card = AppointmentConfirmationCard(
+                    confirmation_code=result["confirmation_code"],
+                    department=result["department"],
+                    scheduled_at=result["scheduled_at"],
+                    location=result["location"],
+                    contact_phone=result["contact_phone"],
+                    status=result["status"],
+                )
+                _dispatch_appointment_confirmation_once(context, result, language)
+            if name == "check_available_slots":
+                state = dict(context.session.workflow_state or {})
+                state["suggested_slots"] = result.get("slots", [])
+                update_workflow_state(context.db, context.session, state)
+            return result, card
+
+        full_text = ""
+        confirmation_card = None
+        for chunk in stream_anthropic_agent(
+            runtime=anthropic_rt,
+            system_blocks=system_blocks,
+            messages=anthropic_messages,
+            tools=tool_specs_anthropic(),
+            execute_tool_fn=_exec_tool_for_anthropic,
+        ):
+            # Forward all SSE chunks except the done sentinel (we rewrite it below)
+            if '"t": "done"' in chunk or '"t":"done"' in chunk:
+                import json as _json
+                try:
+                    payload = _json.loads(chunk.removeprefix("data: ").strip())
+                    full_text = payload.get("_full_text", full_text)
+                    card_meta = payload.get("card") or {}
+                    if card_meta and not confirmation_card:
+                        pass  # card already built in execute_tool_fn
+                except Exception:
+                    pass
+                break
+            yield chunk
+            # Extract streamed text for DB save
+            if '"t": "tk"' in chunk or '"t":"tk"' in chunk:
+                try:
+                    import json as _json
+                    token_payload = _json.loads(chunk.removeprefix("data: ").strip())
+                    full_text += token_payload.get("v", "")
+                except Exception:
+                    pass
+
+        card_meta = confirmation_card.model_dump(mode="json") if confirmation_card else {}
+        add_message(
+            context.db, session=context.session, sender=MessageSender.ASSISTANT,
+            content=full_text, language=language, metadata_json=card_meta,
+        )
+        yield _sse({"t": "done", "card": card_meta or None})
+        return
+
+    runtime = select_llm_runtime()
+    if runtime is None:
+        fallback_reply = run_fallback_agent(context, user_message, language)
+        words = re.findall(r"\S+\s*", fallback_reply.message)
         for word in words:
             yield _sse({"t": "tk", "v": word})
-        metadata = reply.metadata_json or {}
-        card_meta = reply.confirmation_card.model_dump(mode="json") if reply.confirmation_card else {}
+        card_meta = fallback_reply.confirmation_card.model_dump(mode="json") if fallback_reply.confirmation_card else {}
         add_message(
             context.db,
             session=context.session,
             sender=MessageSender.ASSISTANT,
-            content=full_text,
-            language=reply.language,
-            metadata_json={**metadata, **card_meta},
+            content=fallback_reply.message,
+            language=fallback_reply.language,
+            metadata_json={**(fallback_reply.metadata_json or {}), **card_meta, "tier": "local_guided_stream"},
         )
-        yield _sse({"t": "done", "card": card_meta if reply.confirmation_card else None})
+        yield _sse({"t": "done", "card": card_meta if fallback_reply.confirmation_card else None})
         return
-
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = runtime.client
     history = _build_history(context, user_message)
     confirmation_card: AppointmentConfirmationCard | None = None
 
     # ── Faz 1: Tool Loop ─────────────────────────────────────────────────────
-    # Tool çağrıları sırasında frontend "AI düşünüyor" boş ekran görmesin diye
-    # her tool call için "running" + "done" event'leri yield ediyoruz.
-    for _ in range(6):
-        yield _sse({"t": "thinking"})
+    for _ in range(MAX_TOOL_ITERATIONS):
         response = client.chat.completions.create(
-            model=settings.openai_model,
+            model=runtime.model,
             messages=history,
             tools=tool_specs(),
             tool_choice="auto",
@@ -826,10 +942,11 @@ def stream_openai_agent(
             # Tool call yok → Faz 2'ye geç (bu history ile stream aç)
             break
 
-        # Tool call var → her aracı tek tek çalıştır + event yay
+        # Signal tool starts to frontend so user sees progress, not silence
         for tc in message.tool_calls:
-            yield _sse({"t": "tool", "name": tc.function.name, "status": "running"})
+            yield _sse({"t": "tool_start", "name": tc.function.name})
 
+        # Tool call var → çalıştır, history'e ekle, döngüye devam et
         history, card = _execute_tool_calls(context, message, history)
 
         for tc in message.tool_calls:
@@ -838,13 +955,38 @@ def stream_openai_agent(
         if card:
             confirmation_card = card
         # Tool sonuçları history'de, bir sonraki turda AI yanıt üretecek
+    else:
+        logger.warning(
+            "stream_tool_loop_exhausted",
+            extra={"session_id": context.session.id, "user_id": context.user.id},
+        )
+        log_action(
+            context.db,
+            user_id=context.user.id,
+            session_id=context.session.id,
+            action_type="agent.tool_loop_exhausted",
+            explanation="Tool loop exceeded maximum iterations before final streaming response",
+            result_status=AuditResultStatus.FAILURE,
+            success=False,
+            details={"max_iterations": MAX_TOOL_ITERATIONS},
+        )
+        yield _sse({
+            "t": "err",
+            "code": "tool_loop_exhausted",
+            "v": default_reply(
+                language,
+                "İşlemi güvenli şekilde tamamlayamadım. Lütfen talebi biraz daha net yazarak tekrar deneyin.",
+                "I could not safely complete the workflow. Please rephrase the request and try again.",
+            ),
+        })
+        return
 
     # ── Faz 2: Streaming Final Response ──────────────────────────────────────
-    # tool_choice="none" → OpenAI artık yeni tool call açamaz, sadece metin yazar.
+    # tool_choice="none" → runtime artık yeni tool call açamaz, sadece metin yazar.
     # stream=True → her token chunk anında yield edilir.
     try:
         stream = client.chat.completions.create(
-            model=settings.openai_model,
+            model=runtime.model,
             messages=history,
             tools=tool_specs(),
             stream=True,
@@ -896,23 +1038,22 @@ def stream_openai_agent(
             "card": card_meta if confirmation_card else None,
         })
 
-    except Exception:  # noqa: BLE001
-        reply = run_fallback_agent(context, user_message, language)
-        full_text = reply.message
-        words = re.findall(r"\S+\s*", full_text)
-        for word in words:
-            yield _sse({"t": "tk", "v": word})
-        metadata = reply.metadata_json or {}
-        card_meta = reply.confirmation_card.model_dump(mode="json") if reply.confirmation_card else {}
-        add_message(
-            context.db,
-            session=context.session,
-            sender=MessageSender.ASSISTANT,
-            content=full_text,
-            language=reply.language,
-            metadata_json={**metadata, **card_meta},
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "stream_final_response_failed",
+            extra={"session_id": context.session.id, "user_id": context.user.id},
         )
-        yield _sse({"t": "done", "card": card_meta if reply.confirmation_card else None})
+        log_action(
+            context.db,
+            user_id=context.user.id,
+            session_id=context.session.id,
+            action_type="agent.stream_failed",
+            explanation="Final streaming response failed",
+            result_status=AuditResultStatus.FAILURE,
+            success=False,
+            details={"error": str(exc)},
+        )
+        yield _sse({"t": "err", "code": "stream_failed", "v": str(exc)})
 
 
 def run_fallback_agent(context: AgentContext, user_message: str, language: str) -> AgentReply:
@@ -1172,24 +1313,19 @@ def process_message(context: AgentContext, user_message: str) -> AgentReply:
     Main entry point. Routing strategy (cheapest-first):
 
     1. Simple intent? → canned reply, zero API cost.
-    2. Outreach request? → intelligence service, no LLM needed.
-    3. OpenAI enabled? → full LLM agent with tool calling.
-    4. Fallback → local rule-based engine (works without any API key).
+    2. Frustrated 2+ turns? → escalation offer, zero API cost.
+    3. Outreach request? → intelligence service, no LLM needed.
+    4. Anthropic enabled (preferred_agent_provider=auto|anthropic)? → Anthropic agent.
+    5. OpenAI-compatible LLM enabled? → OpenAI agent with tool calling.
+    6. Fallback → local rule-based engine (works without any API key).
     """
     language  = detect_language(user_message, context.user.locale)
     sentiment = detect_sentiment(user_message)
 
-    boundary_reply = handle_customer_domain_boundary(context, user_message, language)
-    if boundary_reply:
-        add_message(
-            context.db,
-            session=context.session,
-            sender=MessageSender.ASSISTANT,
-            content=boundary_reply.message,
-            language=boundary_reply.language,
-            metadata_json={**(boundary_reply.metadata_json or {}), "sentiment": sentiment},
-        )
-        return boundary_reply
+    # Track frustrated turns for auto-escalation
+    current_state = dict(context.session.workflow_state or {})
+    current_state = update_frustration_counter(current_state, sentiment)
+    update_workflow_state(context.db, context.session, current_state)
 
     # ── Tier 1: zero-cost canned replies ──────────────────────────────────────
     simple_intent = classify_simple_intent(user_message)
@@ -1206,6 +1342,22 @@ def process_message(context: AgentContext, user_message: str) -> AgentReply:
             )
             return AgentReply(message=canned, language=language, outcome="smalltalk")
 
+    # ── Tier 1b: sentiment escalation offer ───────────────────────────────────
+    if should_auto_escalate(current_state, sentiment):
+        offer = escalation_offer_message(language)
+        # Reset counter so we don't spam the offer every turn
+        current_state["consecutive_frustrated_turns"] = 0
+        update_workflow_state(context.db, context.session, current_state)
+        add_message(
+            context.db,
+            session=context.session,
+            sender=MessageSender.ASSISTANT,
+            content=offer,
+            language=language,
+            metadata_json={"intent": "auto_escalation_offer", "sentiment": sentiment, "tier": "escalation"},
+        )
+        return AgentReply(message=offer, language=language, outcome="escalation_offered")
+
     # ── Tier 2: outreach / intelligence ──────────────────────────────────────
     outreach_reply = handle_company_outreach_request(context, user_message, language) if _external_outreach_allowed(context) else None
     if outreach_reply:
@@ -1219,20 +1371,21 @@ def process_message(context: AgentContext, user_message: str) -> AgentReply:
         )
         return outreach_reply
 
-    # ── Tier 3: LLM agent ─────────────────────────────────────────────────────
-    if openai_enabled():
+    # ── Tier 3: LLM agent (Anthropic preferred, OpenAI fallback) ─────────────
+    settings = get_settings()
+    preferred = settings.preferred_agent_provider.strip().lower()
+
+    # Try Anthropic first when preferred or auto with key present
+    anthropic_runtime = get_anthropic_runtime() if anthropic_enabled() and preferred in {"auto", "anthropic"} else None
+
+    if anthropic_runtime is not None:
         try:
-            reply = run_openai_agent(context, user_message, language)
+            reply = _run_anthropic_agent_sync(context, user_message, language, anthropic_runtime)
         except Exception:  # noqa: BLE001
-            reply = run_fallback_agent(context, user_message, language)
-    elif anthropic_enabled():
-        try:
-            reply = run_anthropic_agent(context, user_message, language)
-        except Exception:  # noqa: BLE001
-            reply = run_fallback_agent(context, user_message, language)
+            logger.exception("anthropic_agent_failed_fallback_openai")
+            reply = _run_openai_or_fallback(context, user_message, language)
     else:
-        # ── Tier 4: local rule-based fallback (zero cost) ─────────────────────
-        reply = run_fallback_agent(context, user_message, language)
+        reply = _run_openai_or_fallback(context, user_message, language)
 
     # Attach sentiment to metadata for analytics
     metadata = {**(reply.metadata_json or {}), "sentiment": sentiment}
@@ -1247,3 +1400,49 @@ def process_message(context: AgentContext, user_message: str) -> AgentReply:
         metadata_json=metadata,
     )
     return reply
+
+
+def _run_openai_or_fallback(context: AgentContext, user_message: str, language: str) -> AgentReply:
+    if openai_enabled():
+        try:
+            return run_openai_agent(context, user_message, language)
+        except Exception:  # noqa: BLE001
+            pass
+    return run_fallback_agent(context, user_message, language)
+
+
+def _run_anthropic_agent_sync(
+    context: AgentContext,
+    user_message: str,
+    language: str,
+    runtime,
+) -> AgentReply:
+    """Non-streaming Anthropic agent call with prompt caching."""
+    user_phone_display = context.user.phone or ""
+    ctx_block = (
+        f"[Session context] "
+        f"User: {context.user.full_name} | "
+        f"Role: {context.user.role.name.value} | "
+        f"Locale: {context.user.locale} | "
+        f"phone: {user_phone_display} | "
+        f"Workflow: {json.dumps(context.session.workflow_state or {}, ensure_ascii=False)}"
+    )
+    system_blocks = build_cached_system(build_system_prompt(), ctx_block)
+
+    oai_history = _build_history(context, user_message)
+    anthropic_messages = convert_history_to_anthropic(oai_history)
+    # Ensure history ends with user message
+    if not anthropic_messages or anthropic_messages[-1]["role"] != "user":
+        anthropic_messages.append({"role": "user", "content": user_message})
+
+    response = runtime.client.messages.create(
+        model=runtime.model,
+        max_tokens=2048,
+        system=system_blocks,
+        messages=anthropic_messages,
+        tools=tool_specs_anthropic(),
+        temperature=0.65,
+    )
+    text_blocks = [b for b in response.content if b.type == "text"]
+    text = " ".join(b.text for b in text_blocks)
+    return AgentReply(message=text, language=language, outcome="needs_input")

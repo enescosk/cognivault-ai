@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import re
 
-from anthropic import Anthropic
-
+from app.ai.runtime import complete_json
 from app.core.config import get_settings
 from app.clinical.ontology import (
     EMERGENCY_KEYWORDS,
@@ -17,8 +15,7 @@ from app.clinical.ontology import (
 from app.models import Clinic, ClinicIntent
 from app.services.clinical_compliance_service import build_governance_context, mask_identifiers
 from app.services.clinical_persona_service import ClinicalPersona, choose_persona
-from app.services.clinical_slot_service import build_slot_decision
-from app.ai.ai_factory import get_llm_provider
+from app.services.medical_triage_service import MedicalUrgency, assess_medical_triage, looks_medical
 
 
 @dataclass(frozen=True)
@@ -33,6 +30,7 @@ class ClinicalAIResult:
     requires_human_review: bool
     risk_reason: str | None = None
     data: dict | None = None
+    triage_assessment: dict | None = None
 
 
 TURKISH_MARKERS = {
@@ -53,6 +51,7 @@ TURKISH_MARKERS = {
 
 INTENT_KEYWORDS: list[tuple[ClinicIntent, set[str]]] = [
     (ClinicIntent.MEDICAL_EMERGENCY, {"acil", "kanama", "bayildi", "bayıldı", "nefes", "gogus", "göğüs", "kalp", "112"}),
+    (ClinicIntent.SYMPTOM_TRIAGE, {"ağrı", "agri", "sızı", "sizi", "şişlik", "sislik", "apse", "ateş", "ates", "implant", "diş", "dis", "kanal", "dolgu", "diş eti", "dis eti", "döküntü", "dokuntu"}),
     (ClinicIntent.RESCHEDULE_APPOINTMENT, {"ertelemek", "degistirmek", "değiştirmek", "reschedule", "baska saat", "başka saat"}),
     (ClinicIntent.CANCEL_APPOINTMENT, {"iptal", "cancel"}),
     (ClinicIntent.BOOK_APPOINTMENT, {"randevu", "appointment", "musait", "müsait", "yarin", "yarın", "bugun", "bugün"}),
@@ -433,27 +432,7 @@ Patient message:
 """.strip()
 
 
-def _attach_governance(result: ClinicalAIResult, governance: dict) -> ClinicalAIResult:
-    data = {**(result.data or {}), "privacy_guardrail": governance}
-    requires_human_review = result.requires_human_review or not governance["auto_send_allowed"]
-    risk_reason = result.risk_reason
-    if requires_human_review and risk_reason is None:
-        risk_reason = governance["human_review_reasons"][0] if governance["human_review_reasons"] else "requires_human_review"
-    return ClinicalAIResult(
-        reply=result.reply,
-        confidence=result.confidence,
-        intent=result.intent,
-        action=result.action,
-        persona_id=result.persona_id,
-        persona_name=result.persona_name,
-        voice=result.voice,
-        requires_human_review=requires_human_review,
-        risk_reason=risk_reason,
-        data=data,
-    )
-
-
-def _try_openai_reply(
+def _try_runtime_reply(
     clinic: Clinic,
     text: str,
     language: str,
@@ -461,17 +440,8 @@ def _try_openai_reply(
     persona: ClinicalPersona,
     governance: dict,
 ) -> ClinicalAIResult | None:
-    """
-    OpenAI Chat Completions ile yapılandırılmış JSON cevap üretir.
-    settings.openai_api_key yoksa veya compliance katmanı yurt dışı
-    aktarıma izin vermiyorsa None döner → orchestrator bir sonraki
-    sağlayıcıya (Anthropic) ya da safe template fallback'e geçer.
-
-    KVKK NOTU: OpenAI = ABD = yurt dışı aktarım. Pilot/demo için açık,
-    prod KVKK uyumlu çıkış için Local AI (Qwen2.5) faz 1'de değişecek.
-    """
     settings = get_settings()
-    if not settings.clinical_ai_enabled or not settings.openai_api_key:
+    if not settings.clinical_ai_enabled:
         return None
     if not settings.clinical_external_ai_allowed:
         return None
@@ -482,138 +452,16 @@ def _try_openai_reply(
     if "financial_or_insurance_data" in governance.get("data_classes", []):
         return None
 
-    from openai import OpenAI
-
-    client = OpenAI(api_key=settings.openai_api_key)
-    try:
-        response = client.chat.completions.create(
-            model=settings.openai_model,
-            temperature=0.2,
-            max_tokens=600,
-            response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a JSON-only clinical receptionist API. "
-                        "Always return valid JSON with keys: reply (string, Turkish unless lang says otherwise), "
-                        "confidence (0-1 float), intent (one of: "
-                        "book_appointment, reschedule_appointment, cancel_appointment, ask_price, "
-                        "ask_insurance, ask_location, ask_working_hours, medical_emergency, "
-                        "general_question, unknown), action (snake_case string), "
-                        "requires_human_review (bool), risk_reason (string|null), data (object)."
-                    ),
-                },
-                {"role": "user", "content": _structured_prompt(clinic, text, language, intent, persona)},
-            ],
-        )
-    except Exception:  # noqa: BLE001 — sağlayıcı çöktüyse fallback'e düş
-        return None
-
-    # Usage telemetrisi
-    try:
-        from app.db.session import SessionLocal
-        from app.services.llm_usage import record_llm_usage
-        usage = getattr(response, "usage", None)
-        prompt_t = int(getattr(usage, "prompt_tokens", 0) or 0)
-        completion_t = int(getattr(usage, "completion_tokens", 0) or 0)
-        telemetry_db = SessionLocal()
-        try:
-            record_llm_usage(
-                telemetry_db,
-                model=settings.openai_model,
-                prompt_tokens=prompt_t,
-                completion_tokens=completion_t,
-                agent_type="clinical_triage",
-                organization_id=getattr(clinic, "organization_id", None),
-            )
-        finally:
-            telemetry_db.close()
-    except Exception:  # noqa: BLE001
-        pass
-
-    raw = (response.choices[0].message.content or "").strip() if response.choices else ""
-    if not raw:
-        return None
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        return None
-
-    try:
-        parsed_intent = ClinicIntent(payload.get("intent", intent.value))
-    except ValueError:
-        parsed_intent = intent
-
-    reply = str(payload.get("reply") or _safe_reply(parsed_intent, language, clinic, persona))
-    if _looks_like_planning_reply(reply):
-        return None
-
-    return ClinicalAIResult(
-        reply=reply,
-        confidence=float(payload.get("confidence") or 0.0),
-        intent=parsed_intent,
-        action=str(payload.get("action") or "collect_info"),
-        persona_id=persona.id,
-        persona_name=persona.display_name,
-        voice=persona.voice,
-        requires_human_review=bool(payload.get("requires_human_review", False)),
-        risk_reason=payload.get("risk_reason"),
-        data=payload.get("data") if isinstance(payload.get("data"), dict) else {},
-    )
-
-
-def _try_anthropic_reply(
-    clinic: Clinic,
-    text: str,
-    language: str,
-    intent: ClinicIntent,
-    persona: ClinicalPersona,
-    governance: dict,
-) -> ClinicalAIResult | None:
-    settings = get_settings()
-    if not settings.clinical_ai_enabled or not settings.anthropic_api_key:
-        return None
-    if not settings.clinical_external_ai_allowed:
-        return None
-    if not governance.get("external_transfer_allowed", False):
-        return None
-    if "special_category_health_data" in governance.get("data_classes", []):
-        return None
-    if "financial_or_insurance_data" in governance.get("data_classes", []):
-        return None
-
-    client = Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=settings.anthropic_model,
+    payload = complete_json(
+        system_prompt=(
+            "You are CogniVault's clinical reception safety layer. "
+            "Return strictly valid JSON and never diagnose, prescribe, or give treatment instructions."
+        ),
+        user_prompt=_structured_prompt(clinic, text, language, intent, persona),
         max_tokens=600,
         temperature=0.2,
-        messages=[{"role": "user", "content": _structured_prompt(clinic, text, language, intent, persona)}],
     )
-    # Usage telemetrisi — admin dashboard maliyet kartı için.
-    # Clinical fonksiyonları db session almıyor; telemetri için ayrı kısa-ömürlü session aç.
-    try:
-        from app.db.session import SessionLocal
-        from app.services.llm_usage import extract_anthropic_usage, record_llm_usage
-        prompt_t, completion_t = extract_anthropic_usage(response)
-        telemetry_db = SessionLocal()
-        try:
-            record_llm_usage(
-                telemetry_db,
-                model=settings.anthropic_model,
-                prompt_tokens=prompt_t,
-                completion_tokens=completion_t,
-                agent_type="clinical_triage",
-                organization_id=getattr(clinic, "organization_id", None),
-            )
-        finally:
-            telemetry_db.close()
-    except Exception:  # noqa: BLE001
-        pass
-    raw = "".join(block.text for block in response.content if getattr(block, "type", "") == "text")
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
+    if not payload:
         return None
 
     try:
@@ -636,6 +484,7 @@ def _try_anthropic_reply(
         requires_human_review=bool(payload.get("requires_human_review", False)),
         risk_reason=payload.get("risk_reason"),
         data=payload.get("data") if isinstance(payload.get("data"), dict) else {},
+        triage_assessment=None,
     )
 
 
@@ -654,10 +503,44 @@ def generate_clinical_reply(
     """
     resolved_language = language or detect_language(text, clinic.default_language)
     intent, intent_confidence = classify_intent(text)
-    intake = extract_clinical_intake(text)
-    slot_decision = build_slot_decision(intake)
+    if intent == ClinicIntent.GENERAL_QUESTION and looks_medical(text):
+        intent = ClinicIntent.SYMPTOM_TRIAGE
+        intent_confidence = 0.78
     persona = choose_persona(intent, requested_persona_id)
-    governance = build_governance_context(clinic, text, intent, resolved_language).as_dict()
+
+    if intent in {ClinicIntent.SYMPTOM_TRIAGE, ClinicIntent.MEDICAL_EMERGENCY} or looks_medical(text):
+        triage = assess_medical_triage(clinic, text, resolved_language)
+        if triage.urgency == MedicalUrgency.EMERGENCY:
+            intent = ClinicIntent.MEDICAL_EMERGENCY
+            persona = choose_persona(intent, requested_persona_id)
+        risk_reason = (
+            "medical_emergency_guardrail"
+            if triage.urgency == MedicalUrgency.EMERGENCY
+            else f"medical_triage_{triage.urgency.value}"
+        )
+        return ClinicalAIResult(
+            reply=triage.patient_safe_reply,
+            confidence=0.93 if triage.urgency == MedicalUrgency.EMERGENCY else max(intent_confidence, 0.82),
+            intent=intent,
+            action="medical_triage",
+            persona_id=persona.id,
+            persona_name=persona.display_name,
+            voice=persona.voice,
+            requires_human_review=triage.requires_doctor_review,
+            risk_reason=risk_reason,
+            data={
+                "recommended_action": triage.recommended_action,
+                "doctor_summary": triage.doctor_summary,
+                "follow_up_questions": triage.follow_up_questions,
+                "red_flags": triage.red_flags,
+                "possible_conditions": triage.possible_conditions,
+            },
+            triage_assessment=triage.to_dict(),
+        )
+
+    runtime_reply = _try_runtime_reply(clinic, text, resolved_language, intent, persona)
+    if runtime_reply is not None:
+        return runtime_reply
 
     settings = get_settings()
     if use_ai and settings.clinical_ai_enabled:
@@ -734,5 +617,6 @@ def generate_clinical_reply(
         voice=persona.voice,
         requires_human_review=requires_review,
         risk_reason=risk_reason,
-        data={"intake": intake, "slot_decision": slot_decision, "privacy_guardrail": governance},
+        data={},
+        triage_assessment=None,
     )

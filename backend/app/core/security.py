@@ -10,12 +10,33 @@ zorunda kalmaz, ilk başarılı login'de hash otomatik upgrade edilir
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import base64
+import hmac
 import hashlib
+import os
 
 import jwt
 from passlib.context import CryptContext
 
 from app.core.config import get_settings
+
+try:
+    from argon2 import PasswordHasher
+    from argon2.exceptions import InvalidHashError, VerifyMismatchError
+except ImportError:  # pragma: no cover - dependency fallback for tiny local envs
+    PasswordHasher = None  # type: ignore[assignment]
+    InvalidHashError = Exception  # type: ignore[assignment]
+    VerifyMismatchError = Exception  # type: ignore[assignment]
+
+
+ARGON2_PREFIX = "$argon2"
+SCRYPT_PREFIX = "scrypt"
+LEGACY_SHA256_HEX_LENGTH = 64
+_ARGON2_HASHER = (
+    PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2, hash_len=32, salt_len=16)
+    if PasswordHasher
+    else None
+)
 
 
 # Bcrypt cost factor: 12 = ~250ms/hash on modern CPUs. Düşürmek brute-force
@@ -28,36 +49,73 @@ _pwd_context = CryptContext(
 
 
 def hash_password(password: str) -> str:
-    """Yeni hash üret — her zaman bcrypt (rastgele salt'lı)."""
-    if not password:
-        raise ValueError("password must not be empty")
-    # Bcrypt'in 72 byte sınırı var — kullanıcıya bilgi ver
-    if len(password.encode("utf-8")) > 72:
-        raise ValueError("password too long (max 72 bytes for bcrypt)")
-    return _pwd_context.hash(password)
+    """
+    Versioned, production-grade password hashing.
 
+    Argon2id is preferred when the dependency is available. A memory-hard scrypt
+    fallback keeps local/test installs safe even before optional wheels are present.
+    """
+    if _ARGON2_HASHER is not None:
+        return _ARGON2_HASHER.hash(password)
 
-def _is_legacy_sha256(hashed: str) -> bool:
-    """Eski SHA-256 hex hash'ini bcrypt $2b$... formatından ayırır."""
-    return len(hashed) == 64 and all(c in "0123456789abcdef" for c in hashed)
+    salt = os.urandom(16)
+    digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32)
+    return "$".join(
+        [
+            SCRYPT_PREFIX,
+            "n=16384,r=8,p=1",
+            base64.b64encode(salt).decode("ascii"),
+            base64.b64encode(digest).decode("ascii"),
+        ]
+    )
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
-    """Hem yeni bcrypt hem eski SHA-256 hash'leri tolere eder.
-
-    Eski hash başarılı doğrulanırsa caller (auth_service) hash'i upgrade etmeli.
-    `needs_rehash()` ile bunu sorabilir.
-    """
     if not hashed_password:
         return False
-    if _is_legacy_sha256(hashed_password):
-        # Sabit-zaman karşılaştırma — timing attack'a karşı
+
+    if hashed_password.startswith(ARGON2_PREFIX):
+        if _ARGON2_HASHER is None:
+            return False
+        try:
+            return _ARGON2_HASHER.verify(hashed_password, password)
+        except (InvalidHashError, VerifyMismatchError):
+            return False
+
+    if hashed_password.startswith(f"{SCRYPT_PREFIX}$"):
+        try:
+            _, params, salt_b64, digest_b64 = hashed_password.split("$", 3)
+            param_values = dict(item.split("=", 1) for item in params.split(","))
+            salt = base64.b64decode(salt_b64.encode("ascii"))
+            expected = base64.b64decode(digest_b64.encode("ascii"))
+            actual = hashlib.scrypt(
+                password.encode("utf-8"),
+                salt=salt,
+                n=int(param_values["n"]),
+                r=int(param_values["r"]),
+                p=int(param_values["p"]),
+                dklen=len(expected),
+            )
+            return hmac.compare_digest(actual, expected)
+        except (KeyError, ValueError, TypeError):
+            return False
+
+    if len(hashed_password) == LEGACY_SHA256_HEX_LENGTH:
         legacy = hashlib.sha256(password.encode("utf-8")).hexdigest()
-        return _constant_time_eq(legacy, hashed_password)
-    try:
-        return _pwd_context.verify(password, hashed_password)
-    except Exception:  # noqa: BLE001 — passlib bazen UnknownHashError fırlatır
+        return hmac.compare_digest(legacy, hashed_password)
+
+    return False
+
+
+def password_needs_rehash(hashed_password: str) -> bool:
+    if not hashed_password.startswith(ARGON2_PREFIX):
+        return True
+    if _ARGON2_HASHER is None:
         return False
+    try:
+        return _ARGON2_HASHER.check_needs_rehash(hashed_password)
+    except InvalidHashError:
+        return True
 
 
 def needs_rehash(hashed_password: str) -> bool:
