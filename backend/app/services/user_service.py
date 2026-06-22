@@ -59,3 +59,13 @@ def update_user_phone(db: Session, user: User, new_phone: str) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def update_user_locale(db: Session, user: User, locale: str) -> User:
+    if locale not in {"tr", "en"}:
+        raise ValueError("Unsupported locale")
+    user.locale = locale
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user

@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
-from app.models import Department, EnterpriseSession, EnterpriseTicket, User
+from app.models import Department, EnterpriseAgent, EnterpriseSession, EnterpriseTicket, User
 from app.schemas.appointment import AppointmentResponse
 from app.schemas.enterprise import (
     DepartmentResponse,
+    EnterpriseAgentResponse,
     EnterpriseCustomerResponse,
     EnterpriseDecisionResponse,
     EnterpriseMessageRequest,
@@ -16,6 +17,7 @@ from app.schemas.enterprise import (
     EnterpriseSessionDetail,
     EnterpriseSessionSummary,
     EnterpriseTicketStatusUpdateRequest,
+    EnterpriseTicketUpdateRequest,
     EnterpriseTicketResponse,
     OrganizationResponse,
 )
@@ -25,10 +27,12 @@ from app.services.enterprise_service import (
     enterprise_metrics,
     get_enterprise_session,
     list_departments,
+    list_enterprise_agents,
     list_enterprise_sessions,
     list_enterprise_tickets,
     process_enterprise_message,
     update_enterprise_ticket_status,
+    update_enterprise_ticket,
 )
 
 
@@ -45,12 +49,19 @@ def customer_payload(session_or_ticket) -> EnterpriseCustomerResponse:
     return EnterpriseCustomerResponse.model_validate(session_or_ticket.customer)
 
 
+def agent_payload(agent: EnterpriseAgent | None) -> EnterpriseAgentResponse | None:
+    if agent is None:
+        return None
+    return EnterpriseAgentResponse.model_validate(agent)
+
+
 def ticket_payload(ticket: EnterpriseTicket) -> EnterpriseTicketResponse:
     return EnterpriseTicketResponse(
         id=ticket.id,
         session_id=ticket.session_id,
         customer=customer_payload(ticket),
         department=department_payload(ticket.department),
+        assigned_agent=agent_payload(ticket.assigned_agent),
         intent=ticket.intent,
         description=ticket.description,
         status=ticket.status.value,
@@ -95,6 +106,7 @@ def get_enterprise_overview(
 ) -> EnterpriseOverviewResponse:
     metrics = enterprise_metrics(db, current_user)
     departments = list_departments(db, current_user)
+    agents = list_enterprise_agents(db, current_user)
     tickets = list_enterprise_tickets(db, current_user)
     sessions = list_enterprise_sessions(db, current_user)
     organization = metrics["organization"]
@@ -102,11 +114,16 @@ def get_enterprise_overview(
         metrics=EnterpriseMetricsResponse(
             organization=OrganizationResponse.model_validate(organization),
             total_tickets=metrics["total_tickets"],
+            open_tickets=metrics["open_tickets"],
+            high_priority_tickets=metrics["high_priority_tickets"],
+            sla_breached=metrics["sla_breached"],
+            avg_confidence=metrics["avg_confidence"],
             active_sessions=metrics["active_sessions"],
             escalations=metrics["escalations"],
             appointments=metrics["appointments"],
         ),
         departments=[DepartmentResponse.model_validate(item) for item in departments],
+        agents=[EnterpriseAgentResponse.model_validate(item) for item in agents],
         tickets=[ticket_payload(item) for item in tickets],
         sessions=[session_summary_payload(item) for item in sessions],
     )
@@ -140,6 +157,26 @@ def patch_ticket_status(
         current_user=current_user,
         ticket_id=ticket_id,
         status_value=payload.status,
+        resolution_note=payload.resolution_note,
+    )
+    return ticket_payload(ticket)
+
+
+@router.patch("/tickets/{ticket_id}", response_model=EnterpriseTicketResponse)
+def patch_ticket(
+    ticket_id: int,
+    payload: EnterpriseTicketUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> EnterpriseTicketResponse:
+    ticket = update_enterprise_ticket(
+        db,
+        current_user=current_user,
+        ticket_id=ticket_id,
+        status_value=payload.status,
+        priority=payload.priority,
+        assigned_agent_id=payload.assigned_agent_id,
+        assigned_agent_id_provided="assigned_agent_id" in payload.model_fields_set,
         resolution_note=payload.resolution_note,
     )
     return ticket_payload(ticket)

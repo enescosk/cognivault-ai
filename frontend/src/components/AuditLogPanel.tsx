@@ -1,3 +1,5 @@
+import { useMemo, useState } from "react";
+
 import type { Appointment, AuditLog } from "../types/api";
 
 type AuditLogPanelProps = {
@@ -26,14 +28,27 @@ function isActiveNow(dateStr: string): boolean {
 }
 
 export function AuditLogPanel({ logs, appointments, role = "operator" }: AuditLogPanelProps) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const activeAppointments = appointments.filter(a => a.status === "confirmed" && isActiveNow(a.scheduled_at));
   const isAdmin = role === "admin";
-  function handleExport() {
-    const blob = new Blob([JSON.stringify(logs, null, 2)], { type: "application/json" });
+  const filteredLogs = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return logs.filter((log) => {
+      const matchesStatus = statusFilter === "all" || log.result_status === statusFilter;
+      const haystack = `${log.action_type} ${log.explanation} ${JSON.stringify(log.details ?? {})}`.toLowerCase();
+      const matchesQuery = !needle || haystack.includes(needle);
+      return matchesStatus && matchesQuery;
+    });
+  }, [logs, query, statusFilter]);
+
+  function handleExport(format: "json" | "csv") {
+    const body = format === "json" ? JSON.stringify(filteredLogs, null, 2) : toCsv(filteredLogs);
+    const blob = new Blob([body], { type: format === "json" ? "application/json" : "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `audit-${new Date().toISOString().split("T")[0]}.json`;
+    a.download = `audit-${new Date().toISOString().split("T")[0]}.${format}`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -43,19 +58,24 @@ export function AuditLogPanel({ logs, appointments, role = "operator" }: AuditLo
       <div className="audit-header">
         <div className="audit-header-row">
           <span className="audit-title">{isAdmin ? "Sistem Paneli" : "Audit Trail"}</span>
-          <button className="export-btn" onClick={handleExport} type="button">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            Export
-          </button>
+          <div className="audit-export-actions">
+            <button className="export-btn" onClick={() => handleExport("json")} type="button">JSON</button>
+            <button className="export-btn" onClick={() => handleExport("csv")} type="button">CSV</button>
+          </div>
         </div>
         <div className="audit-subtitle">
           {isAdmin
-            ? `${appointments.length} randevu · ${logs.length} audit kaydı`
-            : `Canlı aktivite · ${logs.length} olay`}
+            ? `${appointments.length} randevu · ${filteredLogs.length}/${logs.length} audit kaydı`
+            : `Canlı aktivite · ${filteredLogs.length}/${logs.length} olay`}
+        </div>
+        <div className="audit-filters">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ara: ticket, login, bilgi..." />
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="all">Tümü</option>
+            <option value="success">Success</option>
+            <option value="info">Info</option>
+            <option value="failure">Failure</option>
+          </select>
         </div>
       </div>
 
@@ -118,12 +138,12 @@ export function AuditLogPanel({ logs, appointments, role = "operator" }: AuditLo
       )}
       <div className="audit-section-label">Recent Events</div>
       <div className="audit-list">
-        {logs.length === 0 ? (
+        {filteredLogs.length === 0 ? (
           <div style={{ padding: "20px 12px", color: "var(--text-3)", fontSize: "0.82rem", textAlign: "center", fontFamily: "var(--font-mono)" }}>
             No events recorded
           </div>
         ) : (
-          logs.slice(0, 40).map((log) => (
+          filteredLogs.slice(0, 40).map((log) => (
             <div className="audit-item" key={log.id}>
               <div className="audit-item-top">
                 <span className="audit-action">{log.action_type}</span>
@@ -154,4 +174,21 @@ export function AuditLogPanel({ logs, appointments, role = "operator" }: AuditLo
       )}
     </aside>
   );
+}
+
+function toCsv(logs: AuditLog[]) {
+  const rows = [
+    ["id", "timestamp", "user_id", "session_id", "action_type", "result_status", "success", "explanation"],
+    ...logs.map((log) => [
+      log.id,
+      log.timestamp,
+      log.user_id ?? "",
+      log.session_id ?? "",
+      log.action_type,
+      log.result_status,
+      log.success,
+      log.explanation,
+    ]),
+  ];
+  return rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
 }

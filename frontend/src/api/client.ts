@@ -17,6 +17,8 @@ import type {
   EnterpriseOverview,
   EnterpriseSessionDetail,
   EnterpriseTicket,
+  KnowledgeArticle,
+  KnowledgeSearchResult,
   Metrics,
   QualityReport,
   SendMessageResponse,
@@ -65,6 +67,17 @@ export function register(fullName: string, email: string, password: string): Pro
 
 export function getCurrentUser(token: string): Promise<User> {
   return request<User>("/auth/me", { method: "GET" }, token);
+}
+
+export function updateCurrentUserLocale(token: string, locale: "tr" | "en"): Promise<User> {
+  return request<User>(
+    "/users/me",
+    {
+      method: "PATCH",
+      body: JSON.stringify({ locale })
+    },
+    token
+  );
 }
 
 export function listSessions(token: string): Promise<ChatSessionSummary[]> {
@@ -119,6 +132,37 @@ export function getQualityReport(token: string): Promise<QualityReport> {
 
 export function getAppointments(token: string): Promise<Appointment[]> {
   return request<Appointment[]>("/appointments", { method: "GET" }, token);
+}
+
+export type AppointmentSlot = {
+  id: number;
+  department: string;
+  start_time: string;
+  end_time: string;
+  location: string;
+  is_booked: boolean;
+};
+
+export function getAppointmentSlots(token: string, department?: string): Promise<AppointmentSlot[]> {
+  const params = new URLSearchParams();
+  if (department) params.set("department", department);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<AppointmentSlot[]>(`/appointments/slots${suffix}`, { method: "GET" }, token);
+}
+
+export function cancelAppointment(appointmentId: number, token: string): Promise<Appointment> {
+  return request<Appointment>(`/appointments/${appointmentId}/cancel`, { method: "PATCH" }, token);
+}
+
+export function rescheduleAppointment(appointmentId: number, slotId: number, token: string): Promise<Appointment> {
+  return request<Appointment>(
+    `/appointments/${appointmentId}/reschedule`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ slot_id: slotId })
+    },
+    token
+  );
 }
 
 export function deleteSession(sessionId: number, token: string): Promise<{deleted: number}> {
@@ -182,47 +226,18 @@ export function updateEnterpriseTicketStatus(
   );
 }
 
-export function getClinicalOverview(token: string): Promise<ClinicalOverview> {
-  return request<ClinicalOverview>("/clinical/overview", { method: "GET" }, token);
-}
-
-export function getClinicalComplianceProfile(token: string): Promise<ClinicalComplianceProfile> {
-  return request<ClinicalComplianceProfile>("/clinical/compliance-profile", { method: "GET" }, token);
-}
-
-export function getClinicalPatentDossier(token: string): Promise<ClinicalPatentDossier> {
-  return request<ClinicalPatentDossier>("/clinical/patent-dossier", { method: "GET" }, token);
-}
-
-export function getClinicalSlotBoard(token: string): Promise<ClinicalSlotBoard> {
-  return request<ClinicalSlotBoard>("/clinical/slot-board", { method: "GET" }, token);
-}
-
-export function getClinicalConversation(conversationId: number, token: string): Promise<ClinicalConversationDetail> {
-  return request<ClinicalConversationDetail>(`/clinical/conversations/${conversationId}`, { method: "GET" }, token);
-}
-
-export function simulateWhatsAppMessage(
-  token: string,
-  payload: { from_phone: string; body: string; patient_name?: string }
-): Promise<WebhookIngestionResponse> {
-  return request<WebhookIngestionResponse>(
-    "/clinical/simulate-whatsapp",
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    },
-    token
-  );
-}
-
-export function updateShadowReview(
-  reviewId: number,
-  token: string,
-  payload: { status: "approved" | "edited" | "rejected"; final_reply?: string }
-): Promise<ShadowReview> {
-  return request<ShadowReview>(
-    `/clinical/shadow-reviews/${reviewId}`,
+export function updateEnterpriseTicket(
+  ticketId: number,
+  payload: {
+    status?: "open" | "in_progress" | "escalated" | "closed";
+    priority?: "low" | "normal" | "high" | "urgent";
+    assigned_agent_id?: number | null;
+    resolution_note?: string;
+  },
+  token: string
+): Promise<EnterpriseTicket> {
+  return request<EnterpriseTicket>(
+    `/enterprise/tickets/${ticketId}`,
     {
       method: "PATCH",
       body: JSON.stringify(payload)
@@ -231,16 +246,16 @@ export function updateShadowReview(
   );
 }
 
-export function getClinicalPersonas(token: string): Promise<ClinicalPersona[]> {
-  return request<ClinicalPersona[]>("/clinical/personas", { method: "GET" }, token);
+export function listKnowledgeArticles(token: string): Promise<KnowledgeArticle[]> {
+  return request<KnowledgeArticle[]>("/knowledge/articles", { method: "GET" }, token);
 }
 
-export function simulateVoiceCall(
+export function createKnowledgeArticle(
   token: string,
-  payload: { from_phone: string; speech: string; patient_name?: string; persona_id?: "selin" | "arzu" | "can" }
-): Promise<WebhookIngestionResponse> {
-  return request<WebhookIngestionResponse>(
-    "/clinical/simulate-voice-call",
+  payload: { title: string; content: string; tags: string[] }
+): Promise<KnowledgeArticle> {
+  return request<KnowledgeArticle>(
+    "/knowledge/articles",
     {
       method: "POST",
       body: JSON.stringify(payload)
@@ -249,31 +264,9 @@ export function simulateVoiceCall(
   );
 }
 
-export function createClinicalAppointment(
-  token: string,
-  payload: { conversation_id: number; department: string; doctor_id?: number; slot_id?: number; starts_at?: string | null; notes?: string }
-): Promise<ClinicalAppointment> {
-  return request<ClinicalAppointment>(
-    "/clinical/appointments",
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    },
-    token
-  );
-}
-
-export function getUpcomingClinicalAppointments(token: string, withinMinutes = 120): Promise<ClinicalAppointment[]> {
-  return request<ClinicalAppointment[]>(`/clinical/appointments/upcoming?within_minutes=${withinMinutes}`, { method: "GET" }, token);
-}
-
-export function getClinicalDoctors(token: string): Promise<ClinicDoctor[]> {
-  return request<ClinicDoctor[]>("/clinical/doctors", { method: "GET" }, token);
-}
-
-export function getDoctorSlots(doctorId: number, token: string, date?: string): Promise<ClinicDoctorSlot[]> {
-  const params = date ? `?date=${date}` : "";
-  return request<ClinicDoctorSlot[]>(`/clinical/doctors/${doctorId}/slots${params}`, { method: "GET" }, token);
+export function searchKnowledgeArticles(token: string, query: string): Promise<KnowledgeSearchResult[]> {
+  const params = new URLSearchParams({ q: query, limit: "5" });
+  return request<KnowledgeSearchResult[]>(`/knowledge/search?${params.toString()}`, { method: "GET" }, token);
 }
 
 /**

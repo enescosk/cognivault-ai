@@ -11,8 +11,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import ai, appointments, audit, auth, chat, clinical, enterprise, intelligence, quality, users, voice
-from app.api.dependencies import get_db
+from app.api.routes import appointments, audit, auth, chat, enterprise, knowledge, users, voice
 from app.core.config import get_settings
 from app.core.errors import error_response
 from app.core.health import readiness_report
@@ -187,9 +186,7 @@ app.include_router(appointments.router, prefix=settings.api_prefix)
 app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(voice.router, prefix=settings.api_prefix)
 app.include_router(enterprise.router, prefix=settings.api_prefix)
-app.include_router(intelligence.router, prefix=settings.api_prefix)
-app.include_router(clinical.router, prefix=settings.api_prefix)
-app.include_router(quality.router, prefix=settings.api_prefix)
+app.include_router(knowledge.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

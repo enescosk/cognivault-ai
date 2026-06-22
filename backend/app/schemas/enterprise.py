@@ -35,11 +35,22 @@ class EnterpriseCustomerResponse(BaseModel):
     external_ref: str | None = None
 
 
+class EnterpriseAgentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    department_id: int | None = None
+    display_name: str
+    availability_status: str
+
+
 class EnterpriseTicketResponse(BaseModel):
     id: int
     session_id: int | None = None
     customer: EnterpriseCustomerResponse
     department: DepartmentResponse | None = None
+    assigned_agent: EnterpriseAgentResponse | None = None
     intent: str
     description: str
     status: str
@@ -52,6 +63,13 @@ class EnterpriseTicketResponse(BaseModel):
 
 class EnterpriseTicketStatusUpdateRequest(BaseModel):
     status: str = Field(pattern="^(open|in_progress|escalated|closed)$")
+    resolution_note: str | None = None
+
+
+class EnterpriseTicketUpdateRequest(BaseModel):
+    status: str | None = Field(default=None, pattern="^(open|in_progress|escalated|closed)$")
+    priority: str | None = Field(default=None, pattern="^(low|normal|high|urgent)$")
+    assigned_agent_id: int | None = None
     resolution_note: str | None = None
 
 
@@ -76,6 +94,10 @@ class EnterpriseSessionDetail(EnterpriseSessionSummary):
 class EnterpriseMetricsResponse(BaseModel):
     organization: OrganizationResponse
     total_tickets: int
+    open_tickets: int
+    high_priority_tickets: int
+    sla_breached: int
+    avg_confidence: float
     active_sessions: int
     escalations: int
     appointments: int
@@ -84,6 +106,7 @@ class EnterpriseMetricsResponse(BaseModel):
 class EnterpriseOverviewResponse(BaseModel):
     metrics: EnterpriseMetricsResponse
     departments: list[DepartmentResponse]
+    agents: list[EnterpriseAgentResponse]
     tickets: list[EnterpriseTicketResponse]
     sessions: list[EnterpriseSessionSummary]
 

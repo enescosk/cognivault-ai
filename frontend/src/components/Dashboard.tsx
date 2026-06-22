@@ -27,19 +27,8 @@ import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
 import { SystemHealthPanel } from "./SystemHealthPanel";
 
-interface DashboardProps {
-  /**
-   * Audience hint coming from the router (`/customer/*` vs `/operator/*`).
-   * Used only as metadata today — actual rendering still branches on the
-   * authenticated user's role so backend RBAC remains the source of truth.
-   */
-  audience?: "customer" | "operator";
-  defaultView?: "chat" | "appointments" | "clinical" | "clinic-admin";
-}
-
-export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
-  const { token, user, logout } = useAuth();
-  const navigate = useNavigate();
+export function Dashboard() {
+  const { token, user, logout, updateLocale } = useAuth();
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState<ChatSessionDetail | null>(null);
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -258,57 +247,23 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
         onDeleteSession={handleDeleteSession}
         onViewDashboard={() => setView("dashboard")}
         onViewAppointments={() => setView("appointments")}
-        onViewNotes={() => setView("notes")}
-        onViewClinical={() => setView("clinical")}
+        onViewEnterprise={() => setView("enterprise")}
+        onUpdateLocale={updateLocale}
         onLogout={logout}
       />
       <main className="main-panel">
-        {!isClinicalView ? <MetricsBar metrics={metrics} appointments={appointments} role={role} /> : null}
-        <SystemHealthPanel capabilities={capabilities} quality={quality} view={view} />
+        <MetricsBar metrics={metrics} appointments={appointments} role={role} locale={user.locale} />
         {error ? <div className="error-box" style={{ margin: "12px 24px 0" }}>{error}</div> : null}
-        <div className="view-stage" key={view}>
-          {isClinicalView ? (
-            <ClinicalPanel token={token ?? ""} />
-          ) : view === "dashboard" && isCustomer ? (
-            <CustomerDashboard
-              appointments={appointments}
-              sessions={sessions}
-              metrics={metrics}
-              onStartChat={() => { setView("chat"); handleNewSession(); }}
-              onViewAppointments={() => setView("appointments")}
-              onViewNotes={() => setView("notes")}
-              onViewConversations={() => setView("chat")}
-            />
-          ) : view === "notes" && isCustomer ? (
-            <AppointmentNotes />
-          ) : view === "appointments" && isCustomer ? (
-            <AppointmentsPage appointments={appointments} />
-          ) : (
-            <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
-          )}
-        </div>
+        {view === "enterprise" && (isOperator || isAdmin) ? (
+          <EnterprisePanel token={token ?? ""} appointments={appointments} locale={user.locale} />
+        ) : view === "appointments" && isCustomer ? (
+          <AppointmentsPage appointments={appointments} token={token ?? ""} locale={user.locale} onChanged={() => loadDashboard(selectedSession?.id)} />
+        ) : (
+          <ChatWindow session={selectedSession} user={user} sending={sending} pendingMessage={pendingMessage} streamingContent={streamingContent} token={token ?? ""} onSend={handleSend} />
+        )}
       </main>
-      {isCustomer && (
-        <ErrorBoundary scope="Randevu paneli">
-          <AppointmentPanel appointments={appointments} />
-        </ErrorBoundary>
-      )}
-      {isAdmin && !isClinicalView && (
-        <ErrorBoundary scope="Yönetim paneli">
-          <aside className="audit-panel">
-            <UsageCostCard token={token ?? ""} />
-            <AdminPanel users={users} appointments={appointments} logs={logs} />
-          </aside>
-        </ErrorBoundary>
-      )}
-      {(isOperator || isAdmin) && isClinicalView && (
-        <ErrorBoundary scope="Klinik araçlar">
-          <aside className="audit-panel">
-            <ClinicalPlayground token={token ?? ""} />
-            <DecisionLogView />
-          </aside>
-        </ErrorBoundary>
-      )}
+      {isCustomer && <AppointmentPanel appointments={appointments} locale={user.locale} />}
+      {isAdmin    && <AdminPanel users={users} appointments={appointments} logs={logs} />}
     </div>
   );
 }

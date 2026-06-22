@@ -1,3 +1,3 @@
-from app.api.routes import ai, appointments, audit, auth, chat, enterprise, intelligence, quality, users, voice
+from app.api.routes import appointments, audit, auth, chat, enterprise, knowledge, users, voice
 
-__all__ = ["ai", "appointments", "audit", "auth", "chat", "enterprise", "intelligence", "quality", "users", "voice"]
+__all__ = ["appointments", "audit", "auth", "chat", "enterprise", "knowledge", "users", "voice"]

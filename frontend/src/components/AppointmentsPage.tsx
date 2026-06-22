@@ -1,7 +1,13 @@
 import { useState } from "react";
+import { cancelAppointment, getAppointmentSlots, rescheduleAppointment, type AppointmentSlot } from "../api/client";
 import type { Appointment } from "../types/api";
 
-type Props = { appointments: Appointment[] };
+type Props = {
+  appointments: Appointment[];
+  token: string;
+  locale: string;
+  onChanged: () => Promise<void> | void;
+};
 
 type Filter = "all" | "confirmed" | "pending" | "cancelled";
 
@@ -26,8 +32,20 @@ function isUpcoming(s: string) {
   return d.getTime() > Date.now();
 }
 
-export function AppointmentsPage({ appointments }: Props) {
+export function AppointmentsPage({ appointments, token, locale, onChanged }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [rescheduleFor, setRescheduleFor] = useState<Appointment | null>(null);
+  const [slots, setSlots] = useState<AppointmentSlot[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const en = locale === "en";
+
+  const statusText: Record<string, string> = en
+    ? { confirmed: "Confirmed", cancelled: "Cancelled", pending: "Pending" }
+    : { confirmed: "Onaylı", cancelled: "İptal", pending: "Bekliyor" };
+  const filterText: Record<Filter, string> = en
+    ? { all: "All", confirmed: "Confirmed", pending: "Pending", cancelled: "Cancelled" }
+    : { all: "Tümü", confirmed: "Onaylı", pending: "Bekliyor", cancelled: "İptal" };
 
   const filtered = appointments.filter(a =>
     filter === "all" ? true : a.status === filter
@@ -40,42 +58,88 @@ export function AppointmentsPage({ appointments }: Props) {
     cancelled: appointments.filter(a => a.status === "cancelled").length,
   };
 
+  async function handleCancel(appointment: Appointment) {
+    if (!window.confirm(en ? `Cancel appointment ${appointment.confirmation_code}?` : `${appointment.confirmation_code} kodlu randevu iptal edilsin mi?`)) return;
+    setBusyId(appointment.id);
+    setError(null);
+    try {
+      await cancelAppointment(appointment.id, token);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : en ? "Appointment could not be cancelled" : "Randevu iptal edilemedi");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function openReschedule(appointment: Appointment) {
+    setBusyId(appointment.id);
+    setError(null);
+    try {
+      const available = await getAppointmentSlots(token, appointment.department);
+      setSlots(available);
+      setRescheduleFor(appointment);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : en ? "Available slots could not be loaded" : "Uygun slotlar alınamadı");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleReschedule(slotId: number) {
+    if (!rescheduleFor) return;
+    setBusyId(rescheduleFor.id);
+    setError(null);
+    try {
+      await rescheduleAppointment(rescheduleFor.id, slotId, token);
+      setRescheduleFor(null);
+      setSlots([]);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : en ? "Appointment could not be rescheduled" : "Randevu yeniden planlanamadı");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="apts-page">
       {/* Header */}
       <div className="apts-header">
         <div className="apts-header-left">
-          <h2 className="apts-title">Randevularım</h2>
-          <p className="apts-subtitle">Tüm randevu geçmişiniz ve aktif rezervasyonlarınız</p>
+          <h2 className="apts-title">{en ? "My Appointments" : "Randevularım"}</h2>
+          <p className="apts-subtitle">{en ? "Your appointment history and active bookings" : "Tüm randevu geçmişiniz ve aktif rezervasyonlarınız"}</p>
         </div>
         <div className="apts-stats">
           <div className="apts-stat">
             <span className="apts-stat-val" style={{ color: "#68d391" }}>{counts.confirmed}</span>
-            <span className="apts-stat-label">Onaylı</span>
+            <span className="apts-stat-label">{en ? "Confirmed" : "Onaylı"}</span>
           </div>
           <div className="apts-stat-divider" />
           <div className="apts-stat">
             <span className="apts-stat-val" style={{ color: "#f6ad55" }}>{counts.pending}</span>
-            <span className="apts-stat-label">Bekliyor</span>
+            <span className="apts-stat-label">{en ? "Pending" : "Bekliyor"}</span>
           </div>
           <div className="apts-stat-divider" />
           <div className="apts-stat">
             <span className="apts-stat-val" style={{ color: "#fc8181" }}>{counts.cancelled}</span>
-            <span className="apts-stat-label">İptal</span>
+            <span className="apts-stat-label">{en ? "Cancelled" : "İptal"}</span>
           </div>
         </div>
       </div>
 
+      {error ? <div className="error-box apts-error">{error}</div> : null}
+
       {/* Filter tabs */}
       <div className="apts-filters">
-        {filterLabels.map(({ key, label }) => (
+        {filterLabels.map(({ key }) => (
           <button
             key={key}
             className={`apts-filter-btn ${filter === key ? "apts-filter-btn--active" : ""}`}
             onClick={() => setFilter(key)}
             type="button"
           >
-            {label}
+            {filterText[key]}
             {counts[key] > 0 && (
               <span className="apts-filter-count">{counts[key]}</span>
             )}
@@ -91,7 +155,7 @@ export function AppointmentsPage({ appointments }: Props) {
             <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
             <line x1="3" y1="10" x2="21" y2="10"/>
           </svg>
-          <p>Bu filtrede randevu bulunamadı</p>
+          <p>{en ? "No appointments for this filter" : "Bu filtrede randevu bulunamadı"}</p>
         </div>
       ) : (
         <div className="apts-grid">
@@ -106,7 +170,7 @@ export function AppointmentsPage({ appointments }: Props) {
                   <span className="apts-card-dept">{apt.department}</span>
                   <span className="apts-card-status" style={{ color: st.color, background: st.bg }}>
                     {upcoming && <span className="active-apt-dot" style={{ width: 5, height: 5, marginRight: 5 }} />}
-                    {st.label}
+                    {statusText[apt.status] ?? st.label}
                   </span>
                 </div>
 
@@ -153,11 +217,46 @@ export function AppointmentsPage({ appointments }: Props) {
                 {apt.notes && (
                   <div className="apts-card-notes">{apt.notes}</div>
                 )}
+                {apt.status === "confirmed" && isUpcoming(apt.scheduled_at) ? (
+                  <div className="apts-card-actions">
+                    <button type="button" onClick={() => void openReschedule(apt)} disabled={busyId === apt.id}>
+                      {en ? "Reschedule" : "Yeniden planla"}
+                    </button>
+                    <button className="danger" type="button" onClick={() => void handleCancel(apt)} disabled={busyId === apt.id}>
+                      {en ? "Cancel" : "İptal et"}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             );
           })}
         </div>
       )}
+      {rescheduleFor ? (
+        <div className="apts-reschedule">
+          <div className="apts-reschedule-panel">
+            <div className="apts-reschedule-top">
+              <div>
+                <span>{en ? "Choose a new slot" : "Yeni slot seç"}</span>
+                <strong>{rescheduleFor.confirmation_code}</strong>
+              </div>
+              <button type="button" onClick={() => setRescheduleFor(null)}>{en ? "Close" : "Kapat"}</button>
+            </div>
+            <div className="apts-slot-list">
+              {slots.length === 0 ? (
+                <div className="apts-empty-slot">{en ? "No available slots for this department." : "Bu departman için uygun slot yok."}</div>
+              ) : (
+                slots.map((slot) => (
+                  <button key={slot.id} type="button" onClick={() => void handleReschedule(slot.id)} disabled={busyId === rescheduleFor.id}>
+                    <span>{trDate.format(new Date(slot.start_time))}</span>
+                    <strong>{trTime.format(new Date(slot.start_time))} · {slot.location}</strong>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

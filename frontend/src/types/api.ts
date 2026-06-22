@@ -154,11 +154,19 @@ export type EnterpriseCustomer = {
   phone?: string | null;
   external_ref?: string | null;
 };
+export type EnterpriseAgent = {
+  id: number;
+  user_id: number;
+  department_id?: number | null;
+  display_name: string;
+  availability_status: string;
+};
 export type EnterpriseTicket = {
   id: number;
   session_id?: number | null;
   customer: EnterpriseCustomer;
   department?: EnterpriseDepartment | null;
+  assigned_agent?: EnterpriseAgent | null;
   intent: string;
   description: string;
   status: string;
@@ -187,6 +195,10 @@ export type EnterpriseSessionDetail = EnterpriseSessionSummary & {
 export type EnterpriseMetrics = {
   organization: Organization;
   total_tickets: number;
+  open_tickets: number;
+  high_priority_tickets: number;
+  sla_breached: number;
+  avg_confidence: number;
   active_sessions: number;
   escalations: number;
   appointments: number;
@@ -194,6 +206,7 @@ export type EnterpriseMetrics = {
 export type EnterpriseOverview = {
   metrics: EnterpriseMetrics;
   departments: EnterpriseDepartment[];
+  agents: EnterpriseAgent[];
   tickets: EnterpriseTicket[];
   sessions: EnterpriseSessionSummary[];
 };
@@ -212,294 +225,16 @@ export type EnterpriseMessageResponse = {
   assistant_message: string;
   decision: EnterpriseDecision;
 };
-
-export type ClinicalPatient = {
+export type KnowledgeArticle = {
   id: number;
-  clinic_id: number;
-  full_name?: string | null;
-  phone: string;
-  language: string;
-  source: string;
-  created_at: string;
-  updated_at: string;
-};
-export type ClinicalMessage = {
-  id: number;
-  conversation_id: number;
-  sender: "patient" | "assistant" | "operator" | "system";
-  content: string;
-  language: string;
-  intent?: string | null;
-  confidence_score?: number | null;
-  external_message_id?: string | null;
-  metadata_json?: Record<string, unknown> | null;
-  created_at: string;
-};
-export type ClinicalConversationSummary = {
-  id: number;
-  clinic_id: number;
-  patient: ClinicalPatient;
-  channel: string;
-  status: string;
-  language: string;
-  intent?: string | null;
-  confidence_score?: number | null;
-  persona_name?: string | null;
-  last_urgency?: string | null;
-  doctor_summary?: string | null;
-  possible_conditions?: Array<Record<string, unknown>>;
-  appointment_draft?: Record<string, unknown> | null;
-  doctor_inbox: boolean;
-  last_message_preview?: string | null;
-  created_at: string;
-  updated_at: string;
-};
-export type ClinicalConversationDetail = ClinicalConversationSummary & {
-  messages: ClinicalMessage[];
-};
-export type ShadowReview = {
-  id: number;
-  clinic_id: number;
-  conversation_id: number;
-  patient_message_id: number;
-  draft_reply: string;
-  intent: string;
-  confidence_score: number;
-  risk_reason: string;
-  status: string;
-  persona_name?: string | null;
-  channel?: string | null;
-  final_reply?: string | null;
-  metadata_json?: Record<string, unknown> | null;
-  created_at: string;
-  updated_at: string;
-};
-export type ClinicalMetrics = {
-  clinic_name: string;
-  conversations_today: number;
-  total_conversations: number;
-  pending_shadow_reviews: number;
-  triage_reviews: number;
-  emergency_reviews: number;
-  same_day_reviews: number;
-  doctor_inbox_count: number;
-  phone_calls_today: number;
-  whatsapp_threads_today: number;
-  auto_reply_rate: number;
-  appointments_pending: number;
-  reminders_due: number;
-  frustration_events: number;
-};
-export type ClinicalOverview = {
-  metrics: ClinicalMetrics;
-  conversations: ClinicalConversationSummary[];
-  doctor_inbox: ClinicalConversationSummary[];
-  shadow_reviews: ShadowReview[];
-};
-export type ClinicalComplianceProfile = {
-  clinic_id: number;
-  clinic_name: string;
-  data_residency_default: string;
-  external_transfer_allowed: boolean;
-  processor_inventory: Array<Record<string, unknown>>;
-  production_modes: Array<Record<string, unknown>>;
-  mandatory_controls: string[];
-  blocked_by_default: string[];
-  operator_review_triggers: string[];
-};
-export type ClinicalPatentDossier = {
-  working_title: string;
-  technical_field: string;
-  problem: string;
-  solution_summary: string;
-  candidate_independent_claims: string[];
-  candidate_dependent_claims: string[];
-  figures_to_prepare: string[];
-  evidence_to_preserve: string[];
-  next_actions: string[];
-};
-export type ClinicalSlotAppointment = {
-  id: string;
-  time: string;
-  patient_name: string;
-  doctor: string;
-  branch: string;
-  department: string;
-  date_label: string;
-  phone: string;
-  status: "confirmed" | "pending" | string;
-  status_label: string;
-};
-export type ClinicalAppointmentRow = {
-  id: number;
-  patient_id: number;
-  patient_name: string | null;
-  patient_phone: string | null;
-  conversation_id: number | null;
-  department: string;
-  physician_name: string | null;
-  branch_name: string | null;
-  starts_at: string | null;
-  status: "pending" | "confirmed" | "cancelled" | string;
-  notes: string | null;
-  created_at: string;
-};
-export type ClinicalSlotItem = {
-  id: string;
-  department: string;
-  doctor: string;
-  date_label: string;
-  time_range: string;
-  capacity: number;
-  booked: number;
-  open: number;
-  status: "available" | "limited" | "full" | string;
-  next_available: string;
-  waitlist_count: number;
-  appointments?: ClinicalSlotAppointment[];
-};
-export type ClinicalSlotBoard = {
-  summary: {
-    clinic_mode: string;
-    occupancy_rate: number;
-    full_departments: number;
-    next_open_slot: string;
-    waitlist_total: number;
-  };
-  schedule: ClinicalSlotItem[];
-  acceptance_rules: Array<{ rule: string; result: string }>;
-  test_scenarios: Array<{ label: string; message: string; expected_action: string; expected_result: string }>;
-};
-export type WebhookIngestionResponse = {
-  ok: boolean;
-  clinic_id: number;
-  patient_id: number;
-  conversation_id: number;
-  message_id: number;
-  action: string;
-  reply?: string | null;
-  shadow_review_id?: number | null;
-  appointment_id?: number | null;
-};
-export type ClinicalPersona = {
-  id: "selin" | "arzu" | "can";
-  display_name: string;
-  role: string;
-  voice: string;
-  tone: string;
-  specialty: string;
-  safety_rule: string;
-};
-export type ClinicDoctor = {
-  id: number;
-  clinic_id: number;
-  branch_id?: number | null;
-  full_name: string;
-  email: string;
-  specialty: string;
+  organization_id: number;
   title: string;
-  bio?: string | null;
-  avatar_url?: string | null;
+  content: string;
+  tags: string[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
 };
-export type ClinicDoctorSlot = {
-  id: number;
-  doctor_id: number;
-  clinic_id: number;
-  start_time: string;
-  end_time: string;
-  is_booked: boolean;
-  is_blocked: boolean;
-  doctor_name?: string | null;
-  specialty?: string | null;
-};
-export type ClinicalAppointment = {
-  id: number;
-  clinic_id: number;
-  patient_id: number;
-  conversation_id?: number | null;
-  doctor_id?: number | null;
-  slot_id?: number | null;
-  department: string;
-  starts_at?: string | null;
-  status: string;
-  notes?: string | null;
-  doctor_name?: string | null;
-  metadata_json?: Record<string, unknown> | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type AICapabilities = {
-  llm: {
-    active_provider: string;
-    active_model: string;
-    preferred_provider: string;
-    local_llm_configured: boolean;
-    openai_configured: boolean;
-    offline_capable: boolean;
-    tool_calling: boolean;
-    fallback_engine: string;
-  };
-  voice: {
-    stt: {
-      active_provider: string;
-      preferred_provider: string;
-      local_whisper_cpp_configured: boolean;
-      openai_configured: boolean;
-      offline_capable: boolean;
-    };
-    tts: {
-      active_provider: string;
-      preferred_provider: string;
-      local_piper_configured: boolean;
-      openai_configured: boolean;
-      offline_capable: boolean;
-    };
-  };
-  architecture: {
-    mode: string;
-    contract: string;
-    human_handoff: boolean;
-    audit_ready: boolean;
-  };
-};
-
-export type QualityScenario = {
-  id: string;
-  name: string;
-  area: string;
-  real_world_signal: string;
-  expected_guardrail: string;
-  automated: boolean;
-  status: string;
-};
-
-export type QualityRecommendation = {
-  priority: "low" | "medium" | "high" | "critical" | string;
-  area: string;
-  title: string;
-  action: string;
-};
-
-export type QualityReport = {
+export type KnowledgeSearchResult = KnowledgeArticle & {
   score: number;
-  grade: "excellent" | "strong" | "needs_work" | string;
-  generated_at: string;
-  role: string;
-  metrics: {
-    automated_scenarios: number;
-    recent_audit_events: number;
-    recent_failures: number;
-    offline_chat_ready: boolean;
-    local_llm_ready: boolean;
-    local_voice_ready: boolean;
-  };
-  llm: AICapabilities["llm"];
-  voice: AICapabilities["voice"];
-  scenarios: QualityScenario[];
-  recommendations: QualityRecommendation[];
-  can_manage_feedback: boolean;
 };
