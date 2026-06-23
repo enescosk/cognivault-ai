@@ -6,8 +6,11 @@ from app.models.entities import (
     AuditResultStatus,
     ChatMessage,
     ChatSession,
+    ClinicalModelFeedback,
     ClinicalAppointment,
+    ClinicalAppointmentProcedure,
     ClinicalAppointmentStatus,
+    ClinicalProcedureStatus,
     ClinicalSlotOffer,
     ClinicalSlotOfferStatus,
     Clinic,
@@ -77,8 +80,11 @@ __all__ = [
     "AuditResultStatus",
     "ChatMessage",
     "ChatSession",
+    "ClinicalModelFeedback",
     "ClinicalAppointment",
+    "ClinicalAppointmentProcedure",
     "ClinicalAppointmentStatus",
+    "ClinicalProcedureStatus",
     "ClinicalSlotOffer",
     "ClinicalSlotOfferStatus",
     "Clinic",
@@ -139,4 +145,3 @@ __all__ = [
     "ClinicService",
     "KVKKDisclosureVersion",
 ]
-

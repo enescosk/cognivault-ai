@@ -1,0 +1,213 @@
+/* === Clinic Appointments page (/operator/appointments) ================== */
+.appt-shell {
+  min-height: 100vh;
+  background: var(--patient-bg);
+  padding: 24px 16px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: center;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+.appt-header {
+  width: 100%;
+  max-width: 1080px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+.appt-header-left {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.appt-header-left h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  color: var(--patient-primary);
+}
+.appt-header-left p {
+  margin: 4px 0 0;
+  color: var(--patient-text-2);
+  font-size: 0.88rem;
+}
+.appt-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.appt-back {
+  background: var(--patient-card-bg);
+  border: 1px solid var(--patient-border);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 0.86rem;
+  text-decoration: none;
+  color: var(--patient-text-1);
+}
+.appt-meta { color: var(--patient-text-3); font-size: 0.78rem; }
+
+.appt-controls {
+  width: 100%;
+  max-width: 1080px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--patient-card-bg);
+  border-radius: 14px;
+  border: 1px solid var(--patient-border);
+}
+.appt-window-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--patient-bg);
+  border-radius: 999px;
+  padding: 4px;
+}
+.appt-tab {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--patient-text-2);
+  cursor: pointer;
+  font-family: inherit;
+}
+.appt-tab.is-active {
+  background: var(--patient-primary);
+  color: #fff;
+}
+.appt-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--patient-text-1);
+  font-size: 0.9rem;
+}
+
+.appt-list {
+  width: 100%;
+  max-width: 1080px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+.appt-empty {
+  grid-column: 1 / -1;
+  padding: 32px;
+  text-align: center;
+  color: var(--patient-text-3);
+  background: var(--patient-card-bg);
+  border-radius: 14px;
+  border: 1px dashed var(--patient-border);
+}
+.appt-card {
+  background: var(--patient-card-bg);
+  border: 1px solid var(--patient-border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.appt-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+.appt-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.appt-time {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--patient-primary);
+}
+.appt-dept {
+  font-size: 0.96rem;
+  font-weight: 600;
+}
+.appt-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--patient-text-3);
+  font-size: 0.78rem;
+}
+.appt-notes {
+  font-size: 0.84rem;
+  color: var(--patient-text-2);
+  background: var(--patient-bg);
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.appt-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.appt-badge-pending    { background: rgba(251, 191, 36, 0.18); color: #92400e; }
+.appt-badge-confirmed  { background: rgba(72, 187, 120, 0.18); color: #166534; }
+.appt-badge-cancelled  { background: rgba(220, 38, 38, 0.18); color: #991b1b; }
+.appt-badge-neutral    { background: rgba(148, 163, 184, 0.18); color: #475569; }
+
+.appt-controls--calendar { max-width: 1180px; }
+.appt-calendar-list { width: 100%; max-width: 1180px; display: grid; gap: 20px; }
+.appt-calendar-day { display: grid; gap: 10px; }
+.appt-calendar-day-head { display: flex; justify-content: space-between; align-items: center; }
+.appt-calendar-day-head h2 { margin: 0; color: var(--patient-text-1); font-size: 1rem; text-transform: capitalize; }
+.appt-calendar-day-head span { color: var(--patient-text-3); font-size: 0.76rem; }
+.appt-calendar-timeline { display: grid; gap: 9px; }
+.appt-calendar-card {
+  display: grid; grid-template-columns: 86px 3px minmax(0,1fr); gap: 14px;
+  background: var(--patient-card-bg); border: 1px solid var(--patient-border);
+  border-radius: 15px; padding: 15px 17px; box-shadow: 0 5px 18px rgba(20,58,50,0.04);
+}
+.appt-calendar-card.pending { border-left: 3px solid #c27722; }
+.appt-calendar-card.confirmed { border-left: 3px solid #1f6f68; }
+.appt-calendar-time { display: grid; align-content: start; gap: 2px; font-family: var(--font-mono); }
+.appt-calendar-time strong { color: var(--patient-primary); font-size: 1.15rem; }
+.appt-calendar-time span { color: var(--patient-text-3); font-size: 0.7rem; }
+.appt-calendar-rail { width: 3px; height: 100%; min-height: 70px; border-radius: 3px; background: rgba(31,111,104,0.14); }
+.appt-calendar-main { min-width: 0; display: grid; gap: 9px; }
+.appt-calendar-main .appt-card-head > div { display: grid; gap: 2px; }
+.appt-calendar-main .appt-card-head strong { color: var(--patient-text-1); }
+.appt-calendar-main .appt-card-head > div > span { color: var(--patient-text-2); font-size: 0.78rem; }
+.appt-calendar-main > p { margin: 0; color: var(--patient-text-1); font-size: 0.84rem; }
+.appt-calendar-main > p.is-empty { color: var(--patient-text-3); font-style: italic; }
+.appt-calendar-procedures { position: relative; padding: 10px 12px; border-radius: 10px; background: var(--patient-bg); display: grid; gap: 7px; }
+.appt-calendar-procedures > span { color: var(--patient-text-3); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.appt-calendar-procedures > small { color: var(--patient-text-3); }
+.appt-calendar-procedures > b { position: absolute; top: 10px; right: 12px; color: #1e7a34; font-size: 0.68rem; }
+.appt-calendar-procedures ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.appt-calendar-procedures li { display: grid; grid-template-columns: 8px 1fr auto; gap: 8px; align-items: center; }
+.appt-calendar-procedures li i { width: 7px; height: 7px; border-radius: 50%; background: #c27722; }
+.appt-calendar-procedures li.completed i { background: #1e7a34; }
+.appt-calendar-procedures li.in_progress i { background: #1f6f68; box-shadow: 0 0 0 3px rgba(31,111,104,0.12); }
+.appt-calendar-procedures li.cancelled { opacity: 0.5; }
+.appt-calendar-procedures li > span { display: grid; gap: 1px; }
+.appt-calendar-procedures li strong { color: #1f312c; font-size: 0.78rem; }
+.appt-calendar-procedures li small { color: #74847f; font-size: 0.68rem; }
+.appt-calendar-procedures li em { color: var(--patient-text-2); font-size: 0.68rem; font-style: normal; font-weight: 700; }
+.appt-calendar-main .appt-meta-row a { margin-left: auto; color: var(--patient-primary); font-weight: 700; text-decoration: none; }
+
+@media (max-width: 720px) {
+  .appt-header { flex-direction: column; }
+  .appt-controls { padding: 12px; }
+  .appt-window-tabs { max-width: 100%; overflow-x: auto; }
+  .appt-calendar-card { grid-template-columns: 62px 2px minmax(0,1fr); padding: 12px; gap: 9px; }
+  .appt-calendar-main .appt-card-head { align-items: flex-start; gap: 7px; }
+}

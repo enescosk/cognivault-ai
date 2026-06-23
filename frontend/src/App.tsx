@@ -9,6 +9,7 @@ import { LoginRoute } from "./components/LoginRoute";
 import { PatientPage } from "./components/patient/PatientPage";
 import { RequireRole } from "./components/RequireRole";
 import { RoleRedirect } from "./components/RoleRedirect";
+import { Styleguide } from "./components/Styleguide";
 import { ToastContainer } from "./components/ui/Toast";
 import { AuthProvider } from "./context/AuthContext";
 import { I18nProvider } from "./i18n";
@@ -28,6 +29,9 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
+
+      {/* Tasarım kılavuzu — public, auth yok. Bkz. frontend/DESIGN_SYSTEM.md */}
+      <Route path="/styleguide" element={<Styleguide />} />
 
       {/* Public hasta sayfası — auth yok, sadece klinik slug ile.
           Detay: docs/product/patient-clinic-experience.md §3 */}

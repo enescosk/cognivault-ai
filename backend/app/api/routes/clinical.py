@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+from datetime import datetime, timezone
 from html import escape
 from urllib.parse import parse_qs
 
@@ -15,13 +17,15 @@ from app.core.webhook_security import (
     verify_meta_signature,
     verify_twilio_signature,
 )
-from app.models import ClinicChannel, ClinicConversation, ClinicDoctor, ClinicDoctorSlot, ClinicPatient, ClinicalAppointment, ShadowReview, ShadowReviewStatus, User
+from app.models import ClinicBranch, ClinicChannel, ClinicConversation, ClinicDoctor, ClinicDoctorSlot, ClinicPatient, ClinicalAppointment, RoleName, ShadowReview, ShadowReviewStatus, User
 from app.schemas.clinical import (
     ClinicalAppointmentCreateRequest,
+    ClinicalAppointmentDetailsUpdate,
     ClinicalAppointmentResponse,
     ClinicalAppointmentRow,
     ClinicalAppointmentStatusUpdate,
     ClinicalManualAppointmentRequest,
+    ClinicalComplianceProfileResponse,
     ClinicDoctorResponse,
     ClinicDoctorSlotResponse,
     ClinicalConversationDetail,
@@ -29,9 +33,11 @@ from app.schemas.clinical import (
     ClinicalMessageResponse,
     ClinicalMetricsResponse,
     ClinicalOverviewResponse,
+    ClinicalViewerResponse,
     ClinicalPatentDossierResponse,
     ClinicalPatientResponse,
     ClinicalPersonaResponse,
+    ClinicalProcedureResponse,
     ClinicalSlotBoardResponse,
     PreIntakeCreateRequest,
     PreIntakeResponse,
@@ -47,27 +53,35 @@ from app.services.clinical_slot_service import build_slot_board
 from app.services.clinical_service import (
     IncomingClinicalMessage,
     clinical_metrics,
-    create_clinical_appointment_from_conversation,
-    create_pre_intake,
     ensure_clinic_access,
     ensure_default_clinic,
+    get_clinician_doctor,
     get_clinical_conversation,
-    get_pre_intake,
     ingest_clinical_message,
     list_clinic_doctors,
     list_doctor_available_slots,
     list_doctor_inbox,
     list_clinical_conversations,
-    list_pre_intakes,
     list_shadow_reviews,
     parse_meta_payload,
     parse_twilio_form,
+)
+from app.services.clinical_appointment_service import (
+    create_clinical_appointment_from_conversation,
     create_manual_clinical_appointment,
     recent_clinical_appointments,
     set_clinical_appointment_status,
     upcoming_clinical_appointments,
-    update_pre_intake,
+    update_appointment_clinical_details,
+)
+from app.services.clinical_feedback_service import (
     update_shadow_review,
+)
+from app.services.clinical_pre_intake_service import (
+    create_pre_intake,
+    get_pre_intake,
+    list_pre_intakes,
+    update_pre_intake,
 )
 from app.services.clinical_persona_service import list_personas
 
@@ -140,6 +154,9 @@ def shadow_review_payload(review: ShadowReview) -> ShadowReviewResponse:
         clinic_id=review.clinic_id,
         conversation_id=review.conversation_id,
         patient_message_id=review.patient_message_id,
+        assigned_doctor_id=review.assigned_doctor_id,
+        assigned_doctor_name=review.assigned_doctor.full_name if review.assigned_doctor else None,
+        assigned_doctor_specialty=review.assigned_doctor.specialty if review.assigned_doctor else None,
         draft_reply=review.draft_reply,
         intent=review.intent.value,
         confidence_score=review.confidence_score,
@@ -154,6 +171,21 @@ def shadow_review_payload(review: ShadowReview) -> ShadowReviewResponse:
     )
 
 
+def procedure_payload(procedure) -> ClinicalProcedureResponse:
+    return ClinicalProcedureResponse(
+        id=procedure.id,
+        name=procedure.name,
+        code=procedure.code,
+        tooth=procedure.tooth,
+        status=procedure.status.value,
+        notes=procedure.notes,
+        sort_order=procedure.sort_order,
+        performed_by_doctor_id=procedure.performed_by_doctor_id,
+        started_at=procedure.started_at,
+        completed_at=procedure.completed_at,
+    )
+
+
 def appointment_payload(appointment: ClinicalAppointment) -> ClinicalAppointmentResponse:
     doctor_name = appointment.doctor.full_name if appointment.doctor else None
     return ClinicalAppointmentResponse(
@@ -163,12 +195,18 @@ def appointment_payload(appointment: ClinicalAppointment) -> ClinicalAppointment
         conversation_id=appointment.conversation_id,
         doctor_id=appointment.doctor_id,
         slot_id=appointment.slot_id,
+        assigned_doctor_id=appointment.assigned_doctor_id,
+        assigned_doctor_name=appointment.assigned_doctor.full_name if appointment.assigned_doctor else None,
         department=appointment.department,
         starts_at=appointment.starts_at,
+        ends_at=appointment.ends_at,
+        duration_minutes=appointment.duration_minutes,
+        visit_reason=appointment.visit_reason,
         status=appointment.status.value,
         notes=appointment.notes,
         doctor_name=doctor_name,
         metadata_json=appointment.metadata_json,
+        procedures=[procedure_payload(item) for item in appointment.procedures],
         created_at=appointment.created_at,
         updated_at=appointment.updated_at,
     )
@@ -206,12 +244,19 @@ def get_clinical_overview(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ClinicalOverviewResponse:
-    clinic = ensure_clinic_access(db, current_user)
-    conversations = list_clinical_conversations(db, clinic, limit=20)
-    doctor_items = list_doctor_inbox(db, clinic, limit=20)
-    reviews = list_shadow_reviews(db, clinic)
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    doctor = get_clinician_doctor(db, clinic, current_user)
+    conversations = [] if doctor else list_clinical_conversations(db, clinic, limit=20)
+    doctor_items = list_doctor_inbox(db, clinic, limit=20, doctor_id=doctor.id if doctor else None)
+    reviews = list_shadow_reviews(db, clinic, doctor_id=doctor.id if doctor else None)
     return ClinicalOverviewResponse(
-        metrics=ClinicalMetricsResponse(**clinical_metrics(db, clinic)),
+        viewer=ClinicalViewerResponse(
+            clinic_role="clinician" if doctor else ("owner" if current_user.role.name == RoleName.ADMIN else "operator"),
+            doctor_id=doctor.id if doctor else None,
+            doctor_name=doctor.full_name if doctor else None,
+            specialty=doctor.specialty if doctor else None,
+        ),
+        metrics=ClinicalMetricsResponse(**clinical_metrics(db, clinic, doctor_id=doctor.id if doctor else None)),
         conversations=[conversation_summary_payload(item) for item in conversations],
         doctor_inbox=[conversation_summary_payload(item) for item in doctor_items],
         shadow_reviews=[shadow_review_payload(item) for item in reviews],
@@ -221,6 +266,33 @@ def get_clinical_overview(
 @router.get("/clinical/personas", response_model=list[ClinicalPersonaResponse])
 def get_clinical_personas() -> list[ClinicalPersonaResponse]:
     return [ClinicalPersonaResponse(**persona.__dict__) for persona in list_personas()]
+
+
+@router.get("/clinical/compliance-profile", response_model=ClinicalComplianceProfileResponse)
+def get_clinical_compliance_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalComplianceProfileResponse:
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    return ClinicalComplianceProfileResponse(**build_compliance_profile(clinic))
+
+
+@router.get("/clinical/patent-dossier", response_model=ClinicalPatentDossierResponse)
+def get_clinical_patent_dossier(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalPatentDossierResponse:
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    return ClinicalPatentDossierResponse(**build_patent_dossier(clinic))
+
+
+@router.get("/clinical/slot-board", response_model=ClinicalSlotBoardResponse)
+def get_clinical_slot_board(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalSlotBoardResponse:
+    ensure_clinic_access(db, current_user, allow_clinician=True)
+    return ClinicalSlotBoardResponse(**build_slot_board())
 
 
 @router.get("/clinical/doctors", response_model=list[ClinicDoctorResponse])
@@ -276,8 +348,17 @@ def get_upcoming_clinical_appointments(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ClinicalAppointmentResponse]:
-    clinic = ensure_clinic_access(db, current_user)
-    return [appointment_payload(item) for item in upcoming_clinical_appointments(db, clinic, within_minutes)]
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    doctor = get_clinician_doctor(db, clinic, current_user)
+    return [
+        appointment_payload(item)
+        for item in upcoming_clinical_appointments(
+            db,
+            clinic,
+            within_minutes,
+            doctor_id=doctor.id if doctor else None,
+        )
+    ]
 
 
 @router.post("/clinical/appointments", response_model=ClinicalAppointmentResponse)
@@ -293,6 +374,8 @@ def post_clinical_appointment(
         conversation_id=payload.conversation_id,
         department=payload.department,
         starts_at=payload.starts_at,
+        duration_minutes=payload.duration_minutes,
+        visit_reason=payload.visit_reason,
         notes=payload.notes,
         doctor_id=payload.doctor_id,
         slot_id=payload.slot_id,
@@ -311,12 +394,19 @@ def appointment_row_payload(db: Session, appointment: ClinicalAppointment) -> Cl
         patient_name=patient.full_name if patient else None,
         patient_phone=patient.phone if patient else None,
         conversation_id=appointment.conversation_id,
+        assigned_doctor_id=appointment.assigned_doctor_id,
         department=appointment.department,
-        physician_name=metadata.get("physician_name"),
+        physician_name=metadata.get("physician_name") or (
+            appointment.assigned_doctor.full_name if appointment.assigned_doctor else None
+        ),
         branch_name=branch.name if branch else None,
         starts_at=appointment.starts_at,
+        ends_at=appointment.ends_at,
+        duration_minutes=appointment.duration_minutes,
+        visit_reason=appointment.visit_reason,
         status=appointment.status.value,
         notes=appointment.notes,
+        procedures=[procedure_payload(item) for item in appointment.procedures],
         created_at=appointment.created_at,
     )
 
@@ -324,11 +414,26 @@ def appointment_row_payload(db: Session, appointment: ClinicalAppointment) -> Cl
 @router.get("/clinical/appointments", response_model=list[ClinicalAppointmentRow])
 def list_clinical_appointments(
     limit: int = Query(default=50, ge=1, le=200),
+    doctor_id: int | None = Query(default=None, ge=1),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ClinicalAppointmentRow]:
-    clinic = ensure_clinic_access(db, current_user)
-    return [appointment_row_payload(db, item) for item in recent_clinical_appointments(db, clinic, limit)]
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    doctor = get_clinician_doctor(db, clinic, current_user)
+    scoped_doctor_id = doctor.id if doctor else doctor_id
+    return [
+        appointment_row_payload(db, item)
+        for item in recent_clinical_appointments(
+            db,
+            clinic,
+            limit,
+            doctor_id=scoped_doctor_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    ]
 
 
 @router.post("/clinical/appointments/manual", response_model=ClinicalAppointmentRow)
@@ -346,9 +451,35 @@ def post_clinical_manual_appointment(
         phone=payload.phone,
         department=payload.department,
         starts_at=payload.starts_at,
+        duration_minutes=payload.duration_minutes,
+        visit_reason=payload.visit_reason,
         physician_name=payload.physician_name,
         branch_name=payload.branch_name,
         notes=payload.notes,
+    )
+    return appointment_row_payload(db, appointment)
+
+
+@router.patch("/clinical/appointments/{appointment_id}/clinical-details", response_model=ClinicalAppointmentRow)
+def patch_clinical_appointment_details(
+    appointment_id: int,
+    payload: ClinicalAppointmentDetailsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalAppointmentRow:
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    doctor = get_clinician_doctor(db, clinic, current_user)
+    appointment = update_appointment_clinical_details(
+        db,
+        clinic,
+        appointment_id,
+        doctor_id=doctor.id if doctor else None,
+        starts_at=payload.starts_at,
+        duration_minutes=payload.duration_minutes,
+        visit_reason=payload.visit_reason,
+        notes=payload.notes,
+        procedures=[item.model_dump() for item in payload.procedures] if payload.procedures is not None else None,
+        fields_set=set(payload.model_fields_set),
     )
     return appointment_row_payload(db, appointment)
 
@@ -360,8 +491,15 @@ def post_clinical_appointment_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ClinicalAppointmentRow:
-    clinic = ensure_clinic_access(db, current_user)
-    appointment = set_clinical_appointment_status(db, clinic, appointment_id, payload.status)
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    doctor = get_clinician_doctor(db, clinic, current_user)
+    appointment = set_clinical_appointment_status(
+        db,
+        clinic,
+        appointment_id,
+        payload.status,
+        doctor_id=doctor.id if doctor else None,
+    )
     return appointment_row_payload(db, appointment)
 
 
@@ -381,9 +519,13 @@ def get_shadow_reviews(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ShadowReviewResponse]:
-    clinic = ensure_clinic_access(db, current_user)
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    doctor = get_clinician_doctor(db, clinic, current_user)
     status_filter = ShadowReviewStatus(status) if status else None
-    return [shadow_review_payload(item) for item in list_shadow_reviews(db, clinic, status_filter)]
+    return [
+        shadow_review_payload(item)
+        for item in list_shadow_reviews(db, clinic, status_filter, doctor_id=doctor.id if doctor else None)
+    ]
 
 
 @router.patch("/clinical/shadow-reviews/{review_id}", response_model=ShadowReviewResponse)
@@ -393,8 +535,17 @@ def patch_shadow_review(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ShadowReviewResponse:
-    clinic = ensure_clinic_access(db, current_user)
-    review = update_shadow_review(db, clinic, current_user, review_id, payload.status, payload.final_reply)
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    doctor = get_clinician_doctor(db, clinic, current_user)
+    review = update_shadow_review(
+        db,
+        clinic,
+        current_user,
+        review_id,
+        payload.status,
+        payload.final_reply,
+        doctor_id=doctor.id if doctor else None,
+    )
     return shadow_review_payload(review)
 
 
@@ -583,13 +734,18 @@ async def receive_voice_speech(request: Request, db: Session = Depends(get_db)) 
         )
 
     clinic = ensure_default_clinic(db)
+    # CallSid çağrı boyunca sabittir; tek başına idempotency anahtarı yapılırsa
+    # ikinci hasta cümlesi yanlışlıkla duplicate sayılır. Aynı webhook retry'ı
+    # yine aynı anahtarı üretirken farklı konuşma turları ayrı kaydolur.
+    speech_fingerprint = hashlib.sha256(speech.encode("utf-8")).hexdigest()[:16]
+    turn_id = f"{call_sid}:{speech_fingerprint}" if call_sid else None
     result = ingest_clinical_message(
         db,
         IncomingClinicalMessage(
             from_phone=from_phone,
             body=speech,
             channel=ClinicChannel.PHONE,
-            external_message_id=call_sid,
+            external_message_id=turn_id,
             external_thread_id=call_sid or from_phone,
             raw_payload=parsed,
         ),
@@ -602,6 +758,43 @@ async def receive_voice_speech(request: Request, db: Session = Depends(get_db)) 
             "Tıbbi güvenlik gerektiren konularda insan onayı olmadan kesin yönlendirme yapmıyorum."
         )
     return PlainTextResponse(_voice_twiml(reply or "Talebinizi aldım. Size nasıl devam edebilirim?"), media_type="application/xml")
+
+
+@router.post("/webhooks/voice/status")
+async def receive_voice_status(request: Request, db: Session = Depends(get_db)) -> PlainTextResponse:
+    """Persist Twilio's terminal/non-terminal call lifecycle without copying audio."""
+    body = await request.body()
+    _verify_twilio_voice_request(request, body)
+    parsed = dict((key, values[0] if values else "") for key, values in parse_qs(body.decode("utf-8")).items())
+    call_sid = (parsed.get("CallSid") or "").strip()
+    call_status = (parsed.get("CallStatus") or "unknown").strip().lower()
+    if not call_sid:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CallSid is required")
+
+    conversation = db.scalars(
+        select(ClinicConversation)
+        .where(ClinicConversation.external_thread_id == call_sid)
+        .order_by(ClinicConversation.updated_at.desc())
+    ).first()
+    if conversation is None:
+        # Status callback konuşma turundan önce ulaşabilir; Twilio retry etmesin.
+        return PlainTextResponse("ignored", status_code=status.HTTP_202_ACCEPTED)
+
+    terminal = call_status in {"completed", "busy", "no-answer", "failed", "canceled"}
+    metadata = {
+        **(conversation.metadata_json or {}),
+        "voice_call": {
+            "call_sid": call_sid,
+            "status": call_status,
+            "duration_seconds": int(parsed["CallDuration"]) if parsed.get("CallDuration", "").isdigit() else None,
+            "terminal": terminal,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    conversation.metadata_json = metadata
+    db.add(conversation)
+    db.commit()
+    return PlainTextResponse("ok")
 
 
 @router.get("/webhooks/whatsapp")

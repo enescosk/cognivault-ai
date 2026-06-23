@@ -32,6 +32,7 @@ from app.models import (
     ClinicalAppointmentStatus,
     ConsentRecord,
     ConsentType,
+    Doctor,
     FrustrationLog,
     InboundEvent,
     PreIntake,
@@ -246,9 +247,28 @@ def ensure_default_clinic(db: Session) -> Clinic:
     return clinic
 
 
-def ensure_clinic_access(db: Session, current_user: User) -> Clinic:
+def get_clinician_doctor(db: Session, clinic: Clinic, current_user: User) -> Doctor | None:
+    return db.scalars(
+        select(Doctor).where(
+            Doctor.clinic_id == clinic.id,
+            Doctor.user_id == current_user.id,
+            Doctor.is_active.is_(True),
+        )
+    ).first()
+
+
+def ensure_clinic_access(db: Session, current_user: User, *, allow_clinician: bool = False) -> Clinic:
     if current_user.role.name not in {RoleName.OPERATOR, RoleName.ADMIN}:
-        raise PermissionError("Clinical dashboard requires operator access")
+        if not allow_clinician:
+            raise PermissionError("Clinical dashboard requires operator access")
+        doctor = db.scalars(
+            select(Doctor)
+            .options(selectinload(Doctor.clinic))
+            .where(Doctor.user_id == current_user.id, Doctor.is_active.is_(True))
+        ).first()
+        if doctor is None or doctor.clinic is None:
+            raise PermissionError("Clinical dashboard requires operator or clinician access")
+        return doctor.clinic
 
     clinic: Clinic | None = None
     if current_user.organization_id is not None:
@@ -561,11 +581,12 @@ def _emit_kvkk_notice_and_consent(
     patient: ClinicPatient,
     conversation: ClinicConversation,
 ) -> None:
-    """KVKK Md. 10 aydınlatma metnini sistem mesajı olarak yaz + örtük rıza kaydı oluştur.
+    """KVKK Md. 10 aydınlatma metnini sistem mesajı olarak yaz + pending rıza kaydı oluştur.
 
     Hasta WhatsApp/telefon/web üzerinden ilk kez geldiğinde tetiklenir. Mesaj
     `sender=system` ile kaydedilir ki gerçek hasta/asistan dialogundan ayırt edilebilsin.
-    Devam etmesi açık rıza sayılır; geri çekme `withdrawn_at` işaretlemesiyle yapılır.
+    Salt görüşmeye devam etmek açık rıza sayılmaz; doğrulanabilir bir aksiyon
+    ayrı endpoint üzerinden bu kaydı granted hale getirmelidir.
     """
     notice_text = _build_kvkk_notice_text(clinic)
     system_message = ClinicMessage(
@@ -587,7 +608,7 @@ def _emit_kvkk_notice_and_consent(
         patient_id=patient.id,
         conversation_id=conversation.id,
         consent_type=ConsentType.DATA_PROCESSING,
-        granted=True,
+        granted=False,
         channel=conversation.channel,
         consent_text_version=KVKK_NOTICE_VERSION,
     )
@@ -1016,31 +1037,48 @@ def update_pre_intake(
     return pre_intake
 
 
-def list_shadow_reviews(db: Session, clinic: Clinic, status_value: ShadowReviewStatus | None = ShadowReviewStatus.PENDING) -> list[ShadowReview]:
+def list_shadow_reviews(
+    db: Session,
+    clinic: Clinic,
+    status_value: ShadowReviewStatus | None = ShadowReviewStatus.PENDING,
+    *,
+    doctor_id: int | None = None,
+) -> list[ShadowReview]:
     query = select(ShadowReview).where(ShadowReview.clinic_id == clinic.id).order_by(ShadowReview.created_at.desc())
     if status_value is not None:
         query = query.where(ShadowReview.status == status_value)
+    if doctor_id is not None:
+        query = query.where(ShadowReview.assigned_doctor_id == doctor_id)
     return list(db.scalars(query))
 
 
-def list_doctor_inbox(db: Session, clinic: Clinic, limit: int = 30) -> list[ClinicConversation]:
-    return list(
-        db.scalars(
-            select(ClinicConversation)
-            .options(selectinload(ClinicConversation.patient), selectinload(ClinicConversation.messages))
-            .where(
-                ClinicConversation.clinic_id == clinic.id,
-                ClinicConversation.status.in_(
-                    [
-                        ClinicConversationStatus.WAITING_HUMAN,
-                        ClinicConversationStatus.APPOINTMENT_PENDING,
-                    ]
-                ),
-            )
-            .order_by(ClinicConversation.updated_at.desc())
-            .limit(limit)
+def list_doctor_inbox(
+    db: Session,
+    clinic: Clinic,
+    limit: int = 30,
+    *,
+    doctor_id: int | None = None,
+) -> list[ClinicConversation]:
+    query = (
+        select(ClinicConversation)
+        .options(selectinload(ClinicConversation.patient), selectinload(ClinicConversation.messages))
+        .where(
+            ClinicConversation.clinic_id == clinic.id,
+            ClinicConversation.status.in_(
+                [
+                    ClinicConversationStatus.WAITING_HUMAN,
+                    ClinicConversationStatus.APPOINTMENT_PENDING,
+                ]
+            ),
         )
     )
+    if doctor_id is not None:
+        query = (
+            query.join(ShadowReview, ShadowReview.conversation_id == ClinicConversation.id)
+            .where(ShadowReview.assigned_doctor_id == doctor_id)
+            .distinct()
+        )
+    return list(db.scalars(query.order_by(ClinicConversation.updated_at.desc()).limit(limit)))
 
 
 def create_clinical_appointment_from_conversation(
@@ -1291,7 +1329,7 @@ def update_shadow_review(
     return review
 
 
-def clinical_metrics(db: Session, clinic: Clinic) -> dict:
+def clinical_metrics(db: Session, clinic: Clinic, *, doctor_id: int | None = None) -> dict:
     def review_urgency(review: ShadowReview) -> str | None:
         triage = (review.metadata_json or {}).get("triage")
         return triage.get("urgency") if isinstance(triage, dict) else None
@@ -1307,14 +1345,13 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
         )
         or 0
     )
-    pending_review_items = list(
-        db.scalars(
-            select(ShadowReview).where(
-                ShadowReview.clinic_id == clinic.id,
-                ShadowReview.status == ShadowReviewStatus.PENDING,
-            )
-        )
+    pending_review_query = select(ShadowReview).where(
+        ShadowReview.clinic_id == clinic.id,
+        ShadowReview.status == ShadowReviewStatus.PENDING,
     )
+    if doctor_id is not None:
+        pending_review_query = pending_review_query.where(ShadowReview.assigned_doctor_id == doctor_id)
+    pending_review_items = list(db.scalars(pending_review_query))
     pending_shadow = len(pending_review_items)
     triage_reviews = sum(1 for item in pending_review_items if item.intent in {ClinicIntent.SYMPTOM_TRIAGE, ClinicIntent.MEDICAL_EMERGENCY})
     emergency_reviews = sum(
@@ -1327,17 +1364,20 @@ def clinical_metrics(db: Session, clinic: Clinic) -> dict:
         for item in pending_review_items
         if review_urgency(item) == "same_day"
     )
-    doctor_inbox_count = (
-        db.scalar(
-            select(func.count(ClinicConversation.id)).where(
-                ClinicConversation.clinic_id == clinic.id,
-                ClinicConversation.status.in_(
-                    [ClinicConversationStatus.WAITING_HUMAN, ClinicConversationStatus.APPOINTMENT_PENDING]
-                ),
+    if doctor_id is not None:
+        doctor_inbox_count = pending_shadow
+    else:
+        doctor_inbox_count = (
+            db.scalar(
+                select(func.count(ClinicConversation.id)).where(
+                    ClinicConversation.clinic_id == clinic.id,
+                    ClinicConversation.status.in_(
+                        [ClinicConversationStatus.WAITING_HUMAN, ClinicConversationStatus.APPOINTMENT_PENDING]
+                    ),
+                )
             )
+            or 0
         )
-        or 0
-    )
     phone_calls_today = (
         db.scalar(
             select(func.count(ClinicConversation.id)).where(

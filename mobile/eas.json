@@ -1,0 +1,33 @@
+{
+  "cli": {
+    "version": ">= 20.3.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "iphone-local": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://192.168.1.88:8000/api"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

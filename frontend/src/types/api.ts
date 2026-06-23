@@ -118,6 +118,35 @@ export type Metrics = {
   audit_events_today: number;
   completion_rate: number;
 };
+export type ProviderCapability = {
+  active_provider?: string;
+  available_providers?: string[];
+  [key: string]: unknown;
+};
+export type AICapabilities = {
+  llm: ProviderCapability;
+  voice: {
+    stt: ProviderCapability;
+    tts: ProviderCapability;
+  };
+  [key: string]: unknown;
+};
+export type QualityReport = {
+  score: number;
+  grade: string;
+  metrics: {
+    automated_scenarios: number;
+    recent_failures: number;
+    [key: string]: unknown;
+  };
+  recommendations: Array<{ title: string; [key: string]: unknown }>;
+  llm: ProviderCapability;
+  voice: {
+    stt: ProviderCapability;
+    tts: ProviderCapability;
+  };
+  [key: string]: unknown;
+};
 export type Appointment = {
   id: number;
   confirmation_code: string;
@@ -237,4 +266,263 @@ export type KnowledgeArticle = {
 };
 export type KnowledgeSearchResult = KnowledgeArticle & {
   score: number;
+};
+
+export type ClinicalPatient = {
+  id: number;
+  clinic_id: number;
+  full_name?: string | null;
+  phone: string;
+  language: string;
+  source: string;
+  created_at: string;
+  updated_at: string;
+};
+export type ClinicalMessage = {
+  id: number;
+  conversation_id: number;
+  sender: "patient" | "assistant" | "operator" | "system";
+  content: string;
+  language: string;
+  intent?: string | null;
+  confidence_score?: number | null;
+  external_message_id?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+  created_at: string;
+};
+export type ClinicalConversationSummary = {
+  id: number;
+  clinic_id: number;
+  patient: ClinicalPatient;
+  channel: string;
+  status: string;
+  language: string;
+  intent?: string | null;
+  confidence_score?: number | null;
+  persona_name?: string | null;
+  last_urgency?: string | null;
+  doctor_summary?: string | null;
+  possible_conditions?: Array<Record<string, unknown>>;
+  appointment_draft?: Record<string, unknown> | null;
+  doctor_inbox: boolean;
+  last_message_preview?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type ClinicalConversationDetail = ClinicalConversationSummary & {
+  messages: ClinicalMessage[];
+};
+export type ShadowReview = {
+  id: number;
+  clinic_id: number;
+  conversation_id: number;
+  patient_message_id: number;
+  assigned_doctor_id?: number | null;
+  assigned_doctor_name?: string | null;
+  assigned_doctor_specialty?: string | null;
+  draft_reply: string;
+  intent: string;
+  confidence_score: number;
+  risk_reason: string;
+  status: string;
+  persona_name?: string | null;
+  channel?: string | null;
+  final_reply?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+export type ClinicalMetrics = {
+  clinic_name: string;
+  conversations_today: number;
+  total_conversations: number;
+  pending_shadow_reviews: number;
+  triage_reviews: number;
+  emergency_reviews: number;
+  same_day_reviews: number;
+  doctor_inbox_count: number;
+  phone_calls_today: number;
+  whatsapp_threads_today: number;
+  auto_reply_rate: number;
+  appointments_pending: number;
+  reminders_due: number;
+  frustration_events: number;
+};
+export type ClinicalViewer = {
+  clinic_role: string;
+  doctor_id?: number | null;
+  doctor_name?: string | null;
+  specialty?: string | null;
+};
+export type ClinicalOverview = {
+  viewer?: ClinicalViewer;
+  metrics: ClinicalMetrics;
+  conversations: ClinicalConversationSummary[];
+  doctor_inbox: ClinicalConversationSummary[];
+  shadow_reviews: ShadowReview[];
+};
+export type ClinicalComplianceProfile = {
+  clinic_id: number;
+  clinic_name: string;
+  data_residency_default: string;
+  external_transfer_allowed: boolean;
+  processor_inventory: Array<Record<string, unknown>>;
+  production_modes: Array<Record<string, unknown>>;
+  mandatory_controls: string[];
+  blocked_by_default: string[];
+  operator_review_triggers: string[];
+  retention_policy?: Record<string, unknown> | null;
+};
+export type ClinicalPatentDossier = {
+  working_title: string;
+  technical_field: string;
+  problem: string;
+  solution_summary: string;
+  candidate_independent_claims: string[];
+  candidate_dependent_claims: string[];
+  figures_to_prepare: string[];
+  evidence_to_preserve: string[];
+  next_actions: string[];
+};
+export type ClinicalSlotAppointment = {
+  id: string;
+  time: string;
+  patient_name: string;
+  doctor: string;
+  branch: string;
+  department: string;
+  date_label: string;
+  phone: string;
+  status: "confirmed" | "pending" | string;
+  status_label: string;
+};
+export type ClinicalProcedure = {
+  id: number;
+  name: string;
+  code: string | null;
+  tooth: string | null;
+  status: "planned" | "in_progress" | "completed" | "cancelled" | string;
+  notes: string | null;
+  sort_order: number;
+  performed_by_doctor_id: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+};
+export type ClinicalAppointmentRow = {
+  id: number;
+  patient_id: number;
+  patient_name: string | null;
+  patient_phone: string | null;
+  conversation_id: number | null;
+  assigned_doctor_id: number | null;
+  department: string;
+  physician_name: string | null;
+  branch_name: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  duration_minutes: number;
+  visit_reason: string | null;
+  status: "pending" | "confirmed" | "cancelled" | string;
+  notes: string | null;
+  procedures: ClinicalProcedure[];
+  created_at: string;
+};
+export type ClinicalAppointment = {
+  id: number;
+  clinic_id: number;
+  patient_id: number;
+  conversation_id?: number | null;
+  doctor_id?: number | null;
+  slot_id?: number | null;
+  assigned_doctor_id?: number | null;
+  assigned_doctor_name?: string | null;
+  department: string;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  duration_minutes: number;
+  visit_reason?: string | null;
+  status: string;
+  notes?: string | null;
+  doctor_name?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+  procedures: ClinicalProcedure[];
+  created_at: string;
+  updated_at: string;
+};
+export type ClinicalSlotItem = {
+  id: string;
+  department: string;
+  doctor: string;
+  date_label: string;
+  time_range: string;
+  capacity: number;
+  booked: number;
+  open: number;
+  status: "available" | "limited" | "full" | string;
+  next_available: string;
+  waitlist_count: number;
+  appointments?: ClinicalSlotAppointment[];
+};
+export type ClinicalSlotBoard = {
+  summary: {
+    clinic_mode: string;
+    occupancy_rate: number;
+    full_departments: number;
+    next_open_slot: string;
+    waitlist_total: number;
+  };
+  schedule: ClinicalSlotItem[];
+  acceptance_rules: Array<{ rule: string; result: string }>;
+  test_scenarios: Array<{ label: string; message: string; expected_action: string; expected_result: string }>;
+};
+export type WebhookIngestionResponse = {
+  ok: boolean;
+  clinic_id: number;
+  patient_id: number;
+  conversation_id: number;
+  message_id: number;
+  action: string;
+  reply?: string | null;
+  shadow_review_id?: number | null;
+  appointment_id?: number | null;
+  intent?: string | null;
+  confidence?: number | null;
+  risk?: "low" | "medium" | "high" | null;
+  requires_human_review?: boolean;
+  persona_name?: string | null;
+  risk_reason?: string | null;
+};
+export type ClinicalPersona = {
+  id: "selin" | "arzu" | "can";
+  display_name: string;
+  role: string;
+  voice: string;
+  tone: string;
+  specialty: string;
+  safety_rule: string;
+};
+export type ClinicDoctor = {
+  id: number;
+  clinic_id: number;
+  branch_id?: number | null;
+  full_name: string;
+  email: string;
+  specialty: string;
+  title: string;
+  bio?: string | null;
+  avatar_url?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+export type ClinicDoctorSlot = {
+  id: number;
+  doctor_id: number;
+  clinic_id: number;
+  start_time: string;
+  end_time: string;
+  is_booked: boolean;
+  is_blocked: boolean;
+  doctor_name?: string | null;
+  specialty?: string | null;
 };

@@ -5,14 +5,16 @@ import type {
   AuthResponse,
   ChatSessionDetail,
   ChatSessionSummary,
+  ClinicalAppointment,
+  ClinicalAppointmentRow,
   ClinicalComplianceProfile,
   ClinicalConversationDetail,
   ClinicalOverview,
-  ClinicalAppointment,
+  ClinicalPatentDossier,
+  ClinicalSlotBoard,
   ClinicDoctor,
   ClinicDoctorSlot,
   ClinicalPersona,
-  ClinicalSlotBoard,
   EnterpriseMessageResponse,
   EnterpriseOverview,
   EnterpriseSessionDetail,
@@ -267,6 +269,169 @@ export function createKnowledgeArticle(
 export function searchKnowledgeArticles(token: string, query: string): Promise<KnowledgeSearchResult[]> {
   const params = new URLSearchParams({ q: query, limit: "5" });
   return request<KnowledgeSearchResult[]>(`/knowledge/search?${params.toString()}`, { method: "GET" }, token);
+}
+
+export function createClinicalAppointment(
+  token: string,
+  payload: {
+    conversation_id: number;
+    department: string;
+    doctor_id?: number | null;
+    slot_id?: number | null;
+    starts_at?: string | null;
+    duration_minutes?: number;
+    visit_reason?: string | null;
+    notes?: string | null;
+  }
+): Promise<ClinicalAppointment> {
+  return request<ClinicalAppointment>(
+    "/clinical/appointments",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    token
+  );
+}
+
+export function getUpcomingClinicalAppointments(token: string, withinMinutes = 120): Promise<ClinicalAppointment[]> {
+  return request<ClinicalAppointment[]>(
+    `/clinical/appointments/upcoming?within_minutes=${withinMinutes}`,
+    { method: "GET" },
+    token
+  );
+}
+
+export function listClinicalAppointments(token: string, limit = 50): Promise<ClinicalAppointmentRow[]> {
+  return request<ClinicalAppointmentRow[]>(`/clinical/appointments?limit=${limit}`, { method: "GET" }, token);
+}
+
+export function getClinicalOverview(token: string): Promise<ClinicalOverview> {
+  return request<ClinicalOverview>("/clinical/overview", { method: "GET" }, token);
+}
+
+export function getClinicalConversation(conversationId: number, token: string): Promise<ClinicalConversationDetail> {
+  return request<ClinicalConversationDetail>(`/clinical/conversations/${conversationId}`, { method: "GET" }, token);
+}
+
+export function getClinicalComplianceProfile(token: string): Promise<ClinicalComplianceProfile> {
+  return request<ClinicalComplianceProfile>("/clinical/compliance-profile", { method: "GET" }, token);
+}
+
+export function getClinicalPatentDossier(token: string): Promise<ClinicalPatentDossier> {
+  return request<ClinicalPatentDossier>("/clinical/patent-dossier", { method: "GET" }, token);
+}
+
+export function getClinicalSlotBoard(token: string): Promise<ClinicalSlotBoard> {
+  return request<ClinicalSlotBoard>("/clinical/slot-board", { method: "GET" }, token);
+}
+
+export function getClinicalDoctors(token: string): Promise<ClinicDoctor[]> {
+  return request<ClinicDoctor[]>("/clinical/doctors", { method: "GET" }, token);
+}
+
+export function getDoctorSlots(token: string, doctorId: number, date?: string): Promise<ClinicDoctorSlot[]> {
+  const params = new URLSearchParams();
+  if (date) params.set("date", date);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<ClinicDoctorSlot[]>(`/clinical/doctors/${doctorId}/slots${suffix}`, { method: "GET" }, token);
+}
+
+export function simulateWhatsAppMessage(
+  token: string,
+  payload: { from_phone: string; body: string; patient_name?: string }
+): Promise<WebhookIngestionResponse> {
+  return request<WebhookIngestionResponse>(
+    "/clinical/simulate-whatsapp",
+    { method: "POST", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export function simulateVoiceCall(
+  token: string,
+  payload: { from_phone: string; speech: string; patient_name?: string; persona_id?: "selin" | "arzu" | "can" }
+): Promise<WebhookIngestionResponse> {
+  return request<WebhookIngestionResponse>(
+    "/clinical/simulate-voice-call",
+    { method: "POST", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export function updateShadowReview(
+  reviewId: number,
+  token: string,
+  payload: { status: "approved" | "edited" | "rejected"; final_reply?: string | null }
+): Promise<ShadowReview> {
+  return request<ShadowReview>(
+    `/clinical/shadow-reviews/${reviewId}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export type ClinicalProcedureInput = {
+  id?: number;
+  name: string;
+  code?: string | null;
+  tooth?: string | null;
+  status?: "planned" | "in_progress" | "completed" | "cancelled";
+  notes?: string | null;
+  sort_order?: number;
+};
+
+export function updateClinicalAppointmentDetails(
+  token: string,
+  appointmentId: number,
+  payload: {
+    starts_at?: string | null;
+    duration_minutes?: number;
+    visit_reason?: string | null;
+    notes?: string | null;
+    procedures?: ClinicalProcedureInput[];
+  }
+): Promise<ClinicalAppointmentRow> {
+  return request<ClinicalAppointmentRow>(
+    `/clinical/appointments/${appointmentId}/clinical-details`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export function updateClinicalAppointmentStatus(
+  token: string,
+  appointmentId: number,
+  status: "pending" | "confirmed" | "cancelled"
+): Promise<ClinicalAppointmentRow> {
+  return request<ClinicalAppointmentRow>(
+    `/clinical/appointments/${appointmentId}/status`,
+    { method: "POST", body: JSON.stringify({ status }) },
+    token
+  );
+}
+
+export type ClinicalManualAppointmentInput = {
+  full_name?: string | null;
+  phone: string;
+  department: string;
+  starts_at?: string | null;
+  duration_minutes?: number;
+  visit_reason?: string | null;
+  physician_name?: string | null;
+  branch_name?: string | null;
+  notes?: string | null;
+};
+
+export function createManualClinicalAppointment(
+  token: string,
+  payload: ClinicalManualAppointmentInput
+): Promise<ClinicalAppointmentRow> {
+  return request<ClinicalAppointmentRow>(
+    "/clinical/appointments/manual",
+    { method: "POST", body: JSON.stringify(payload) },
+    token
+  );
 }
 
 /**
@@ -552,4 +717,3 @@ export function createDisclosure(token: string, payload: { version: string; disc
     body: JSON.stringify(payload)
   }, token);
 }
-

@@ -39,6 +39,7 @@ engine = create_engine(
     poolclass=StaticPool,
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+TEST_PASSWORD_HASH = hash_password("password123")
 
 
 def override_get_db():
@@ -49,7 +50,7 @@ def override_get_db():
         db.close()
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(autouse=True)
 def setup_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -68,16 +69,16 @@ def setup_db():
 
     users = [
         User(full_name="Test Customer", email="customer@test.com",
-             hashed_password=hash_password("password123"), locale="en",
+             hashed_password=TEST_PASSWORD_HASH, locale="en",
              role_id=customer_role.id, is_active=True),
         User(full_name="Test Customer2", email="customer2@test.com",
-             hashed_password=hash_password("password123"), locale="en",
+             hashed_password=TEST_PASSWORD_HASH, locale="en",
              role_id=customer_role.id, is_active=True),
         User(full_name="Test Admin", email="admin@test.com",
-             hashed_password=hash_password("password123"), locale="en",
+             hashed_password=TEST_PASSWORD_HASH, locale="en",
              role_id=admin_role.id, is_active=True),
         User(full_name="Test Operator", email="operator@test.com",
-             hashed_password=hash_password("password123"), locale="en",
+             hashed_password=TEST_PASSWORD_HASH, locale="en",
              role_id=operator_role.id, is_active=True),
     ]
     for u in users:

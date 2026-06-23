@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import re
 
+from app.ai.ai_factory import OpenAIProvider, get_llm_provider, parse_model_json
 from app.ai.runtime import complete_json
 from app.core.config import get_settings
 from app.clinical.ontology import (
@@ -16,6 +18,7 @@ from app.models import Clinic, ClinicIntent
 from app.services.clinical_compliance_service import build_governance_context, mask_identifiers
 from app.services.clinical_persona_service import ClinicalPersona, choose_persona
 from app.services.clinical_slot_service import build_slot_decision
+from app.services.customer_understanding import rank_intents, understand_primary_intent
 from app.services.medical_triage_service import MedicalUrgency, assess_medical_triage, looks_medical
 
 
@@ -115,30 +118,8 @@ def detect_language(text: str, default: str = "tr") -> str:
 
 
 def classify_intent(text: str) -> tuple[ClinicIntent, float]:
-    normalized = text.lower()
-    normalized_ascii = normalize_tr(text)
-    if any(normalize_tr(term) in normalized_ascii for term in EMERGENCY_KEYWORDS):
-        return ClinicIntent.MEDICAL_EMERGENCY, 0.99
-    # Açık randevu talebi semptom kelimelerine göre önceliklidir: hasta "randevu
-    # almak istiyorum" diyorsa, mesajda semptom geçse bile (ör. "dolgum düştü,
-    # randevu almak istiyorum") triage'a değil booking akışına gider.
-    explicit_booking = {"randevu", "appointment"}
-    if any(keyword in normalized for keyword in explicit_booking):
-        return ClinicIntent.BOOK_APPOINTMENT, 0.9
-    for intent, keywords in INTENT_KEYWORDS:
-        hits = [keyword for keyword in keywords if keyword in normalized]
-        if hits:
-            confidence = min(0.94, 0.74 + (0.07 * len(hits)))
-            if intent == ClinicIntent.BOOK_APPOINTMENT and len(hits) >= 2:
-                confidence = max(confidence, 0.92)
-            if intent == ClinicIntent.MEDICAL_EMERGENCY:
-                confidence = 0.99
-            return intent, confidence
-    if any(normalize_tr(term) in normalized_ascii for term in DENTAL_APPOINTMENT_TERMS):
-        return ClinicIntent.BOOK_APPOINTMENT, 0.88
-    if len(re.findall(r"\w+", normalized)) <= 2:
-        return ClinicIntent.UNKNOWN, 0.48
-    return ClinicIntent.GENERAL_QUESTION, 0.68
+    understanding = understand_primary_intent(text)
+    return ClinicIntent(understanding.intent), understanding.confidence
 
 
 def detect_frustration(text: str) -> bool:
@@ -210,15 +191,7 @@ def detect_multi_intents(text: str, primary: ClinicIntent | None = None) -> list
     olabilir ("randevuyu erteleyelim, fiyatı sorayım, sigorta geçer mi").
     Primary haricinde tespit edilen ikincil niyetleri döndürür.
     """
-    normalized = text.lower()
-    normalized_ascii = normalize_tr(text)
-    detected: list[str] = []
-    if any(normalize_tr(term) in normalized_ascii for term in EMERGENCY_KEYWORDS):
-        detected.append(ClinicIntent.MEDICAL_EMERGENCY.value)
-    for intent, keywords in INTENT_KEYWORDS:
-        if any(keyword in normalized for keyword in keywords):
-            if intent.value not in detected:
-                detected.append(intent.value)
+    detected = [item.intent for item in rank_intents(text)]
     # primary intent zaten conversation/message üst seviyesinde gösteriliyor;
     # ikincilleri ayrı alanda göstermek için ondan çıkar.
     if primary is not None and primary.value in detected:
@@ -281,8 +254,8 @@ def derive_consent_signal(governance: dict) -> dict[str, str | bool]:
     return {
         "status": status,
         "residency": residency,
-        "granted_via": "implicit_local_first" if status == "pending" else "blocked_by_compliance",
-        "version": "v0-implicit",
+        "granted_via": "notice_only_local_processing" if status == "pending" else "blocked_by_compliance",
+        "version": "v1-explicit-gate",
     }
 
 
@@ -301,6 +274,10 @@ def extract_clinical_intake(text: str) -> dict:
             preferred_time = weekday_match.group(1)
 
     urgency: UrgencyLevel = assess_urgency(text)
+    if "kanama durmuyor" in normalized or "yutamiyorum" in normalized or "nefes alamiyorum" in normalized:
+        urgency = UrgencyLevel.EMERGENCY
+    elif "yuzum sisti" in normalized:
+        urgency = UrgencyLevel.PRIORITY
 
     return {
         "specialty": match.specialty.display_tr,
@@ -413,7 +390,7 @@ def _structured_prompt(clinic: Clinic, text: str, language: str, intent: ClinicI
     # KVKK veri minimizasyonu: hasta mesajındaki kimlik tanımlayıcıları (TC, kart,
     # e-posta, telefon) LLM'e (lokal dahil) gönderilmeden önce maskelenir. Şikayet
     # metni korunur, sadece tanımlayıcılar [REDACTED]'a çevrilir.
-    safe_text = mask_identifiers(text)
+    safe_text = mask_identifiers(text).replace("</patient_message>", "[BLOCKED_TAG]")
     return f"""
 You are CogniVault AI, a safe multilingual AI receptionist for a medical clinic.
 Clinic: {clinic.name}
@@ -435,8 +412,113 @@ Rules:
 - Return only valid JSON with keys: reply, confidence, intent, action, requires_human_review, risk_reason, data.
 
 Patient message:
-{safe_text}
+<patient_message>{safe_text}</patient_message>
 """.strip()
+
+
+_UNSAFE_MEDICAL_REPLY_PATTERNS = (
+    r"\b(antibiyotik|antibiotic|agri kesici|ağrı kesici) (kullan|al|basla|başla)",
+    r"\b\d+(?:[.,]\d+)?\s*(mg|ml|tablet|kapsul|kapsül)\b",
+    r"\b(kesin|definitely) (enfeksiyon|curuk|çürük|kanser|tani|tanı|diagnosis)",
+    r"\b(teshisiniz|teşhisiniz|taniniz|tanınız)\b",
+)
+
+
+def _contains_unsafe_medical_advice(reply: str) -> bool:
+    normalized = normalize_tr(reply)
+    return any(re.search(pattern, normalized) for pattern in _UNSAFE_MEDICAL_REPLY_PATTERNS)
+
+
+def _validated_provider_result(
+    payload: dict,
+    *,
+    deterministic_intent: ClinicIntent,
+    deterministic_confidence: float,
+    language: str,
+    clinic: Clinic,
+    persona: ClinicalPersona,
+) -> ClinicalAIResult | None:
+    if not isinstance(payload, dict):
+        return None
+
+    invalid_intent = False
+    try:
+        model_intent = ClinicIntent(payload.get("intent", deterministic_intent.value))
+    except ValueError:
+        invalid_intent = True
+        model_intent = deterministic_intent
+
+    intent_conflict = model_intent != deterministic_intent
+    if deterministic_intent == ClinicIntent.MEDICAL_EMERGENCY or (
+        deterministic_confidence >= 0.85 and intent_conflict
+    ):
+        final_intent = deterministic_intent
+    else:
+        final_intent = model_intent
+
+    raw_reply = payload.get("reply")
+    reply = raw_reply.strip() if isinstance(raw_reply, str) else ""
+    if not reply or len(reply) > 1200 or _looks_like_planning_reply(reply):
+        reply = _safe_reply(final_intent, language, clinic, persona)
+    if deterministic_intent == ClinicIntent.MEDICAL_EMERGENCY and intent_conflict:
+        reply = _safe_reply(ClinicIntent.MEDICAL_EMERGENCY, language, clinic, persona)
+
+    unsafe_medical_reply = _contains_unsafe_medical_advice(reply)
+    if unsafe_medical_reply:
+        reply = _safe_reply(final_intent, language, clinic, persona)
+
+    try:
+        model_confidence = float(payload.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        model_confidence = 0.0
+    if not math.isfinite(model_confidence):
+        model_confidence = 0.0
+    confidence = max(0.0, min(1.0, model_confidence))
+    if final_intent == deterministic_intent:
+        confidence = max(confidence, deterministic_confidence)
+
+    requires_review = payload.get("requires_human_review") is True
+    risk_reason = payload.get("risk_reason") if isinstance(payload.get("risk_reason"), str) else None
+    if final_intent == ClinicIntent.MEDICAL_EMERGENCY:
+        requires_review = True
+        risk_reason = "medical_emergency_guardrail"
+    elif unsafe_medical_reply:
+        requires_review = True
+        risk_reason = "unsafe_model_medical_advice"
+    elif intent_conflict or invalid_intent:
+        requires_review = True
+        risk_reason = risk_reason or ("invalid_model_intent" if invalid_intent else "model_rule_intent_conflict")
+    elif confidence < getattr(clinic, "ai_auto_reply_threshold", 0.9):
+        requires_review = True
+        risk_reason = risk_reason or "confidence_below_auto_reply_threshold"
+
+    safe_actions = {
+        ClinicIntent.MEDICAL_EMERGENCY: "emergency_guidance",
+        ClinicIntent.BOOK_APPOINTMENT: "collect_appointment_details",
+        ClinicIntent.RESCHEDULE_APPOINTMENT: "collect_reschedule_details",
+        ClinicIntent.CANCEL_APPOINTMENT: "collect_cancellation_details",
+        ClinicIntent.ASK_PRICE: "collect_service_for_price",
+        ClinicIntent.ASK_INSURANCE: "collect_insurance_type",
+        ClinicIntent.ASK_LOCATION: "collect_branch",
+        ClinicIntent.ASK_WORKING_HOURS: "collect_branch",
+        ClinicIntent.GENERAL_QUESTION: "collect_info",
+        ClinicIntent.UNKNOWN: "clarify_request",
+        ClinicIntent.SYMPTOM_TRIAGE: "medical_triage",
+    }
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    return ClinicalAIResult(
+        reply=reply,
+        confidence=round(confidence, 2),
+        intent=final_intent,
+        action=safe_actions[final_intent],
+        persona_id=persona.id,
+        persona_name=persona.display_name,
+        voice=persona.voice,
+        requires_human_review=requires_review,
+        risk_reason=risk_reason,
+        data=data,
+    )
 
 
 def _try_runtime_reply(
@@ -459,15 +541,18 @@ def _try_runtime_reply(
     if "financial_or_insurance_data" in governance.get("data_classes", []):
         return None
 
-    payload = complete_json(
-        system_prompt=(
-            "You are CogniVault's clinical reception safety layer. "
-            "Return strictly valid JSON and never diagnose, prescribe, or give treatment instructions."
-        ),
-        user_prompt=_structured_prompt(clinic, text, language, intent, persona),
-        max_tokens=600,
-        temperature=0.2,
-    )
+    try:
+        payload = complete_json(
+            system_prompt=(
+                "You are CogniVault's clinical reception safety layer. "
+                "Return strictly valid JSON and never diagnose, prescribe, or give treatment instructions."
+            ),
+            user_prompt=_structured_prompt(clinic, text, language, intent, persona),
+            max_tokens=600,
+            temperature=0.2,
+        )
+    except Exception:  # noqa: BLE001 - optional runtime must not block deterministic/provider fallback.
+        return None
     if not payload:
         return None
 
@@ -526,6 +611,8 @@ def generate_clinical_reply(
     language: str | None = None,
     requested_persona_id: str | None = None,
     use_ai: bool = True,
+    previous_intent: ClinicIntent | None = None,
+    external_ai_consent: bool = False,
 ) -> ClinicalAIResult:
     """use_ai=False → LLM'i atla, kural-tabanlı (hızlı) yolu kullan.
 
@@ -581,7 +668,8 @@ def generate_clinical_reply(
 
     settings = get_settings()
     if use_ai and settings.clinical_ai_enabled:
-        provider = get_llm_provider(governance["data_residency_mode"], governance["external_transfer_allowed"])
+        effective_external_transfer = bool(governance["external_transfer_allowed"] and external_ai_consent)
+        provider = get_llm_provider(governance["data_residency_mode"], effective_external_transfer)
         system_prompt = (
             "You are a JSON-only clinical receptionist API. "
             "Always return valid JSON with keys: reply (string, Turkish unless lang says otherwise), "
@@ -597,25 +685,50 @@ def generate_clinical_reply(
             system_prompt,
             organization_id=getattr(clinic, "organization_id", None)
         )
+        provider_trace: list[dict[str, str]] = []
         if payload is not None:
-            try:
-                parsed_intent = ClinicIntent(payload.get("intent", intent.value))
-            except ValueError:
-                parsed_intent = intent
-
-            reply = str(payload.get("reply") or _safe_reply(parsed_intent, resolved_language, clinic, persona))
-            if not _looks_like_planning_reply(reply):
+            provider_source = str(payload.pop("_provider_source", "unknown"))
+            if (
+                provider_source == "deterministic_local_fallback"
+                and effective_external_transfer
+                and settings.clinical_external_ai_allowed
+                and settings.openai_api_key
+            ):
+                provider_trace.append({"provider": provider_source, "status": "held_as_safe_fallback"})
+                openai_payload = OpenAIProvider().generate_chat_reply(
+                    prompt,
+                    system_prompt,
+                    organization_id=getattr(clinic, "organization_id", None),
+                )
+                if openai_payload is not None:
+                    payload = openai_payload
+                    provider_source = str(payload.pop("_provider_source", "openai"))
+            provider_trace.append({"provider": provider_source, "status": "selected"})
+            ai_result = _validated_provider_result(
+                payload,
+                deterministic_intent=intent,
+                deterministic_confidence=intent_confidence,
+                language=resolved_language,
+                clinic=clinic,
+                persona=persona,
+            )
+            if ai_result is not None:
                 ai_result = ClinicalAIResult(
-                    reply=reply,
-                    confidence=float(payload.get("confidence") or 0.0),
-                    intent=parsed_intent,
-                    action=str(payload.get("action") or "collect_info"),
-                    persona_id=persona.id,
-                    persona_name=persona.display_name,
-                    voice=persona.voice,
-                    requires_human_review=bool(payload.get("requires_human_review", False)),
-                    risk_reason=payload.get("risk_reason"),
-                    data=payload.get("data") if isinstance(payload.get("data"), dict) else {},
+                    reply=ai_result.reply,
+                    confidence=ai_result.confidence,
+                    intent=ai_result.intent,
+                    action=ai_result.action,
+                    persona_id=ai_result.persona_id,
+                    persona_name=ai_result.persona_name,
+                    voice=ai_result.voice,
+                    requires_human_review=ai_result.requires_human_review,
+                    risk_reason=ai_result.risk_reason,
+                    data={
+                        **(ai_result.data or {}),
+                        "provider_source": provider_source,
+                        "provider_trace": provider_trace,
+                        "external_ai_consent_verified": external_ai_consent,
+                    },
                 )
                 return _attach_governance(ai_result, governance)
 
