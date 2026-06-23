@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 
+from app.clinical.calibration import IsotonicCalibrator, raw_confidence_signal
 from app.clinical.ontology import (
     SpecialtyMatch,
     UrgencyLevel,
@@ -24,6 +26,17 @@ from app.clinical.ontology import (
     match_specialty,
     normalize_tr,
 )
+
+
+@lru_cache(maxsize=1)
+def _calibrator() -> "IsotonicCalibrator | None":
+    """Üretim kalibratörünü (data/calibration.json) bir kez yükler (İP-1.5).
+
+    Artefakt yoksa None döner → triyaj güveni 0.0'a düşer. Bu, güvenli bir
+    varsayılandır: kalibrasyon mevcut değilse tahmin düşük-güvenli sayılır ve
+    İP-1.6 çekimser tahmin katmanı kararı insana yükseltir.
+    """
+    return IsotonicCalibrator.load()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -151,6 +164,9 @@ class TriageResult:
     specialty:      Branş eşleme sonucu (ontoloji SpecialtyMatch).
     urgency:        Operasyonel aciliyet seviyesi.
     expansions:     Tetiklenen kanonik terim grupları (audit için).
+    raw_confidence: Eşleşme gücünden ham güven sinyali (İP-1.5, [0, ∞)).
+    confidence:     Kalibre güven ([0,1]) — o seviyedeki gerçek doğruluk oranına
+                    eşit olmaya çalışır. Kalibratör yoksa 0.0 (İP-1.6 yükseltir).
     """
 
     raw_text: str
@@ -158,6 +174,8 @@ class TriageResult:
     specialty: SpecialtyMatch
     urgency: UrgencyLevel
     expansions: tuple[str, ...] = field(default_factory=tuple)
+    raw_confidence: float = 0.0
+    confidence: float = 0.0
 
     @property
     def specialty_code(self) -> str:
@@ -186,10 +204,17 @@ def triage(text: str) -> TriageResult:
     specialty = match_specialty(enriched)
     urgency = assess_urgency(enriched)
 
+    # İP-1.5 — kalibre güven (karar verilen zenginleştirilmiş metin üzerinden).
+    raw_conf = raw_confidence_signal(enriched)
+    calibrator = _calibrator()
+    confidence = calibrator.predict_one(raw_conf) if calibrator is not None else 0.0
+
     return TriageResult(
         raw_text=text,
         enriched_text=enriched,
         specialty=specialty,
         urgency=urgency,
         expansions=tuple(dict.fromkeys(expansions)),
+        raw_confidence=raw_conf,
+        confidence=confidence,
     )

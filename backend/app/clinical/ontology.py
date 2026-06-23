@@ -239,21 +239,36 @@ class SpecialtyMatch:
         return self.specialty.code == GENERAL_SPECIALTY.code
 
 
-def match_specialty(text: str) -> SpecialtyMatch:
-    """Şikâyet metnini branşa eşler (skorlama tabanlı).
+@dataclass(frozen=True)
+class ScoredSpecialty:
+    """Bir branşın bir metne karşı sözlüksel eşleşme skoru.
 
-    Her branş için eşleşen anahtar kelimeler sayılır; skor = (eşleşme sayısı,
-    toplam eşleşen karakter uzunluğu). En yüksek skorlu branş kazanır. Bu,
-    saf "ilk eşleşen kazanır" mantığının aksine, daha uzun/daha spesifik
-    ifadeleri kısa alt-dizi çakışmalarına tercih eder — örn. "dudak dolgusu"
-    (medikal estetik) artık "dolgu" (restoratif) alt-dizisine kapılmaz.
+    match_count:  Tekilleştirilmiş eşleşen anahtar kelime sayısı.
+    match_length: Eşleşen kanonik kelimelerin toplam karakter uzunluğu.
+    """
 
-    Beraberlikte kayıt sırası belirleyicidir (DENTAL branşlar ADJACENT'tan
-    önce gelir). Hiçbiri eşleşmezse GENERAL_SPECIALTY döner (is_default=True).
+    specialty: DentalSpecialty
+    matched_keywords: tuple[str, ...]
+    match_count: int
+    match_length: int
+
+    @property
+    def score(self) -> tuple[int, int]:
+        return (self.match_count, self.match_length)
+
+
+def rank_specialties(text: str) -> list[ScoredSpecialty]:
+    """Eşleşen tüm branşları skora göre azalan sırada döndürür.
+
+    Skor = (tekil eşleşme sayısı, toplam eşleşen uzunluk). Hiç eşleşme yoksa
+    boş liste döner. Beraberlikte SPECIALTY_REGISTRY sırası korunur (DENTAL
+    branşlar ADJACENT'tan önce; Python'ın kararlı sıralaması bunu garanti eder).
+
+    Hem `match_specialty()` (en iyi eşleşme) hem de kalibrasyon güven sinyali
+    (İP-1.5; en iyi ile rakibi arasındaki marj) bu tek skorlama kaynağını kullanır.
     """
     normalized = normalize_tr(text)
-    best: SpecialtyMatch | None = None
-    best_score = (0, 0)  # (eşleşme sayısı, toplam eşleşen uzunluk)
+    scored: list[ScoredSpecialty] = []
     for spec in SPECIALTY_REGISTRY:
         hits = tuple(kw for kw in spec.keywords if normalize_tr(kw) in normalized)
         if not hits:
@@ -261,8 +276,31 @@ def match_specialty(text: str) -> SpecialtyMatch:
         # Normalize edilmiş forma göre tekilleştir — "diş eti" ve "dis eti" gibi
         # aynı kanonik forma inen varyantlar skoru şişirmesin.
         distinct = {normalize_tr(kw) for kw in hits}
-        score = (len(distinct), sum(len(n) for n in distinct))
-        if score > best_score:
-            best_score = score
-            best = SpecialtyMatch(specialty=spec, matched_keywords=hits)
-    return best if best is not None else SpecialtyMatch(specialty=GENERAL_SPECIALTY)
+        scored.append(
+            ScoredSpecialty(
+                specialty=spec,
+                matched_keywords=hits,
+                match_count=len(distinct),
+                match_length=sum(len(n) for n in distinct),
+            )
+        )
+    scored.sort(key=lambda s: s.score, reverse=True)
+    return scored
+
+
+def match_specialty(text: str) -> SpecialtyMatch:
+    """Şikâyet metnini branşa eşler (skorlama tabanlı).
+
+    En yüksek skorlu branş kazanır. Bu, saf "ilk eşleşen kazanır" mantığının
+    aksine, daha uzun/daha spesifik ifadeleri kısa alt-dizi çakışmalarına
+    tercih eder — örn. "dudak dolgusu" (medikal estetik) artık "dolgu"
+    (restoratif) alt-dizisine kapılmaz.
+
+    Beraberlikte kayıt sırası belirleyicidir (DENTAL branşlar ADJACENT'tan
+    önce gelir). Hiçbiri eşleşmezse GENERAL_SPECIALTY döner (is_default=True).
+    """
+    ranked = rank_specialties(text)
+    if not ranked:
+        return SpecialtyMatch(specialty=GENERAL_SPECIALTY)
+    top = ranked[0]
+    return SpecialtyMatch(specialty=top.specialty, matched_keywords=top.matched_keywords)
