@@ -81,7 +81,6 @@ async def synthesize_speech(
         is_confirmation=body.is_confirmation,
     )
 
-    ext = "wav" if mime == "audio/wav" else "mp3"
     return StreamingResponse(
         io.BytesIO(result.audio),
         media_type=result.media_type,
