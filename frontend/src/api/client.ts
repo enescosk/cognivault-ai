@@ -31,6 +31,17 @@ import type {
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
 
+/** Thrown for non-2xx HTTP responses; carries the HTTP status code. */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -47,7 +58,7 @@ async function request<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(error.detail ?? "Request failed");
+    throw new ApiError(response.status, error.detail ?? "Request failed");
   }
 
   return response.json() as Promise<T>;

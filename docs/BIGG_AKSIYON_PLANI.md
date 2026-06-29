@@ -21,7 +21,7 @@ Son güncelleme: 2026-06-19
 | İP-5 | Pilot Saha & Klinik Doğrulama | Ay 7–12 | ⬜ Açık |
 | İP-6 | Ticarileştirme & Fikri Mülkiyet | Ay 9–12 | ⬜ Açık |
 
-**🔵 ŞU ANKİ ODAK:** İP-1 / Madde 1.6 — çekimser/selective prediction (düşük-güvende insana yükseltme).
+**🔵 ŞU ANKİ ODAK:** İP-2 / Madde 2.3 — adversarial teşhis bloklama testi; R-1/R-2/R-3 üretim sertleştirme.
 
 ---
 
@@ -34,9 +34,9 @@ Son güncelleme: 2026-06-19
 - ✅ **1.3** YAPILDI (2026-06-22) Türkçe argo normalizasyon hattı — `app/clinical/normalizer.py`. 35 argo → kanonik terim kuralı (endodonti, restoratif, periodontoloji, pedodonti, ortodonti, çene cerrahisi, implant, estetik, medikal estetik, dermatoloji, acil). `expand_complaint()` ham metni zenginleştirir; `triage()` sarmalayıcı ham metin → branş + aciliyet tek adımda verir. `tests/test_normalizer.py` — 45 test (genişletme kuralları, uçtan uca branş yönlendirme, aciliyet tespiti, yanlış-pozitif koruması). Tüm mevcut testler regresyonsuz.
 - ✅ **1.4** YAPILDI (2026-06-22) Branş yönlendirme modeli — sentetik korpusta **%99.3 doğruluk** (542/546), hedef ≥%90 aşıldı. `match_specialty` skorlama tabanlına yükseltildi (en çok+en uzun eşleşme; normalize tekilleştirme) — "dudak dolgusu"nun "dolgu"ya kapılması gibi alt-dizi çakışmaları çözüldü. Ontoloji anahtar kelimeleri genişletildi (perio: "diş etler"/"kanama"; çene: "çene kırığı"), zamir çakışması yapan dermatoloji "ben" anahtarı kaldırıldı. Normalizer'a kalan argo kuralları eklendi (apse→endodonti, çatladı, kaşınma/mol, termal hassasiyet, çekim varyantları, 20lik genişletme). Yeniden kullanılabilir değerlendirme harness'ı: `app/clinical/evaluate.py` (`python -m app.clinical.evaluate`). Golden set (kasıtlı zor) %62.9 — kalan X→genel_dis kaçışları İP-1.6 çekimser tahminin (insana yükseltme) hedefi, kurala zorla uydurulmadı. Tüm bağımsız testler (ontoloji+korpus+normalizer = 78) geçti.
 - ✅ **1.5** YAPILDI (2026-06-23) Güven kalibrasyon katmanı — `app/clinical/calibration.py` (saf Python, numpy/sklearn yok; KVKK local-first). Eşleşme marjından ham güven sinyali + isotonic regresyon (Pool-Adjacent-Violators) ile [0,1] kalibre güven. Sentetik korpus TEST setinde **ECE = 0.0107 < 0,05** (hedef karşılandı; naif normda 0,5421'di). `app/clinical/calibrate.py` rapor+artefakt üreticisi (`python -m app.clinical.calibrate`); kalibratör `data/calibration.json`'a yazılır (JSON, denetlenebilir). `triage()` artık kalibre `confidence` döndürür (kalibratör yoksa 0.0 → güvenli varsayılan, İP-1.6 insana yükseltir). `ontology.rank_specialties()` tek skorlama kaynağı olarak eklendi (match_specialty davranışı korundu). `tests/test_calibration.py` — 13 test. Golden set ECE 0,357 (aşırı-güvenli) → İP-1.6'nın hedefi.
-- ⬜ **1.6** Çekimser/selective prediction: düşük-güven veya tutarsız kanıtta otomatik insan-yükseltme (conformal prediction eşiği).
-- ⬜ **1.7** Acil-recall ≈ %100 garantili kapsama testi (kaçan acil ≈ 0). Adversarial acil senaryolarıyla doğrula.
-- ⬜ **1.8** Kalibrasyon raporu üret (ECE, recall, branş doğruluğu metrik panosu).
+- ✅ **1.6** YAPILDI (2026-06-29) Çekimser/selective prediction — conformal abstention. `compute_abstain_threshold()` (min-valid-eşik, PAV fix), `IsotonicCalibrator.abstain_threshold/abstain_coverage` (JSON uyumlu), `TriageResult.abstain`, `requires_escalation = urgency OR abstain`. abstain_threshold=0.9877, coverage≥%90, 0/219 gereksiz abstain. 219/219 test geçti.
+- ✅ **1.7** YAPILDI (2026-06-29) Acil-recall %100 garantisi — 40 vakalı adversarial korpus (`emergency_adversarial.jsonl`): kanama/çene/solunum/travma. Normalizer güçlendirildi (sersem, boğaz tıkanma, yutamıyorum, künt travma). `test_emergency.py` (triage + servis yolu, parametrize). 40/40 = %100 recall.
+- ✅ **1.8** YAPILDI (2026-06-29) Kalibrasyon raporu — `calibration_report.json` (ECE, doğruluk, abstain istatistikleri, branş bazı doğruluk, acil recall). `calibrate.py` İP-1.6 eşik hesabı ile entegre.
 
 ## İP-2 — Deterministik Yönetişim Zarfı'nın Sertleştirilmesi
 **Başarı ölçütü:** 150+ senaryoda %100 doğru kapı · kapı ihlali = 0 (adversarial) · teşhis/sınır-ötesi/kimlik sızıntısı = 0.
@@ -115,9 +115,9 @@ Kaynak: Gemini/Antigravity dış inceleme raporu (`cognivault_review.md`). Her m
 - ⚠️ **"AsyncStorage eksik" → YANLIŞ.** `mobile/package.json:7`'de var; yalnız `netinfo` eksik (R-15).
 
 ### P0 — Emniyet & Güvenlik (doğrulandı)
-- ⬜ **R-1** Injection: `</patient_message>` etiket kontrolünü **ham (normalize edilmemiş) metin** üzerinde çalıştır. `customer_understanding.py:227-239`. → İP-2.7 ile birleştir.
-- ⬜ **R-2** Auth eviction: token'ı yalnız HTTP **401/403**'te sil; ağ hatası/timeout'ta koru + "sunucuya bağlanılamadı" uyarısı. `mobile/src/auth.tsx:32`, `frontend/src/context/AuthContext.tsx:44`. [her iki uygulama]
-- ⬜ **R-3** LLM geçmişinde çift kullanıcı mesajı: son mesaj zaten `session.messages`'taysa tekrar push etme. `orchestrator.py:530, 668`.
+- ✅ **R-1** YAPILDI (2026-06-29) Injection: `_RAW_INJECTION_PATTERNS` grubu eklendi, `detect_instruction_attack()` önce normalize edilmemiş ham metni XML/HTML etiket kalıplarına karşı kontrol eder, sonra normalised metni diğer desenlere. `customer_understanding.py`. 134 test geçti.
+- ✅ **R-2** YAPILDI (2026-06-29) Auth eviction: `ApiError(status, message)` sınıfı `frontend/src/api/client.ts`'e eklendi; `AuthContext.tsx` yalnız `err.status === 401 || 403`'te token siler. Mobil `auth.tsx`'te hata mesajı `"401..."` / `"403..."` ile başlıyorsa siler. Ağ hataları token'ı korur.
+- ✅ **R-3** YAPILDI (2026-06-29) LLM geçmişinde çift mesaj: `run_openai_agent()` `messages[-13:-1]` (mevcut mesajı dışlar), `_build_history()` `_compress_history(messages[:-1])` kullanır. `orchestrator.py:522, 667`.
 - ⬜ **R-4** Anthropic stream onay kartı yutuluyor (`pass`): parse edilen kartı dış `confirmation_card`'a ata. `orchestrator.py:840-843, 856`. [yalnız Anthropic yolu; diğer yol doğru]
 - ⬜ **R-5** Held-slot sweeper yok: `expire_stale_slot_offers` yalnız lazy/inline çağrılıyor → `repeat_every` ile periyodik koş. Ek nüans: fonksiyon HELD'i `offered`'a değil `EXPIRED`'a çeviriyor; slot'un tekrar açılması için davranışı gözden geçir. `clinical_slot_service.py:262`.
 - ⬜ **R-6** Intent-injection regex sıkılaştır: hardcoded 3-intent yerine `intent(?:ini)? [a-z_]+ yap`. `customer_understanding.py:231`. → İP-2.7.

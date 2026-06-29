@@ -230,10 +230,23 @@ _INSTRUCTION_ATTACK_PATTERNS = (
     r"\bsystem prompt", r"\bdeveloper message", r"\bgizli prompt",
     r"\bintent(?:ini)? (medical emergency|book appointment|general question) yap",
     r"\bjson (olarak )?(sunlari|bunu) dondur",
+)
+
+# R-1: XML/HTML-like tag injection patterns must be checked on the RAW text
+# because normalize_customer_text() strips '<' and '>' before matching.
+_RAW_INJECTION_PATTERNS = (
     r"</?patient_message>",
+    r"</?system>",
+    r"</?user>",
+    r"</?assistant>",
+    r"</?instruction",
 )
 
 
 def detect_instruction_attack(text: str) -> bool:
     normalized = normalize_customer_text(text)
-    return any(re.search(pattern, normalized) for pattern in _INSTRUCTION_ATTACK_PATTERNS)
+    if any(re.search(p, normalized) for p in _INSTRUCTION_ATTACK_PATTERNS):
+        return True
+    # Check raw (un-normalised) text for XML/HTML tag injection — normaliser
+    # strips angle brackets so these patterns would never fire on normalised text.
+    return any(re.search(p, text, re.IGNORECASE) for p in _RAW_INJECTION_PATTERNS)

@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import {
+  ApiError,
   getCurrentUser,
   login as loginRequest,
   register as registerRequest,
@@ -41,10 +42,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     getCurrentUser(token)
       .then((nextUser) => setUser(nextUser))
-      .catch(() => {
-        localStorage.removeItem(TOKEN_KEY);
-        setToken(null);
-        setUser(null);
+      .catch((err) => {
+        // R-2: evict token only on explicit auth rejection (401/403).
+        // Network errors / 5xx timeouts must NOT clear the token — the user
+        // would be logged out during a transient connectivity issue.
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          localStorage.removeItem(TOKEN_KEY);
+          setToken(null);
+          setUser(null);
+        }
       })
       .finally(() => setLoading(false));
   }, [token]);

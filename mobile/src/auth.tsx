@@ -29,8 +29,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setToken(stored);
           setUser(nextUser);
         }
-      } catch {
-        await AsyncStorage.removeItem(KEY).catch(() => undefined);
+      } catch (err) {
+        // R-2: evict token only on explicit auth rejection (401/403).
+        // The mobile API client embeds the HTTP status at the start of the
+        // error message: e.g. "401 · {"detail":"..."}"
+        // Network errors / 5xx must NOT clear the token.
+        const msg = err instanceof Error ? err.message : "";
+        const isAuthError = msg.startsWith("401") || msg.startsWith("403");
+        if (isAuthError) {
+          await AsyncStorage.removeItem(KEY).catch(() => undefined);
+        }
       } finally {
         setLoading(false);
       }

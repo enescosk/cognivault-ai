@@ -519,8 +519,10 @@ def run_openai_agent(context: AgentContext, user_message: str, language: str) ->
         {"role": "system", "content": ctx_block},
     ]
 
-    # Sadece kullanıcı ve asistan mesajlarını geçmişe ekle (tool mesajları OpenAI-compatible tool_call_id gerektiriyor)
-    for item in context.session.messages[-12:]:
+    # R-3: session.messages already contains the current user_message (saved
+    # before the agent is called). Using [-13:-1] keeps up to 12 *previous*
+    # turns and excludes the current message so we don't duplicate it below.
+    for item in context.session.messages[-13:-1]:
         if item.sender == MessageSender.USER:
             history.append({"role": "user", "content": item.content})
         elif item.sender == MessageSender.ASSISTANT:
@@ -663,8 +665,11 @@ def _build_history(context: AgentContext, user_message: str) -> list[dict]:
         {"role": "system", "content": build_system_prompt()},
         {"role": "system", "content": ctx_block},
     ]
-    # Use compressed history to save tokens on long conversations
-    history.extend(_compress_history(context.session.messages))
+    # R-3: session.messages already contains the current user_message (saved
+    # before the agent is called). Pass [:-1] to _compress_history so the
+    # current message is not included in the compressed block; we append it
+    # explicitly below to avoid a duplicate in the LLM history.
+    history.extend(_compress_history(context.session.messages[:-1]))
     history.append({"role": "user", "content": user_message})
     return history
 
