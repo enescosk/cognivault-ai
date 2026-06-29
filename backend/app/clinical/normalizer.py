@@ -119,14 +119,20 @@ _RULES: tuple[_Rule, ...] = (
 
     # ── ACİL sinyaller ───────────────────────────────────────────────────────
     _r(r"yuzum\s+(balon|top|gibi\s+sist|cok\s+sist)",           "yuzum sisti"),
-    _r(r"kan\s+durmuyor|kan\s+akmaya\s+devam|kan\s+kesmiyor",   "durmayan kanama"),
-    _r(r"cene(m|si)?\s+kirild|cene\s+kirigi",                   "cene kirigi"),
+    # durmayan kanama: "kanama durmuyor", "kan durmak bilmiyor", "kanama bir türlü durmuyor"
+    _r(r"(kanama|kan)\b[\w\s]{0,15}(durmuyor|dinmiyor|kesilmiyor|durmak\s+bilmiyor)|kan\s+akmaya\s+devam|kan\s+kesmiyor", "durmayan kanama"),
+    # çene kırığı: "çenem kırıldı", "çenem kırık", "çene kırığı"
+    _r(r"cene(m|si)?\s+(kirild|kirik|catlad)|cene\s+kirigi",    "cene kirigi"),
     # yüz/çene/ağız bölgesi acil şişlik → maksillofasiyal (çene cerrahisi)
     _r(r"yuzum\s+sisti\s+gozum|gozum\s+kapaniyor|agzimdaki\s+sislik|bogazima\s+vurdu", "yuzum sisti cene kirigi"),
-    _r(r"yutam(iy|iy)orum|yutmak(ta)?\s+zorluk",                "yutamiyorum"),
-    _r(r"nefes\s+alam(iy|iy)orum|nefes\s+darligi",              "nefes alamiyorum"),
+    # boğaz/hava yolu şişmesi → solunum acili
+    _r(r"bogaz(im|i)?\s+(sisiy|sisti|kapan|daral|tikan)",       "nefes alamiyorum"),
+    _r(r"yutam(iy|iy)orum|yutkunam(iy)?orum|yutmak(ta)?\s+zorluk", "yutamiyorum"),
+    _r(r"(nefes|soluk)\s+alam(iy|iy)orum|nefes\s+darligi",      "nefes alamiyorum"),
     _r(r"gogsum\s+(agriyor|sikisiyor)|gogus\s+agrisi",           "gogus kalp"),
     _r(r"bayild|bilincin(i|i)\s+kaybet",                         "bayildi"),
+    # künt travma + bilinç bulanıklığı (sersemleme) → nörolojik acil
+    _r(r"sert\s+darbe|darbe\s+ald|kafama\s+vurdu|sersemled|sersemli|basim\s+donuyor\s+kanam", "bayildi"),
 )
 
 

@@ -7,13 +7,8 @@ import re
 from app.ai.ai_factory import OpenAIProvider, get_llm_provider, parse_model_json
 from app.ai.runtime import complete_json
 from app.core.config import get_settings
-from app.clinical.ontology import (
-    EMERGENCY_KEYWORDS,
-    UrgencyLevel,
-    assess_urgency,
-    match_specialty,
-    normalize_tr,
-)
+from app.clinical.normalizer import triage
+from app.clinical.ontology import normalize_tr
 from app.models import Clinic, ClinicIntent
 from app.services.clinical_compliance_service import build_governance_context, mask_identifiers
 from app.services.clinical_persona_service import ClinicalPersona, choose_persona
@@ -260,8 +255,13 @@ def derive_consent_signal(governance: dict) -> dict[str, str | bool]:
 
 
 def extract_clinical_intake(text: str) -> dict:
+    # İP-1 klinik motoru üzerinden tek yol: normalizer.triage() argo genişletme +
+    # branş eşleme + aciliyet değerlendirmeyi birlikte yapar. Böylece İP-1.7'nin
+    # yüksek-recall acil tespiti (kanonik ACİL terimleri + assess_urgency) bu
+    # servis yolundan da geçerli; sabit-kodlu override'lara gerek kalmaz.
+    result = triage(text)
+    specialty = result.specialty.specialty
     normalized = normalize_tr(text)
-    match = match_specialty(text)
 
     preferred_time = None
     if "bugun" in normalized:
@@ -273,18 +273,12 @@ def extract_clinical_intake(text: str) -> dict:
         if weekday_match:
             preferred_time = weekday_match.group(1)
 
-    urgency: UrgencyLevel = assess_urgency(text)
-    if "kanama durmuyor" in normalized or "yutamiyorum" in normalized or "nefes alamiyorum" in normalized:
-        urgency = UrgencyLevel.EMERGENCY
-    elif "yuzum sisti" in normalized:
-        urgency = UrgencyLevel.PRIORITY
-
     return {
-        "specialty": match.specialty.display_tr,
-        "specialty_code": match.specialty.code,
-        "routing_reason": match.specialty.routing_reason,
+        "specialty": specialty.display_tr,
+        "specialty_code": specialty.code,
+        "routing_reason": specialty.routing_reason,
         "preferred_time": preferred_time,
-        "urgency": urgency.value,
+        "urgency": result.urgency.value,
         "complaint_summary": text.strip()[:240],
     }
 

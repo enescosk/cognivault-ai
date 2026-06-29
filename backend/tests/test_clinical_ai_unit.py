@@ -55,7 +55,7 @@ def test_specialty_routing_matrix(message, specialty, reason):
     [
         ("Genel kontrol istiyorum", "routine"),
         ("Dişim ağrıyor", "priority"),
-        ("Yüzüm şişti", "priority"),
+        ("Yüzüm şişti", "emergency"),
         ("Diş etimde kanama var", "priority"),
         ("Nefes alamıyorum", "emergency"),
         ("Kanama durmuyor", "emergency"),
