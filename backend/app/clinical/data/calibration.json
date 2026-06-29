@@ -12,5 +12,7 @@
     1.0,
     1.0,
     1.0
-  ]
+  ],
+  "abstain_threshold": 0.9876543209876543,
+  "abstain_coverage": 0.9
 }

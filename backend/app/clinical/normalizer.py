@@ -132,7 +132,7 @@ _RULES: tuple[_Rule, ...] = (
     _r(r"gogsum\s+(agriyor|sikisiyor)|gogus\s+agrisi",           "gogus kalp"),
     _r(r"bayild|bilincin(i|i)\s+kaybet",                         "bayildi"),
     # künt travma + bilinç bulanıklığı (sersemleme) → nörolojik acil
-    _r(r"sert\s+darbe|darbe\s+ald|kafama\s+vurdu|sersemled|sersemli|basim\s+donuyor\s+kanam", "bayildi"),
+    _r(r"sert\s+darbe|darbe\s+ald|kafama\s+vurdu|sersem|basim\s+donuyor\s+kanam", "bayildi"),
 )
 
 
@@ -182,6 +182,7 @@ class TriageResult:
     expansions: tuple[str, ...] = field(default_factory=tuple)
     raw_confidence: float = 0.0
     confidence: float = 0.0
+    abstain: bool = False  # İP-1.6: güven çok düşük → çekimser (insan yükseltme)
 
     @property
     def specialty_code(self) -> str:
@@ -189,7 +190,8 @@ class TriageResult:
 
     @property
     def requires_escalation(self) -> bool:
-        return self.urgency.requires_human_escalation
+        """Acil seviyesi VEYA düşük güven nedeniyle insan yükseltme gerekiyor mu?"""
+        return self.urgency.requires_human_escalation or self.abstain
 
 
 def triage(text: str) -> TriageResult:
@@ -215,6 +217,14 @@ def triage(text: str) -> TriageResult:
     calibrator = _calibrator()
     confidence = calibrator.predict_one(raw_conf) if calibrator is not None else 0.0
 
+    # İP-1.6 — Conformal abstention: güven eşiğin altındaysa çekimser (insan yükseltme).
+    # Kalibratör yoksa abstain=False (güvenli varsayılan — ilerletme > engelleme).
+    abstain = (
+        calibrator is not None
+        and calibrator.abstain_threshold > 0.0
+        and confidence < calibrator.abstain_threshold
+    )
+
     return TriageResult(
         raw_text=text,
         enriched_text=enriched,
@@ -223,4 +233,5 @@ def triage(text: str) -> TriageResult:
         expansions=tuple(dict.fromkeys(expansions)),
         raw_confidence=raw_conf,
         confidence=confidence,
+        abstain=abstain,
     )

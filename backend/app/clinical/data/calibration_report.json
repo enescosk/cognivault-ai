@@ -1,0 +1,105 @@
+{
+  "generated": "calibrate.py",
+  "corpus": "dental_tr.jsonl",
+  "n_total": 546,
+  "n_train": 327,
+  "n_test": 219,
+  "seed": 42,
+  "overall_accuracy": 0.9927,
+  "ece_naive": 0.5421,
+  "ece_calibrated": 0.0107,
+  "ece_target": 0.05,
+  "ece_ok": true,
+  "abstain_threshold": 0.9877,
+  "abstain_coverage_target": 0.9,
+  "abstain_rate_test": 0.0,
+  "accuracy_above_threshold": 1.0,
+  "golden_accuracy": 0.6571,
+  "golden_ece": 0.3289,
+  "golden_abstain_rate": 0.0,
+  "emergency_recall": {
+    "total": 40,
+    "recalled": 40,
+    "recall": 1.0,
+    "abstained": 0
+  },
+  "branch_accuracy": {
+    "cene_cerrahisi": {
+      "total": 63,
+      "correct": 63,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    },
+    "dermatoloji": {
+      "total": 46,
+      "correct": 46,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    },
+    "endodonti": {
+      "total": 51,
+      "correct": 51,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    },
+    "estetik_dis": {
+      "total": 46,
+      "correct": 46,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    },
+    "genel_dis": {
+      "total": 55,
+      "correct": 51,
+      "abstained": 0,
+      "accuracy": 0.9273,
+      "abstain_rate": 0.0
+    },
+    "implantoloji": {
+      "total": 46,
+      "correct": 46,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    },
+    "medikal_estetik": {
+      "total": 46,
+      "correct": 46,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    },
+    "ortodonti": {
+      "total": 46,
+      "correct": 46,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    },
+    "pedodonti": {
+      "total": 46,
+      "correct": 46,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    },
+    "periodontoloji": {
+      "total": 55,
+      "correct": 55,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    },
+    "restoratif": {
+      "total": 46,
+      "correct": 46,
+      "abstained": 0,
+      "accuracy": 1.0,
+      "abstain_rate": 0.0
+    }
+  }
+}

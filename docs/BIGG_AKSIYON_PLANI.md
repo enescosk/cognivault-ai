@@ -103,6 +103,41 @@ Son güncelleme: 2026-06-19
 
 ---
 
+## 🔍 Kod İncelemesi Bulguları — Üretim Sertleştirme Backlog'u (2026-06-29)
+
+Kaynak: Gemini/Antigravity dış inceleme raporu (`cognivault_review.md`). Her madde **gerçek kodla doğrulandı** (3 paralel inceleme ajanı). BiGG Ar-Ge milestone'larından ayrı; üretim/pilot (İP-5) hazırlığı ve zarf sertleştirme (İP-2) backlog'u. Madde önekleri: **R-n**.
+
+### Raporun yanıldığı / abarttığı noktalar (önce bunlar — gereksiz iş açma)
+- ❌ **"Webhook imza doğrulaması yok" → YANLIŞ.** `app/core/webhook_security.py` mevcut; `clinical.py`'de Twilio (`X-Twilio-Signature`) + Meta (`X-Hub-Signature-256`) doğrulanıyor, `signature_required()` config kapısıyla. Eylem: bug değil → prod config'te açık olduğunu doğrula + test ekle.
+- ❌ **"FK indeksleri büyük ölçüde eksik" → YANLIŞ/ABARTILI.** 98 FK'nın ~%64'ü `index=True`. Eylem: yalnız N+1'e konu birkaç sıcak FK'yı (örn. `appointment.branch_id`) indeksle.
+- ⚠️ **"Mobil disclaimer butonların altında" → KISMEN/YANLIŞ.** `ShadowReviewCard.tsx:92`'de disclaimer butonların **üstünde**. Eylem: düşük öncelik, küçük-ekran taşma koruması.
+- ⚠️ **"Injection savunması tamamen baypas" → KISMEN.** Yalnız `</patient_message>` kapatma-etiketi alt-kuralı ölü (normalize `<>`'i siliyor); "ignore previous instructions" vb. geniş desenler çalışıyor. Yine de gerçek açık → R-1.
+- ⚠️ **"AsyncStorage eksik" → YANLIŞ.** `mobile/package.json:7`'de var; yalnız `netinfo` eksik (R-15).
+
+### P0 — Emniyet & Güvenlik (doğrulandı)
+- ⬜ **R-1** Injection: `</patient_message>` etiket kontrolünü **ham (normalize edilmemiş) metin** üzerinde çalıştır. `customer_understanding.py:227-239`. → İP-2.7 ile birleştir.
+- ⬜ **R-2** Auth eviction: token'ı yalnız HTTP **401/403**'te sil; ağ hatası/timeout'ta koru + "sunucuya bağlanılamadı" uyarısı. `mobile/src/auth.tsx:32`, `frontend/src/context/AuthContext.tsx:44`. [her iki uygulama]
+- ⬜ **R-3** LLM geçmişinde çift kullanıcı mesajı: son mesaj zaten `session.messages`'taysa tekrar push etme. `orchestrator.py:530, 668`.
+- ⬜ **R-4** Anthropic stream onay kartı yutuluyor (`pass`): parse edilen kartı dış `confirmation_card`'a ata. `orchestrator.py:840-843, 856`. [yalnız Anthropic yolu; diğer yol doğru]
+- ⬜ **R-5** Held-slot sweeper yok: `expire_stale_slot_offers` yalnız lazy/inline çağrılıyor → `repeat_every` ile periyodik koş. Ek nüans: fonksiyon HELD'i `offered`'a değil `EXPIRED`'a çeviriyor; slot'un tekrar açılması için davranışı gözden geçir. `clinical_slot_service.py:262`.
+- ⬜ **R-6** Intent-injection regex sıkılaştır: hardcoded 3-intent yerine `intent(?:ini)? [a-z_]+ yap`. `customer_understanding.py:231`. → İP-2.7.
+
+### P1 — Performans & Veri Doğruluğu (doğrulandı)
+- ⬜ **R-7** N+1 randevu listeleme: `ClinicalAppointment`'a `patient`/`branch` ORM ilişkisi + `selectinload`; `appointment_row_payload`'daki döngü-içi `db.get` kaldır. `clinical_appointment_service.py:167`, `clinical.py:388`. [doctor zaten eager]
+- ⬜ **R-8** N+1 shadow review: `list_shadow_reviews`'a `selectinload(ShadowReview.assigned_doctor)`. `clinical_service.py:1047`.
+- ⬜ **R-9** Mobil saat dilimi: randevu saatlerini cihaz local yerine klinik tz'ine (`Europe/Istanbul`) kilitle. `mobile/src/screens/AppointmentsScreen.tsx:71`. [hasta-emniyeti açısından önemli]
+- ⬜ **R-10** Ölü/mükerrer servis kodu sil: `clinical_service.py:1084-1329` (create/status/manual/update_shadow) — tüketiciler `clinical_appointment_service`/`clinical_feedback_service`'ten import ediyor. NOT: `list_shadow_reviews` hâlâ canlı, silme.
+- ⬜ **R-11** Web ses/mikrofon sızıntısı: unmount cleanup'ta `stream.getTracks().forEach(t=>t.stop())` + `AudioContext.close()`. `ChatWindow.tsx:107, 219`. [mic yalnız `onstop`'ta duruyor → unmount'ta sızıyor]
+- ⬜ **R-12** Admin sayfalarında hardcoded hex → token/CSS değişkenleri (koyu tema okunabilirliği). `AdminDoctorsPage.tsx`, `AppointmentsPage.tsx`.
+
+### P2 — Mimari & UX (doğrulandı)
+- ⬜ **R-13** Doctor ↔ ClinicDoctor şema birleştirme: iki ayrı tablo (`doctors` user-linked login + `clinic_doctors` slot); appointment ikisine de referans veriyor (`doctor_id`+`assigned_doctor_id`), FK bağı yok. Büyük refactor.
+- ⬜ **R-14** Mobil global state: kuyruk verisini Context/Zustand'a taşı (sekme geçişinde flicker). `QueueScreen.tsx`, `App.tsx:36`.
+- ⬜ **R-15** `@react-native-community/netinfo` ekle + offline banner + `expo-haptics`.
+- ⬜ **R-16** Web karar kartına "Vazgeç/Kapat"; mobil disclaimer küçük-ekran taşma koruması; Google Fonts lokalize (on-prem/offline). [düşük öncelik]
+
+---
+
 ## Kilometre Taşları (resmi takvim)
 - **Ay 6:** Kalibre çekimser yönlendirici (ECE<0,05) MVP — İP-1 çıktısı.
 - **Ay 8:** Adversarial-test ile ihlal-edilemezliği kanıtlanmış yönetişim zarfı — İP-2 çıktısı.
@@ -116,4 +151,5 @@ Son güncelleme: 2026-06-19
 - 2026-06-22: İP-1.3 YAPILDI. `app/clinical/normalizer.py` eklendi: 35 kural argo → kanonik terim genişletme motoru + `triage()` sarmalayıcı. `tests/test_normalizer.py` (45 test). Odak İP-1.4'e taşındı.
 - 2026-06-22: İP-1.4 YAPILDI. Skorlama tabanlı `match_specialty` + genişletilmiş normalizer/ontoloji → sentetik korpusta %74→%99.3. `app/clinical/evaluate.py` değerlendirme harness'ı eklendi. NOT: çalışma ağacındaki `app/models/entities.py` bozuk (eksik import'lar + kayıp `OutreachDraft` sınıfı) — İP-1.4 dışı, ayrı blocker; servis tarafı testleri (`test_clinical.py`) bu yüzden koşmuyor. Odak İP-1.5'e taşındı.
 - 2026-06-23: `entities.py` blocker'ı çözüldü (commit `c368d31`); `test_clinical.py` tekrar koşuyor. Alembic çift-head bug'ı (merge yan etkisi) `0009_merge_heads` ile giderildi. Reverted `codex/clinical-receptionist-foundation` branch'inden 21 faydalı test + 3 doküman kurtarıldı; kurtarılan test `voice.py`'de gerçek bir `NameError` (500) bug'ı yakaladı, düzeltildi.
+- 2026-06-29: Dış kod incelemesi (`cognivault_review.md`) 3 paralel ajanla gerçek kodla doğrulandı. 16 doğrulanmış bulgu "Üretim Sertleştirme Backlog'u" (R-1…R-16) olarak eklendi. Raporun 5 yanlış/abartılı iddiası ayıklandı (webhook imzası VAR; FK indeksleri ~%64 mevcut; mobil disclaimer butonların üstünde; injection yalnız tag alt-kuralında ölü; AsyncStorage mevcut). R-1 ve R-6 İP-2.7 ile birleştirilecek.
 - 2026-06-23: İP-1.5 YAPILDI. Saf-Python isotonic kalibrasyon (`calibration.py`) + rapor/artefakt üreticisi (`calibrate.py`). Sentetik TEST ECE **0.0107 < 0,05**. `triage()` kalibre `confidence` alanı kazandı (İP-1.6 köprüsü). `ontology.rank_specialties()` eklendi. `tests/test_calibration.py` (13 test). Backend 526 passed, 1 skipped. Odak İP-1.6'ya taşındı.

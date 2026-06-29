@@ -18,13 +18,46 @@ from __future__ import annotations
 
 import json
 from bisect import bisect_right
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.clinical.ontology import rank_specialties
 
 # Kalibratörün diske yazıldığı varsayılan konum (calibrate.py üretir).
 CALIBRATION_ARTIFACT = Path(__file__).resolve().parent / "data" / "calibration.json"
+
+
+# ── Conformal abstention eşiği ───────────────────────────────────────────────
+
+ABSTAIN_COVERAGE_DEFAULT: float = 0.90  # %90 doğruluk garantisi
+
+
+def compute_abstain_threshold(
+    calibrated_pairs: list[tuple[float, bool]],
+    coverage: float = ABSTAIN_COVERAGE_DEFAULT,
+) -> float:
+    """Conformal abstention eşiği: ``coverage`` garantisi sağlayan minimum güven.
+
+    ``calibrated_pairs``: (kalibre_güven ∈ [0,1], tahmin_doğru_mu) ikilileri.
+    ``coverage``:         Hedef doğruluk oranı (örn. 0.90 → %90 garantisi).
+
+    Döndürür: Minimum t öyle ki confidence ≥ t olan örneklerin empirik doğruluğu
+    ≥ coverage. Bu eşiğin altındaki tahminler için ``abstain=True`` (insan yükseltme).
+    Hiç eşik yoksa 1.0 (hep çekimser — güvenli varsayılan).
+    """
+    if not calibrated_pairs:
+        return 1.0
+    # Tüm benzersiz güven değerlerini dene; coverage'ı sağlayanlar arasında
+    # en KÜÇÜK t'yi döndür (maksimum kapsam, minimum abstain oranı).
+    unique_thresholds = sorted(set(c for c, _ in calibrated_pairs))
+    valid: list[float] = []
+    for t in unique_thresholds:
+        above = [ok for c, ok in calibrated_pairs if c >= t]
+        if not above:
+            continue
+        if sum(above) / len(above) >= coverage:
+            valid.append(t)
+    return min(valid) if valid else 1.0
 
 
 # ── Ham güven sinyali ────────────────────────────────────────────────────────
@@ -97,12 +130,19 @@ class IsotonicCalibrator:
     öğrenir; ``predict`` sorgu skorunu içeren bloğun değerini döndürür
     (uçlarda kırpar). JSON'a serileştirilebilir.
 
-    thresholds: Blokların artan alt sınırları (ham skor uzayında).
-    values:     Karşılık gelen kalibre olasılıklar (monotonik azalmayan, [0,1]).
+    thresholds:        Blokların artan alt sınırları (ham skor uzayında).
+    values:            Karşılık gelen kalibre olasılıklar ([0,1], monoton).
+    abstain_threshold: Conformal abstention eşiği (İP-1.6). Kalibre güven bu
+                       değerin altında kalırsa sistem çekimser davranır (insana
+                       yükseltir). ``calibrate.py`` ile compute_abstain_threshold()
+                       tarafından set edilir; yoksa 0.0 (hiç çekimser olmaz).
+    abstain_coverage:  Eşiği garanti eden coverage hedefi (örn. 0.90 → %90).
     """
 
     thresholds: list[float]
     values: list[float]
+    abstain_threshold: float = field(default=0.0)
+    abstain_coverage: float = field(default=ABSTAIN_COVERAGE_DEFAULT)
 
     @classmethod
     def fit(cls, pairs: list[tuple[float, bool]]) -> "IsotonicCalibrator":
@@ -147,11 +187,21 @@ class IsotonicCalibrator:
     # ── Kalıcılık ────────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {"thresholds": self.thresholds, "values": self.values}
+        return {
+            "thresholds": self.thresholds,
+            "values": self.values,
+            "abstain_threshold": self.abstain_threshold,
+            "abstain_coverage": self.abstain_coverage,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "IsotonicCalibrator":
-        return cls(thresholds=list(data["thresholds"]), values=list(data["values"]))
+        return cls(
+            thresholds=list(data["thresholds"]),
+            values=list(data["values"]),
+            abstain_threshold=float(data.get("abstain_threshold", 0.0)),
+            abstain_coverage=float(data.get("abstain_coverage", ABSTAIN_COVERAGE_DEFAULT)),
+        )
 
     def save(self, path: Path = CALIBRATION_ARTIFACT) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
