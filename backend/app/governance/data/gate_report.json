@@ -1,0 +1,123 @@
+{
+  "ip": "2.8",
+  "title": "CogniVault Yönetişim Zarfı — Kapı İhlal-Edilemezliği Kanıtı",
+  "scenario_count": 160,
+  "min_scenarios": 150,
+  "scenario_count_ok": true,
+  "violation_count": 0,
+  "violations": {},
+  "per_category": {
+    "diagnosis_block": {
+      "total": 20,
+      "violations": 0
+    },
+    "emergency_escalation": {
+      "total": 12,
+      "violations": 0
+    },
+    "health_recall": {
+      "total": 12,
+      "violations": 0
+    },
+    "identity_escalation": {
+      "total": 6,
+      "violations": 0
+    },
+    "insurance_escalation": {
+      "total": 8,
+      "violations": 0
+    },
+    "pii_masking": {
+      "total": 96,
+      "violations": 0
+    },
+    "residency_escalation": {
+      "total": 6,
+      "violations": 0
+    }
+  },
+  "leak_gates": {
+    "diagnosis_leak": {
+      "categories": [
+        "diagnosis_block"
+      ],
+      "violations": 0,
+      "pass": true
+    },
+    "cross_border_leak": {
+      "categories": [
+        "residency_escalation"
+      ],
+      "violations": 0,
+      "pass": true
+    },
+    "identity_leak": {
+      "categories": [
+        "pii_masking",
+        "identity_escalation"
+      ],
+      "violations": 0,
+      "pass": true
+    }
+  },
+  "audit_trail_samples": [
+    {
+      "input_text": "Diş ağrım var, TC 12345678901 ulaşın.",
+      "intent": "general_question",
+      "data_classes": [
+        "contact_data",
+        "national_identifier",
+        "special_category_health_data"
+      ],
+      "sensitivity": "special_category",
+      "auto_send_allowed": false,
+      "human_review_reasons": [
+        "national_identifier_requires_operator_review"
+      ],
+      "redacted_preview": "Diş ağrım var, TC [REDACTED] ulaşın."
+    },
+    {
+      "input_text": "ağzımdan kan durmuyor acil",
+      "intent": "medical_emergency",
+      "data_classes": [
+        "contact_data",
+        "special_category_health_data"
+      ],
+      "sensitivity": "urgent_special_category",
+      "auto_send_allowed": false,
+      "human_review_reasons": [
+        "medical_emergency_requires_human_escalation"
+      ],
+      "redacted_preview": "ağzımdan kan durmuyor acil"
+    },
+    {
+      "input_text": "sgk provizyon alın",
+      "intent": "ask_insurance",
+      "data_classes": [
+        "contact_data",
+        "financial_or_insurance_data"
+      ],
+      "sensitivity": "standard",
+      "auto_send_allowed": false,
+      "human_review_reasons": [
+        "insurance_verification_requires_explicit_consent"
+      ],
+      "redacted_preview": "sgk provizyon alın"
+    },
+    {
+      "input_text": "randevu istiyorum",
+      "intent": "book_appointment",
+      "data_classes": [
+        "contact_data",
+        "special_category_health_data"
+      ],
+      "sensitivity": "special_category",
+      "auto_send_allowed": false,
+      "human_review_reasons": [
+        "cross_border_processor_enabled_in_local_first_mode"
+      ],
+      "redacted_preview": "randevu istiyorum"
+    }
+  ],
+  "overall_pass": true
+}

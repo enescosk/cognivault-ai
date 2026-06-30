@@ -11,7 +11,10 @@ IDENTIFIER_PATTERNS = [
     re.compile(r"\b\d{11}\b"),
     re.compile(r"\b(?:\d[ -]?){13,19}\b"),
     re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
-    re.compile(r"\+?\d[\d\s()\-]{7,}\d"),
+    # Telefon/kimlik gibi uzun rakam dizileri — ayırıcı olarak boşluk, parantez,
+    # tire ve NOKTA kabul edilir. Nokta dahil edilmezse "123.456.789.01" gibi
+    # noktayla yazılmış bir TC/kimlik maskelemeden kaçar (KVKK kimlik sızıntısı).
+    re.compile(r"\+?\d[\d\s().\-]{7,}\d"),
 ]
 
 HEALTH_DATA_INTENTS = {

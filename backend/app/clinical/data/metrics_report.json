@@ -1,0 +1,173 @@
+{
+  "ip": "1.8",
+  "title": "CogniVault Türkçe Diş Triyaj — Kalibrasyon/Metrik Panosu",
+  "corpus": {
+    "synthetic": "dental_tr.jsonl",
+    "golden": "golden.jsonl",
+    "emergency_files": [
+      "dental_tr.jsonl",
+      "golden.jsonl",
+      "emergency_adversarial.jsonl"
+    ]
+  },
+  "metrics": {
+    "specialty_accuracy": {
+      "target": 0.9,
+      "synthetic": {
+        "accuracy": 0.967032967032967,
+        "correct": 528,
+        "total": 546,
+        "per_specialty": {
+          "cene_cerrahisi": {
+            "accuracy": 0.7777777777777778,
+            "correct": 49,
+            "total": 63
+          },
+          "dermatoloji": {
+            "accuracy": 1.0,
+            "correct": 46,
+            "total": 46
+          },
+          "endodonti": {
+            "accuracy": 1.0,
+            "correct": 51,
+            "total": 51
+          },
+          "estetik_dis": {
+            "accuracy": 1.0,
+            "correct": 46,
+            "total": 46
+          },
+          "genel_dis": {
+            "accuracy": 0.9272727272727272,
+            "correct": 51,
+            "total": 55
+          },
+          "implantoloji": {
+            "accuracy": 1.0,
+            "correct": 46,
+            "total": 46
+          },
+          "medikal_estetik": {
+            "accuracy": 1.0,
+            "correct": 46,
+            "total": 46
+          },
+          "ortodonti": {
+            "accuracy": 1.0,
+            "correct": 46,
+            "total": 46
+          },
+          "pedodonti": {
+            "accuracy": 1.0,
+            "correct": 46,
+            "total": 46
+          },
+          "periodontoloji": {
+            "accuracy": 1.0,
+            "correct": 55,
+            "total": 55
+          },
+          "restoratif": {
+            "accuracy": 1.0,
+            "correct": 46,
+            "total": 46
+          }
+        },
+        "top_confusions": [
+          {
+            "truth": "cene_cerrahisi",
+            "predicted": "genel_dis",
+            "count": 14
+          },
+          {
+            "truth": "genel_dis",
+            "predicted": "pedodonti",
+            "count": 4
+          }
+        ]
+      },
+      "golden": {
+        "accuracy": 0.6571428571428571,
+        "correct": 23,
+        "total": 35
+      },
+      "pass": true
+    },
+    "calibration_ece": {
+      "target": 0.05,
+      "seed": 42,
+      "train_fraction": 0.6,
+      "train_n": 327,
+      "test_n": 219,
+      "test_ece": 0.020854215391468915,
+      "test_ece_naive": 0.5290280495759948,
+      "golden_ece": 0.24808362369337983,
+      "pass": true
+    },
+    "emergency_recall": {
+      "target": 1.0,
+      "emergencies": 76,
+      "detected": 76,
+      "missed": 0,
+      "recall": 1.0,
+      "false_positives": 0,
+      "false_positive_rate": 0.0,
+      "per_file": [
+        {
+          "name": "dental_tr.jsonl",
+          "emergencies": 40,
+          "detected": 40,
+          "recall": 1.0,
+          "false_positives": 0,
+          "non_emergencies": 506,
+          "false_positive_rate": 0.0,
+          "missed": []
+        },
+        {
+          "name": "golden.jsonl",
+          "emergencies": 6,
+          "detected": 6,
+          "recall": 1.0,
+          "false_positives": 0,
+          "non_emergencies": 29,
+          "false_positive_rate": 0.0,
+          "missed": []
+        },
+        {
+          "name": "emergency_adversarial.jsonl",
+          "emergencies": 30,
+          "detected": 30,
+          "recall": 1.0,
+          "false_positives": 0,
+          "non_emergencies": 10,
+          "false_positive_rate": 0.0,
+          "missed": []
+        }
+      ],
+      "pass": true
+    },
+    "selective": {
+      "target_risk": 0.05,
+      "threshold": 0.9876543209876543,
+      "synthetic": {
+        "total": 546,
+        "accepted": 471,
+        "abstained": 75,
+        "coverage": 0.8626373626373627,
+        "selective_accuracy": 0.9915074309978769,
+        "selective_risk": 0.00849256900212314
+      },
+      "golden": {
+        "total": 35,
+        "accepted": 21,
+        "abstained": 14,
+        "coverage": 0.6,
+        "selective_accuracy": 0.8571428571428571,
+        "selective_risk": 0.1428571428571429
+      },
+      "pass": true
+    }
+  },
+  "overall_pass": true
+}
