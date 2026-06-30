@@ -73,14 +73,24 @@ _URGENCY_RANK: dict[UrgencyLevel, int] = {
 }
 
 # EMERGENCY: her koşulda 112/insan yükseltmesi gerektiren ifadeler.
+# Not: Bare "nefes" kasıtlı olarak YOK — "nefesim kokuyor" (halitozis, rutin)
+# gibi ifadeleri yanlışlıkla acile çıkarıyordu. Havayolu acili için ifadeye
+# özel anahtarlar kullanılır; normalizer (İP-1.7) argo ifadeleri bu kanonik
+# terimlere genişletir.
 EMERGENCY_KEYWORDS: frozenset[str] = frozenset({
-    "nefes", "nefes alamiyorum", "nefes alamıyorum",
-    "gogus", "göğüs", "kalp",
-    "bayildi", "bayıldı",
-    "kontrol edilemeyen kanama", "durmayan kanama",
+    # Havayolu / soluk güçlüğü
+    "nefes alam", "nefes darlig", "nefes almakta zorlan", "nefessiz",
+    "soluk alam", "solunum zorlu",
+    "yutamiyorum", "yutamıyorum", "yutkunam",
+    # Sistemik
+    "gogus kalp", "gogus agrisi", "göğüs ağrısı", "gogus sikis", "kalp kriz",
+    "bayildi", "bayıldı", "bilincini kaybet",
+    # Kontrolsüz kanama
+    "kontrol edilemeyen kanama", "durmayan kanama", "kan durmuyor",
+    # Travma / kırık
     "cene kirigi", "çene kırığı",
+    # Acil şişlik (havayolu riski)
     "yuzum sisti", "yüzüm şişti",
-    "yutamiyorum", "yutamıyorum",
     "112",
 })
 

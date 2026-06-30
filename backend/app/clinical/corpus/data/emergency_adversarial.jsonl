@@ -1,0 +1,40 @@
+{"channel": "phone", "id": "emg-0001", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "çekimden sonra kanama bir türlü dinmedi", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0002", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "iki saat oldu kanı durduramıyorum", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0003", "lang": "tr", "source": "golden_curated", "specialty_code": "periodontoloji", "text": "ağzım sürekli kan doluyor tükürdükçe doluyor", "urgency": "emergency"}
+{"channel": "whatsapp", "id": "emg-0004", "lang": "tr", "source": "golden_curated", "specialty_code": "periodontoloji", "text": "diş etinden gelen kanama hiç kesilmiyor", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0005", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "o kadar çok kan kaybediyorum ki halsizim", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0006", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "operasyondan sonra kanama akmaya devam ediyor", "urgency": "emergency"}
+{"channel": "whatsapp", "id": "emg-0007", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "hocam kan durmak bilmiyor napacağımı şaşırdım", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0008", "lang": "tr", "source": "golden_curated", "specialty_code": "periodontoloji", "text": "valla ağzımdan kan boşalıyor durduramadım", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0009", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "yüzüm aşırı şişti nefes almakta zorlanıyorum", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0010", "lang": "tr", "source": "golden_curated", "specialty_code": "endodonti", "text": "boğazım şişiyor yutkunamıyorum", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0011", "lang": "tr", "source": "golden_curated", "specialty_code": "genel_dis", "text": "dilim şişti soluk alamıyorum", "urgency": "emergency"}
+{"channel": "whatsapp", "id": "emg-0012", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "gözüm kapanacak kadar şişti yüzüm", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0013", "lang": "tr", "source": "golden_curated", "specialty_code": "endodonti", "text": "şişlik boğazıma indi nefessiz kaldım", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0014", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "boynum şişti nefes daralıyor", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0015", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "trafik kazası geçirdim çenem kırık", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0016", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "düştüm çenem kırıldı kapanmıyor", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0017", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "ağzıma sert bir cisim çarptı dişlerim kırıldı", "urgency": "emergency"}
+{"channel": "whatsapp", "id": "emg-0018", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "yumruk yedim çenem oynamıyor", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0019", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "merdivenden düştüm çeneme darbe aldım", "urgency": "emergency"}
+{"channel": "whatsapp", "id": "emg-0020", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "yüzüme top çarptı dişim yerinden çıktı", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0021", "lang": "tr", "source": "golden_curated", "specialty_code": "endodonti", "text": "diş ağrısından neredeyse bayılacağım", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0022", "lang": "tr", "source": "golden_curated", "specialty_code": "genel_dis", "text": "başım döndü sersemledim ayakta duramıyorum", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0023", "lang": "tr", "source": "golden_curated", "specialty_code": "genel_dis", "text": "göğsüm sıkışıyor nefes darlığım var", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0024", "lang": "tr", "source": "golden_curated", "specialty_code": "genel_dis", "text": "gözlerim karardı fenalık geçiriyorum", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0025", "lang": "tr", "source": "golden_curated", "specialty_code": "genel_dis", "text": "kalbim hızlı çarpıyor göğsüm ağrıyor", "urgency": "emergency"}
+{"channel": "whatsapp", "id": "emg-0026", "lang": "tr", "source": "golden_curated", "specialty_code": "endodonti", "text": "apse patladı yutkunamıyorum ateşim çıktı", "urgency": "emergency"}
+{"channel": "whatsapp", "id": "emg-0027", "lang": "tr", "source": "golden_curated", "specialty_code": "endodonti", "text": "yüzüm şişti gözüm kapandı irin akıyor", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0028", "lang": "tr", "source": "golden_curated", "specialty_code": "endodonti", "text": "diş apsem yüzüme yayıldı boğazım şişti", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0029", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "112 lazım mı çenem kırıldı kanıyor", "urgency": "emergency"}
+{"channel": "phone", "id": "emg-0030", "lang": "tr", "source": "golden_curated", "specialty_code": "genel_dis", "text": "acil yardım nefes alamıyorum yüzüm şişti", "urgency": "emergency"}
+{"channel": "web", "id": "emg-0031", "lang": "tr", "source": "golden_curated", "specialty_code": "periodontoloji", "text": "nefesim kötü kokuyor ağız kokusu var", "urgency": "routine"}
+{"channel": "phone", "id": "emg-0032", "lang": "tr", "source": "golden_curated", "specialty_code": "periodontoloji", "text": "ağız kokum geçmiyor nefesim fena", "urgency": "routine"}
+{"channel": "whatsapp", "id": "emg-0033", "lang": "tr", "source": "golden_curated", "specialty_code": "periodontoloji", "text": "diş etim fırçalarken biraz kanıyor", "urgency": "priority"}
+{"channel": "phone", "id": "emg-0034", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "çekim oldu hafif kanama oldu normal mi", "urgency": "priority"}
+{"channel": "whatsapp", "id": "emg-0035", "lang": "tr", "source": "golden_curated", "specialty_code": "endodonti", "text": "dişim zonkluyor ağrı durmuyor", "urgency": "priority"}
+{"channel": "web", "id": "emg-0036", "lang": "tr", "source": "golden_curated", "specialty_code": "dermatoloji", "text": "yüzümde sivilce şişliği var geçmiyor", "urgency": "routine"}
+{"channel": "whatsapp", "id": "emg-0037", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "kanamam durdu artık iyiyim teşekkürler", "urgency": "routine"}
+{"channel": "web", "id": "emg-0038", "lang": "tr", "source": "golden_curated", "specialty_code": "genel_dis", "text": "nefes egzersizi diş hekimi korkusu için işe yarar mı", "urgency": "routine"}
+{"channel": "web", "id": "emg-0039", "lang": "tr", "source": "golden_curated", "specialty_code": "genel_dis", "text": "göğüs hizasına kadar önlük veriyor musunuz çekimde", "urgency": "routine"}
+{"channel": "phone", "id": "emg-0040", "lang": "tr", "source": "golden_curated", "specialty_code": "cene_cerrahisi", "text": "kalp ilacı kullanıyorum çekim olur mu", "urgency": "routine"}

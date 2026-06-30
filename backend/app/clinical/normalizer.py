@@ -117,16 +117,29 @@ _RULES: tuple[_Rule, ...] = (
     # ── Dermatoloji ──────────────────────────────────────────────────────────
     _r(r"sivilce|akne|egzama|sac\s+dokul|kasin(iy|ti)|ben\s+var\s+buy|bende\s+ben", "akne sivilce egzama"),
 
-    # ── ACİL sinyaller ───────────────────────────────────────────────────────
-    _r(r"yuzum\s+(balon|top|gibi\s+sist|cok\s+sist)",           "yuzum sisti"),
-    _r(r"kan\s+durmuyor|kan\s+akmaya\s+devam|kan\s+kesmiyor",   "durmayan kanama"),
-    _r(r"cene(m|si)?\s+kirild|cene\s+kirigi",                   "cene kirigi"),
-    # yüz/çene/ağız bölgesi acil şişlik → maksillofasiyal (çene cerrahisi)
-    _r(r"yuzum\s+sisti\s+gozum|gozum\s+kapaniyor|agzimdaki\s+sislik|bogazima\s+vurdu", "yuzum sisti cene kirigi"),
-    _r(r"yutam(iy|iy)orum|yutmak(ta)?\s+zorluk",                "yutamiyorum"),
-    _r(r"nefes\s+alam(iy|iy)orum|nefes\s+darligi",              "nefes alamiyorum"),
-    _r(r"gogsum\s+(agriyor|sikisiyor)|gogus\s+agrisi",           "gogus kalp"),
-    _r(r"bayild|bilincin(i|i)\s+kaybet",                         "bayildi"),
+    # ── ACİL sinyaller (İP-1.7: yüksek-recall adversarial kapsama) ────────────
+    # Kontrolsüz kanama. Yalın "kanama" PRIORITY kalır; yalnızca durdurula-
+    # mayan/dinmeyen kanama EMERGENCY'e yükselir. Yakınlık (.{0,24}) "kanama
+    # bir türlü durmuyor" gibi araya kelime giren ifadeleri yakalar.
+    _r(r"kan(ama|i|imi|im)?\b.{0,24}\b(durmuyor|durmad|durdura|durmak\s+bilm|dindir|dinmiyor|dinmed|dinmek\s+bilm|kesilmiyor|kesmiyor|akmaya\s+devam)", "durmayan kanama"),
+    _r(r"\bkan(ama)?\s+(doluyor|doldu)|agzim\s+kan\s+dol",                       "durmayan kanama"),
+    _r(r"(cok|fazla|asiri|surekli)\s+kan\s+(kayb|kaybediyorum|gidiyor)|kan\s+kaybediyorum", "durmayan kanama"),
+    # Yüz/çene/boğaz acil şişlik → havayolu riski.
+    _r(r"yuzum\s+(balon|top|gibi\s+sist|cok\s+sist|sisti\s+gozum)",             "yuzum sisti"),
+    _r(r"gozum\s+kapan|agzimdaki\s+sislik|sislik\s+bogaz",                       "yuzum sisti"),
+    _r(r"bogaz\w*\s+(sisti|sisiyor|sisip|kapan|tikan)|dilim\s+sis|boynum\s+sis", "yutamiyorum"),
+    # Yutma / soluk güçlüğü (havayolu).
+    _r(r"yut(am|kunam|kunmu|kunamiy)\w*|yutkunam|yutmak(ta)?\s+zorluk|lokma\s+gecmiyor", "yutamiyorum"),
+    _r(r"nefes\s+alam\w*|nefes\s+darligi|nefes\s+daral\w*|nefes\s+almakta\s+zorlan|soluk\s+alam\w*|solunum\s+zorlu|nefessiz\s+kal", "nefes alamiyorum"),
+    # Çene / yüz travması ve kırığı (ağız-yüz bağlamı).
+    _r(r"cene(m|si|imde|imi|ler)?\s*(kirild|kirik|kirigi|catlad|cikti\s+yerinden|oynamiyor|yerinden)", "cene kirigi"),
+    # Travma yalnızca gerçek darbe/çarpma sözcükleriyle; "sinire vurdu" (ağrı
+    # idiyomu) ve "dolgu/lamina düştü" (restoratif) acile kaçmasın diye dar tut.
+    _r(r"(agzima|ceneme|yuzume|surat\w*|disim\w*|disler\w*)\b.{0,20}(darbe\s+ald|yumruk|sert\s+cisim|tekme|carpt)", "cene kirigi durmayan kanama"),
+    _r(r"kaza\s+gecir|trafik\s+kaza|cene\w*\s+carpt|cene(me|me)\s+darbe", "cene kirigi"),
+    # Bilinç / sistemik.
+    _r(r"bayil(d|ac|ir\s+gibi|mak)|bilincim?\s+(kaybet|gid|kapan|bulan)|sersem|gozlerim\s+karard|fenalik\s+gecir", "bayildi"),
+    _r(r"gogsum\s+(agriyor|sikisiy|yaniy|daral)|gogus\s+agrisi|kalbim\s+(sikis|hizli|carp)|kalp\s+kriz", "gogus kalp"),
 )
 
 
