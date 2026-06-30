@@ -1,0 +1,715 @@
+{
+  "cases": [
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "time_of_day",
+      "reply": "Günaydın! Ben Selin, Demo Klinik dijital asistanıyım. Sizin için ne yapabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2035,
+      "should_handoff": false,
+      "styles": [
+        "time_of_day"
+      ],
+      "text": "Günaydın"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "time_of_day",
+      "reply": "İyi günler! Ben Demo Klinik dijital asistanı Selin. Size nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2476,
+      "should_handoff": false,
+      "styles": [
+        "time_of_day"
+      ],
+      "text": "İyi günler"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "time_of_day",
+      "reply": "İyi akşamlar! Ben Demo Klinik dijital asistanı Selin. Nasıl yardımcı olmamı istersiniz?",
+      "requires_human_review": false,
+      "response_delay_ms": 2521,
+      "should_handoff": false,
+      "styles": [
+        "time_of_day"
+      ],
+      "text": "İyi akşamlar"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "time_of_day",
+      "reply": "Günaydın! Demo Klinik dijital asistanı Selin sizinle. Sizin için ne yapabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2333,
+      "should_handoff": false,
+      "styles": [
+        "time_of_day"
+      ],
+      "text": "Hayırlı sabahlar"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "standard",
+      "reply": "İyi günler! Ben Selin, Demo Klinik dijital asistanıyım. Nasıl yardımcı olmamı istersiniz?",
+      "requires_human_review": false,
+      "response_delay_ms": 2297,
+      "should_handoff": false,
+      "styles": [
+        "standard"
+      ],
+      "text": "Merhaba"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "standard",
+      "reply": "İyi günler! Demo Klinik dijital asistanı Selin sizinle. Nasıl yardımcı olmamı istersiniz?",
+      "requires_human_review": false,
+      "response_delay_ms": 2600,
+      "should_handoff": false,
+      "styles": [
+        "standard"
+      ],
+      "text": "Merhabalar"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "standard",
+      "reply": "İyi günler! Ben Demo Klinik dijital asistanı Selin. Size nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2512,
+      "should_handoff": false,
+      "styles": [
+        "standard"
+      ],
+      "text": "Selam"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "standard",
+      "reply": "İyi günler! Ben Selin, Demo Klinik dijital asistanıyım. Sizin için ne yapabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2457,
+      "should_handoff": false,
+      "styles": [
+        "standard"
+      ],
+      "text": "Selamlar"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "standard",
+      "reply": "İyi günler! Demo Klinik dijital asistanı Selin sizinle. Size nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2207,
+      "should_handoff": false,
+      "styles": [
+        "standard"
+      ],
+      "text": "meraba"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "religious",
+      "reply": "Aleykümselam! Demo Klinik dijital asistanı Selin sizinle. Bugün size nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2356,
+      "should_handoff": false,
+      "styles": [
+        "religious"
+      ],
+      "text": "Selamün aleyküm"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "religious",
+      "reply": "Aleykümselam! Ben Selin, Demo Klinik dijital asistanıyım. Bugün size nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2299,
+      "should_handoff": false,
+      "styles": [
+        "religious"
+      ],
+      "text": "Aleykümselam"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "wellwish",
+      "reply": "Çok teşekkürler! Ben Demo Klinik dijital asistanı Selin. Bugün size nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2422,
+      "should_handoff": false,
+      "styles": [
+        "wellwish"
+      ],
+      "text": "Kolay gelsin"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "wellwish",
+      "reply": "Teşekkür ederim! Ben Demo Klinik dijital asistanı Selin. Sizin için ne yapabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2477,
+      "should_handoff": false,
+      "styles": [
+        "wellwish"
+      ],
+      "text": "Hayırlı işler"
+    },
+    {
+      "formality": "informal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "informal",
+      "reply": "Selam! Ben Demo Klinik'ten Selin. Nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 1898,
+      "should_handoff": false,
+      "styles": [
+        "informal"
+      ],
+      "text": "Naber"
+    },
+    {
+      "formality": "informal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "informal",
+      "reply": "Selam! Ben Selin, Demo Klinik asistanı. Nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 1867,
+      "should_handoff": false,
+      "styles": [
+        "informal"
+      ],
+      "text": "slm"
+    },
+    {
+      "formality": "informal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "informal",
+      "reply": "Selam! Selin ben, Demo Klinik asistanı. Nasıl yardımcı olayım?",
+      "requires_human_review": false,
+      "response_delay_ms": 1777,
+      "should_handoff": false,
+      "styles": [
+        "informal"
+      ],
+      "text": "mrb"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "standard",
+      "reply": "İyi günler! Ben Demo Klinik dijital asistanı Selin. Bugün size nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2600,
+      "should_handoff": false,
+      "styles": [
+        "standard"
+      ],
+      "text": "Selaaaam"
+    },
+    {
+      "formality": "informal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "informal",
+      "reply": "Selam! Ben Selin, Demo Klinik asistanı. Senin için ne yapabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 1777,
+      "should_handoff": false,
+      "styles": [
+        "informal"
+      ],
+      "text": "napıyorsun"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "polite_inquiry",
+      "reply": "İyi günler! Çok iyiyim, teşekkür ederim. Ben Selin, Demo Klinik dijital asistanıyım. Sizin için ne yapabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2600,
+      "should_handoff": false,
+      "styles": [
+        "polite_inquiry",
+        "standard"
+      ],
+      "text": "Merhaba nasılsınız"
+    },
+    {
+      "formality": "formal",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "polite_inquiry",
+      "reply": "İyi günler! İyiyim, sorduğunuz için teşekkürler. Demo Klinik dijital asistanı Selin sizinle. Sizin için ne yapabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2600,
+      "should_handoff": false,
+      "styles": [
+        "polite_inquiry"
+      ],
+      "text": "İyi misiniz"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "standard",
+      "reply": "İyi günler! Ben Selin, Demo Klinik dijital asistanıyım. Bugün size nasıl yardımcı olabilirim?",
+      "requires_human_review": false,
+      "response_delay_ms": 2082,
+      "should_handoff": false,
+      "styles": [
+        "standard"
+      ],
+      "text": "👋"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "en",
+      "prefix": "",
+      "primary_style": "english",
+      "reply": "Good afternoon! I'm Selin from Demo Klinik, your digital assistant. How can I help you?",
+      "requires_human_review": false,
+      "response_delay_ms": 2136,
+      "should_handoff": false,
+      "styles": [
+        "english"
+      ],
+      "text": "Hello"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "en",
+      "prefix": "",
+      "primary_style": "english",
+      "reply": "Good afternoon! I'm Selin from Demo Klinik, your digital assistant. What can I do for you today?",
+      "requires_human_review": false,
+      "response_delay_ms": 2600,
+      "should_handoff": false,
+      "styles": [
+        "english"
+      ],
+      "text": "Hi there"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "en",
+      "prefix": "",
+      "primary_style": "english",
+      "reply": "Good morning! Selin here, Demo Klinik's digital assistant. How may I help you today?",
+      "requires_human_review": false,
+      "response_delay_ms": 2600,
+      "should_handoff": false,
+      "styles": [
+        "english"
+      ],
+      "text": "Good morning"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "en",
+      "prefix": "",
+      "primary_style": "english",
+      "reply": "Good afternoon! I'm Selin, the digital assistant at Demo Klinik. How may I help you today?",
+      "requires_human_review": false,
+      "response_delay_ms": 2188,
+      "should_handoff": false,
+      "styles": [
+        "english"
+      ],
+      "text": "How are you"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "en",
+      "prefix": "",
+      "primary_style": "english",
+      "reply": "Good afternoon! Selin here, Demo Klinik's digital assistant. How may I help you today?",
+      "requires_human_review": false,
+      "response_delay_ms": 2034,
+      "should_handoff": false,
+      "styles": [
+        "english"
+      ],
+      "text": "Howdy"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "farewell",
+      "reply": "Teşekkür ederiz, kendinize iyi bakın!",
+      "requires_human_review": false,
+      "response_delay_ms": 1375,
+      "should_handoff": false,
+      "styles": [
+        "farewell"
+      ],
+      "text": "Görüşürüz"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "tr",
+      "prefix": "",
+      "primary_style": "farewell",
+      "reply": "Teşekkür ederiz, kendinize iyi bakın!",
+      "requires_human_review": false,
+      "response_delay_ms": 1290,
+      "should_handoff": false,
+      "styles": [
+        "farewell"
+      ],
+      "text": "Hoşça kalın"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "en",
+      "prefix": "",
+      "primary_style": "farewell",
+      "reply": "Thank you for reaching out. Take care and stay healthy!",
+      "requires_human_review": false,
+      "response_delay_ms": 1695,
+      "should_handoff": false,
+      "styles": [
+        "farewell"
+      ],
+      "text": "Goodbye"
+    },
+    {
+      "formality": "neutral",
+      "handled": true,
+      "handoff_reason": null,
+      "language": "en",
+      "prefix": "",
+      "primary_style": "farewell",
+      "reply": "Glad to help — take care!",
+      "requires_human_review": false,
+      "response_delay_ms": 889,
+      "should_handoff": false,
+      "styles": [
+        "farewell"
+      ],
+      "text": "See you"
+    },
+    {
+      "formality": "neutral",
+      "handled": false,
+      "handoff_reason": "book_appointment",
+      "language": "tr",
+      "prefix": "İyi günler",
+      "primary_style": "standard",
+      "reply": "",
+      "requires_human_review": false,
+      "response_delay_ms": 1107,
+      "should_handoff": true,
+      "styles": [
+        "standard"
+      ],
+      "text": "Merhaba randevu almak istiyorum"
+    },
+    {
+      "formality": "formal",
+      "handled": false,
+      "handoff_reason": "book_appointment",
+      "language": "tr",
+      "prefix": "İyi günler, hoş geldiniz",
+      "primary_style": "time_of_day",
+      "reply": "",
+      "requires_human_review": false,
+      "response_delay_ms": 1625,
+      "should_handoff": true,
+      "styles": [
+        "time_of_day"
+      ],
+      "text": "İyi günler diş fiyatlarını öğrenebilir miyim"
+    },
+    {
+      "formality": "neutral",
+      "handled": false,
+      "handoff_reason": "cancel_appointment",
+      "language": "tr",
+      "prefix": "İyi günler",
+      "primary_style": "standard",
+      "reply": "",
+      "requires_human_review": false,
+      "response_delay_ms": 1102,
+      "should_handoff": true,
+      "styles": [
+        "standard"
+      ],
+      "text": "Selam yarın randevumu iptal etmek istiyorum"
+    },
+    {
+      "formality": "neutral",
+      "handled": false,
+      "handoff_reason": "general_question",
+      "language": "en",
+      "prefix": "Good afternoon, welcome",
+      "primary_style": "english",
+      "reply": "",
+      "requires_human_review": false,
+      "response_delay_ms": 1382,
+      "should_handoff": true,
+      "styles": [
+        "english"
+      ],
+      "text": "Hello can I book an appointment"
+    },
+    {
+      "formality": "neutral",
+      "handled": false,
+      "handoff_reason": "medical_emergency",
+      "language": "tr",
+      "prefix": "İyi günler. Hemen ekibimize bağlıyorum sizi",
+      "primary_style": "standard",
+      "reply": "",
+      "requires_human_review": true,
+      "response_delay_ms": 1633,
+      "should_handoff": true,
+      "styles": [
+        "standard"
+      ],
+      "text": "Merhaba nefes alamıyorum"
+    },
+    {
+      "formality": "neutral",
+      "handled": false,
+      "handoff_reason": "medical_emergency",
+      "language": "tr",
+      "prefix": "İyi günler. Hemen ekibimize bağlıyorum sizi",
+      "primary_style": "standard",
+      "reply": "",
+      "requires_human_review": true,
+      "response_delay_ms": 2048,
+      "should_handoff": true,
+      "styles": [
+        "standard"
+      ],
+      "text": "Selam diş etimden kanama durmuyor"
+    },
+    {
+      "formality": "neutral",
+      "handled": false,
+      "handoff_reason": "general_question",
+      "language": "tr",
+      "prefix": "İyi günler, buyurun",
+      "primary_style": "standard",
+      "reply": "",
+      "requires_human_review": false,
+      "response_delay_ms": 1351,
+      "should_handoff": true,
+      "styles": [
+        "standard"
+      ],
+      "text": "Merhaba bir şey sormak istiyorum"
+    },
+    {
+      "formality": "neutral",
+      "handled": false,
+      "handoff_reason": "general_question",
+      "language": "tr",
+      "prefix": "İyi günler, hoş geldiniz",
+      "primary_style": "standard",
+      "reply": "",
+      "requires_human_review": false,
+      "response_delay_ms": 1211,
+      "should_handoff": true,
+      "styles": [
+        "standard"
+      ],
+      "text": "Merhaba asdkfjh"
+    },
+    {
+      "formality": "neutral",
+      "handled": false,
+      "handoff_reason": "abusive_language",
+      "language": "tr",
+      "prefix": "Size yardımcı olmak isterim, talebinizi paylaşır mısınız",
+      "primary_style": "standard",
+      "reply": "",
+      "requires_human_review": false,
+      "response_delay_ms": 2111,
+      "should_handoff": true,
+      "styles": [
+        "standard"
+      ],
+      "text": "Selam salak mısın"
+    }
+  ],
+  "gates": {
+    "coverage": {
+      "failures": [],
+      "pass": true,
+      "target": "her karşılama biçimi tanınır"
+    },
+    "formality_mirror": {
+      "failures": [],
+      "pass": true,
+      "target": "resmiyet doğru çıkarılır"
+    },
+    "humane_delay": {
+      "failures": [],
+      "pass": true,
+      "target": "yanıt gecikmesi insancıl aralıkta"
+    },
+    "intent_handoff": {
+      "failures": [],
+      "pass": true,
+      "target": "talepli selam aşağı devredilir"
+    },
+    "language_mirror": {
+      "failures": [],
+      "pass": true,
+      "target": "dil doğru aynalanır"
+    },
+    "naturalness": {
+      "failures": [],
+      "pass": true,
+      "target": "yanıt biçimsel olarak doğal/temiz"
+    },
+    "no_pii_echo": {
+      "failures": [],
+      "pass": true,
+      "target": "karşılıkta ham kimlik yankılanmaz"
+    },
+    "no_swallow": {
+      "failures": [],
+      "pass": true,
+      "target": "gerçek talep yutulmaz / saf selam kapatılır"
+    },
+    "nonsense_guard": {
+      "failures": [],
+      "pass": true,
+      "target": "anlamsız/saldırgan girdi sıcak karşılamayla yanıtlanmaz"
+    },
+    "response_variety": {
+      "distinct": 28,
+      "pass": true,
+      "ratio": 0.933,
+      "target": "saf-karşılama yanıtları çeşitli (≥%60 farklı)",
+      "total": 30
+    },
+    "safety_escalation": {
+      "failures": [],
+      "pass": true,
+      "target": "acil/sigorta insan onayına yükseltilir"
+    },
+    "style_recognition": {
+      "failures": [],
+      "pass": true,
+      "target": "beklenen stil tespit edilir"
+    }
+  },
+  "input": {
+    "delay_bounds_ms": [
+      450,
+      2600
+    ],
+    "emergency_cases": 2,
+    "handoff_cases": 9,
+    "n_cases": 39,
+    "styles_covered": [
+      "english",
+      "farewell",
+      "informal",
+      "polite_inquiry",
+      "religious",
+      "standard",
+      "time_of_day",
+      "wellwish"
+    ]
+  },
+  "ip": "R1",
+  "name": "reception_greeting_engine",
+  "overall_pass": true
+}

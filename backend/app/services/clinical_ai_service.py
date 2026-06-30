@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import math
 import re
 
@@ -16,7 +17,8 @@ from app.clinical.ontology import (
 )
 from app.models import Clinic, ClinicIntent
 from app.services.clinical_compliance_service import build_governance_context, mask_identifiers
-from app.services.clinical_persona_service import ClinicalPersona, choose_persona
+from app.services.clinical_persona_service import ClinicalPersona, choose_persona, get_persona
+from app.reception.greeting import compose_reception
 from app.services.clinical_slot_service import build_slot_decision
 from app.services.customer_understanding import rank_intents, understand_primary_intent
 from app.services.medical_triage_service import MedicalUrgency, assess_medical_triage, looks_medical
@@ -621,6 +623,34 @@ def generate_clinical_reply(
     use_ai=False ile çağrı ~anında döner (lokal LLM'in ~6 sn'si yerine).
     """
     resolved_language = language or detect_language(text, clinic.default_language)
+
+    # ── API öncesi karşılama katmanı (İP-R1) ───────────────────────────────────
+    # Saf selam/veda (gerçek talep YOK) ise LLM'e inmeden sıcak, üsluba/dile
+    # aynalı bir karşılık döner. Talep barındıran selam ("merhaba randevu...")
+    # ya da acil ("merhaba nefes alamıyorum") buradan DEVREDİLİR ve aşağıdaki
+    # normal akışta sınıflanır — gerçek talep asla yutulmaz.
+    reception = compose_reception(text, clinic_name=clinic.name, hour=datetime.now().hour)
+    if reception.handled:
+        greeter = get_persona("selin")
+        return ClinicalAIResult(
+            reply=reception.reply,
+            confidence=0.95,
+            intent=ClinicIntent.GENERAL_QUESTION,
+            action="greeting_reception",
+            persona_id=greeter.id,
+            persona_name=greeter.display_name,
+            voice=greeter.voice,
+            requires_human_review=False,
+            risk_reason=None,
+            data={
+                "reception": reception.analysis.as_dict(),
+                # İnsancıl yanıt ritmi: arayan katman bu süre kadar "yazıyor…"
+                # gösterip yanıtı öyle iletebilir (robotik anında dönüş değil).
+                "response_delay_ms": reception.response_delay_ms,
+            },
+            triage_assessment=None,
+        )
+
     intent, intent_confidence = classify_intent(text)
     if intent == ClinicIntent.GENERAL_QUESTION and looks_medical(text):
         intent = ClinicIntent.SYMPTOM_TRIAGE
