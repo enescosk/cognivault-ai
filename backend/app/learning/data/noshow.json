@@ -1,0 +1,72 @@
+{
+  "gates": {
+    "auc_target": {
+      "auc_test": 0.8301,
+      "pass": true,
+      "target": "AUC ≥ 0.75"
+    }
+  },
+  "ip": "4.5",
+  "metrics": {
+    "auc_test": 0.8301,
+    "auc_train": 0.85,
+    "n_test": 480,
+    "n_train": 1120,
+    "no_show_rate": 0.2894
+  },
+  "model": {
+    "bias": -1.4434,
+    "feature_order": [
+      "lead_time_days",
+      "prior_no_shows",
+      "prior_completed",
+      "reminder_sent",
+      "is_first_visit",
+      "days_since_last",
+      "age",
+      "slot_hour"
+    ],
+    "means": [
+      15.225,
+      2.2232,
+      5.983,
+      0.5839,
+      0.05,
+      172.4679,
+      47.1911,
+      12.8536
+    ],
+    "stds": [
+      8.9797,
+      1.6728,
+      3.7291,
+      0.4929,
+      0.2179,
+      110.7186,
+      18.1225,
+      3.149
+    ],
+    "weights": [
+      0.5357,
+      1.5791,
+      -0.608,
+      -0.3999,
+      0.1473,
+      0.1987,
+      -0.0124,
+      0.07
+    ]
+  },
+  "name": "no_show_risk_model",
+  "overall_pass": true,
+  "standardized_coefficients": {
+    "age": -0.0124,
+    "days_since_last": 0.1987,
+    "is_first_visit": 0.1473,
+    "lead_time_days": 0.5357,
+    "prior_completed": -0.608,
+    "prior_no_shows": 1.5791,
+    "reminder_sent": -0.3999,
+    "slot_hour": 0.07
+  }
+}
