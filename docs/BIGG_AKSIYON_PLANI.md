@@ -16,12 +16,12 @@ Son güncelleme: 2026-06-19
 |-----------|------|----------|-------|
 | İP-1 | Türkçe Diş Triyaj NLU + Kalibre Çekimser Yönlendirici | Ay 1–7 | 🟡 MVP iskeleti var, Ar-Ge açık |
 | İP-2 | Deterministik Yönetişim Zarfı'nın Sertleştirilmesi | Ay 1–8 | ✅ Adversarial-kanıtlı (160 senaryo, ihlal=0) |
-| İP-3 | On-prem Yerel Yığın Optimizasyonu | Ay 3–9 | 🟡 Yerel yığın var, optimizasyon açık |
+| İP-3 | On-prem Yerel Yığın Optimizasyonu | Ay 3–9 | 🟡 Gecikme ölçüm/rapor ✅; damıtma (3.6) + RT-ses (3.7) açık |
 | İP-4 | Hekim-Döngülü İyileştirme + Öngörücü Süreklilik | Ay 5–10 | 🟡 Shadow Mode var, no-show motoru açık |
 | İP-5 | Pilot Saha & Klinik Doğrulama | Ay 7–12 | ⬜ Açık |
 | İP-6 | Ticarileştirme & Fikri Mülkiyet | Ay 9–12 | ⬜ Açık |
 
-**🔵 ŞU ANKİ ODAK:** İP-1 ✅ ve İP-2 ✅ tamamlandı. Sıradaki: İP-3 (yerel yığın gecikme/kalite optimizasyonu) veya İP-4 (hekim-döngülü RLHF + no-show modeli).
+**🔵 ŞU ANKİ ODAK:** İP-1 ✅ ve İP-2 ✅ tamamlandı. İP-3 gecikme ölçüm+raporlama (3.8/3.9) ✅. Kalan İP-3: 3.6 (TR diş korpusunda model damıtma — gerçek eğitim altyapısı gerekir) ve 3.7 (gerçek-zamanlı ses/VAD — ses altyapısı gerekir). Sıradaki: İP-3.6/3.7 altyapı geldiğinde, veya İP-4 (hekim-döngülü RLHF + no-show modeli).
 
 ---
 
@@ -62,8 +62,8 @@ Son güncelleme: 2026-06-19
 - ✅ **3.5** Harici LLM/STT/TTS klinik veride varsayılan kapalı. — Mevcut: residency varsayılanları.
 - ⬜ **3.6** Küçük on-prem modelin TR diş korpusunda damıtma/ince-ayarı (İP-1.2 korpusuna bağlı).
 - ⬜ **3.7** Gerçek-zamanlı ses: VAD, gürültü toleransı, kesinti yönetimi.
-- ⬜ **3.8** Gecikme optimizasyonu — modest donanımda hedef latency ölç ve raporla.
-- ⬜ **3.9** Gecikme + kalite raporu.
+- ✅ **3.8** Gecikme optimizasyonu — modest donanımda hedef latency ölç ve raporla. — YAPILDI (2026-06-30): `app/perf/latency.py`. Her istekte koşan saf-Python kritik yolu (PII maskeleme→zarf→niyet→triyaj) gerçek `perf_counter` ile p50/p95/p99 ölçer, modest-donanım p95 bütçesine göre kapı uygular. Saf kritik yol p95 ~0,8 ms; model aşamaları (ASR≤1500/LLM≤2500/TTS≤600 ms) belgeli hedef; uçtan-uca ses-turu p95 ~4,6 s (bütçe ≤5 s) ✅. `python -m app.perf.latency --latency-only`.
+- ✅ **3.9** Gecikme + kalite raporu. — YAPILDI (2026-06-30): `build_perf_report()` gecikme panosunu (İP-3.8) klinik kalite panosuyla (İP-1.8: branş %96,7 / ECE 0,0209 / recall %100 / seçici risk %0,8) tek denetlenebilir JSON'da birleştirir → `app/perf/data/latency_report.json`. `python -m app.perf.latency`.
 
 ## İP-4 — Hekim-Döngülü İyileştirme + Öngörücü Süreklilik
 **Başarı ölçütü:** Onay başına karar <30 sn · no-show AUC≥0,75 · pilotta iptal/kaçan-çağrı kurtarımı ≥%60.
@@ -121,3 +121,4 @@ Son güncelleme: 2026-06-19
 - 2026-06-29: İP-1.7 YAPILDI. Adversarial acil seti (`corpus/build_emergency.py`, 30 acil + 10 hard-negative) + normalizer ACİL kurallarının yüksek-recall'a sertleştirilmesi. Ontolojiden bare `"nefes"` kaldırıldı (halitozis yanlış-pozitifi giderildi); travma kuralları idiyom/restoratif tuzaklarına karşı daraltıldı. **Sonuç: 3 korpus genelinde 76/76 acil = recall %100, kaçan acil 0, yanlış-pozitif %0.** `emergency_report.py` + `tests/test_emergency.py` (44 test). Bağımsız klinik suite 151 test geçti. NOT: `clinical_ai_service.extract_clinical_intake` hâlâ kendi sabit-kodlu acil override'larını kullanıyor (normalizer'dan bağımsız) — gelecekte tek motora birleştirme adayı. Odak İP-1.8'e taşındı.
 - 2026-06-30: İP-1.8 YAPILDI. Konsolide metrik panosu (`report.py`): branş doğruluğu + ECE + acil-recall + selektif risk tek denetlenebilir JSON panoda (`data/metrics_report.json`), her metrik hedef+pass bayrağıyla, `overall_pass` VE'si. Tekil üreticileri orkestre eder (yeniden hesaplama yok). Pano: branş %96,7 · ECE 0,0209 · recall %100 · selektif risk %0,8 — hepsi ✅. `tests/test_report.py` (26 test: happy-path + negatif/kapı + CLI smoke + invariant + artefakt tazelik); bağımsız klinik suite 177 test geçti. **İP-1 tamamlandı.** Odak İP-2'ye taşındı.
 - 2026-06-30: İP-2.3/2.4/2.6/2.7/2.8 YAPILDI — **İP-2 tamamlandı.** Yönetişim Zarfı adversarial sertleştirme: yeni `app/governance/` paketi (`adversarial.py` 160-senaryo korpus + ihlal değerlendirici, `gate_report.py` kanıt raporu + `data/gate_report.json`). Property-based değişmez paketi (`tests/test_governance_invariants.py`, 3982 kombinasyon) + adversarial paket (`tests/test_governance_adversarial.py`) + rapor testi (`tests/test_gate_report.py`). **160/160 senaryoda kapı-ihlali = 0; teşhis/sınır-ötesi/kimlik sızıntısı = 0.** Adversarial kapsam gerçek bir kimlik-sızıntısı buldu (`123.456.789.01` noktalı TC) → `mask_identifiers` sertleştirildi. Bağımsız governance 4165 test; klinik+governance toplam 4342 test geçti. NOT: governance testleri de saf-import, `--noconftest` ile koşar; mevcut `test_hardening.py` HTTP `client` fixture'ına bağlı olduğu için ayrı tutuldu. Odak İP-3/İP-4'e taşındı.
+- 2026-06-30: İP-3.8/3.9 YAPILDI. Yeni `app/perf/` paketi (`latency.py`): yerel yığının her istekte koşan saf-Python kritik yolunu (PII maskeleme→yönetişim zarfı→niyet sınıflama→klinik triyaj) gerçek `perf_counter` ile benchmark'lar, p50/p95/p99 çıkarır ve modest-donanım p95 bütçesine göre kapı uygular. **Ölçüm: saf kritik yol p95 ~0,8 ms** (PII 0,005 / zarf 0,007 / niyet 0,67 / triyaj 0,12 ms — hepsi bütçe içinde). Model aşamaları (ASR≤1500 / LLM≤2500 / TTS≤600 ms) bu ortamda ölçülemez → belgeli hedef; **uçtan-uca ses-turu p95 tahmini ~4,6 s (bütçe ≤5 s) ✅**. İP-3.9: `build_perf_report()` gecikmeyi İP-1.8 kalite panosuyla birleştirir → `app/perf/data/latency_report.json`. `tests/test_latency_report.py` (17 test: yüzdelik aradeğer + bütçe kapısı + yapı + determinizm + render-fail + birleşik kalite). Bağımsız perf+klinik+governance 4208 test geçti. NOT: gecikme rakamları duvar-saati → artefakt donmuş değil; testler süreyi değil mantık/yapıyı kilitler. Kalan İP-3 (3.6 model damıtma, 3.7 RT-ses) gerçek eğitim/ses altyapısı gerektirir. Odak İP-3.6/3.7 veya İP-4'e taşındı.
