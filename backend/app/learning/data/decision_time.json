@@ -1,0 +1,37 @@
+{
+  "gates": {
+    "p50_under_target": {
+      "p50": 14.0,
+      "pass": true,
+      "target": "p50 < 30.0 sn"
+    },
+    "p95_under_target": {
+      "p95": 22.64,
+      "pass": true,
+      "target": "p95 < 30.0 sn"
+    }
+  },
+  "ip": "4.4",
+  "name": "approval_decision_time",
+  "optimization": {
+    "bottleneck_mean_seconds": 20.14,
+    "bottleneck_reason": "ask_insurance",
+    "hint": "Sigorta sorgularında ön-doldurulmuş poliçe özeti göster → hekim okuma süresi düşer."
+  },
+  "overall_pass": true,
+  "stats": {
+    "by_reason_mean": {
+      "ask_insurance": 20.14,
+      "confidence_below_auto_reply_threshold": 8.78,
+      "medical_emergency_guardrail": 11.83,
+      "requires_human_review": 16.58
+    },
+    "count": 220,
+    "max": 24.99,
+    "mean": 14.33,
+    "p50": 14.0,
+    "p90": 21.18,
+    "p95": 22.64
+  },
+  "target_seconds": 30.0
+}
