@@ -2,7 +2,7 @@
 
 Kaynak: `CogniVaultAI_BiGG_IsPlani_TAM_v2.docx` (TÜBİTAK BiGG 1812 İş Planı, Revize v2)
 Proje süresi (resmi): 1 Ekim 2026 – 30 Eylül 2027 (12 ay)
-Son güncelleme: 2026-06-19
+Son güncelleme: 2026-06-30
 
 > **Nasıl kullanıyoruz:** Her gün yeni iş aramıyoruz. Bu dosyadaki sıradaki açık maddeyi alıyoruz, bitirince başına `✅ YAPILDI (tarih)` yazıp bir sonrakine geçiyoruz. Aktif olarak çalıştığımız madde **🔵 ŞU AN** ile işaretli.
 >
@@ -21,7 +21,7 @@ Son güncelleme: 2026-06-19
 | İP-5 | Pilot Saha & Klinik Doğrulama | Ay 7–12 | ⬜ Açık |
 | İP-6 | Ticarileştirme & Fikri Mülkiyet | Ay 9–12 | ⬜ Açık |
 
-**🔵 ŞU ANKİ ODAK:** İP-1 ✅ ve İP-2 ✅ tamamlandı. İP-3 gecikme ölçüm+raporlama (3.8/3.9) ✅. İP-4.2 ✅ · İP-4.3 ✅ · İP-4.5 (no-show modeli, TEST AUC 0,83) ✅. Kalan İP-3: 3.6 (model damıtma) ve 3.7 (RT-ses) — gerçek eğitim/ses altyapısı gerekir. **İP-4 tamamlandı** (4.1–4.7 ✅; `app/learning/` paketi 6 modül, 65 test). Kalan açık işler altyapı/saha gerektirir: İP-3.6 (model damıtma), İP-3.7 (RT-ses), İP-5 (pilot saha & klinik doğrulama), İP-6 (ticarileştirme & patent — 6.4/6.5 patent yazımı saf-masa işi olarak yapılabilir).
+**🔵 ŞU ANKİ ODAK:** Teknik Ar-Ge çekirdeği güçlü durumda: İP-1 ✅, İP-2 ✅, İP-4 ✅; İP-3'te gecikme/kalite raporu ✅, kalan 3.6 model damıtma ve 3.7 gerçek-zamanlı ses gerçek eğitim/ses altyapısı gerektirir. İP-6'da patent dosyası tarafı 6.4/6.5 taslak + 6.6 vekil paketi + 6.7 Faz-2 federe öğrenme notu seviyesine getirildi. Bundan sonraki en kritik iş, koddan çok saha ve ticarileştirme hattıdır: **İP-5.1 pilot klinik sözleşme/rıza hazırlığı**, **İP-6.3 <1 gün onboarding akışı**, **İP-6.1 fiyatlandırma/faturalama modeli** ve **İP-6.8 ücretli klinik dönüşümü**.
 
 ---
 
