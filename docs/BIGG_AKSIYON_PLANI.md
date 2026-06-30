@@ -98,7 +98,7 @@ Son güncelleme: 2026-06-19
 - 🟡 **6.4** TASLAK (2026-06-30) Yöntem patenti novelty araştırması çerçevesi — `docs/patent/IP-6.4-6.5-novelty-ve-istem-taslaklari.md` Bölüm A: korunacak çekirdek (3 yenilik ekseni), EPATS/Espacenet arama stratejisi (CPC/IPC sınıfları + EN/TR terim kümeleri), bilinen genel sanattan farklılaşma tablosu ve buluş-basamağı (teknik-önyargıyı-aşma) argümanı. **NOT: resmî novelty teyidi vekilin EPATS aramasını gerektirir** — bu mühendislik girdisidir, "yenilik bulundu" değil.
 - 🟡 **6.5** TASLAK (2026-06-30) Patent istem taslakları — aynı belge Bölüm B: **3 bağımsız istem** (1: deterministik yönetişim zarfı/yöntem · 2: kalibre+çekimser triyaj/sistem · 3: hekim-onay paketi & mahremiyet-kapılı öğrenme/yöntem) + 7 bağımlı istem (argo eşleme, sınır-ötesi engel, PII maskeleme, konformal eşik, no-show→slot/geri-çağırma). Uygulanmış mimariye ve İP-1/2/4 artefaktlarına dayanır. **Vekil incelemesi şart**; nihai istem dili/kapsamı vekille kesinleşir.
 - ⬜ **6.6** Vekil-incelemeli patent başvuru paketi.
-- ⬜ **6.7** Federe öğrenme Faz-2 fizibilite notu.
+- ✅ **6.7** YAPILDI (2026-06-30) Federe öğrenme Faz-2 fizibilite notu — `docs/IP-6.7-federe-ogrenme-fizibilite-notu.md`. İP-4.2 mahremiyet-kapılı etiket döngüsüne bağlanır: ham veri kliniği terk etmeden klinikler-arası ortak modeli iyileştirme. Aday yaklaşımlar (FedAvg → Secure Aggregation → DP-FedAvg), KVKK/hukuki çerçeve (sınır-ötesi engel + opt-in rıza), risk-azaltım tablosu, önkoşullar ve **karar: federe öğrenme bugün erken (klinik tabanı yok); İP-5 pilotuna bağlı Faz-2 olarak konumlandırılır**, Faz-1'de İP-4.2/4.3 klinik-yerel iyileştirme sürer.
 - ⬜ **6.8** ≥5 ücretli klinik dönüşümü.
 
 ---
