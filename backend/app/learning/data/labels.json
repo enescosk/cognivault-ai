@@ -1,0 +1,101 @@
+{
+  "collection": {
+    "agreement_rate": 0.4286,
+    "approval_rate": 0.4286,
+    "by_intent": {
+      "ask_price": 2,
+      "book_appointment": 2,
+      "cancel_appointment": 1,
+      "medical_emergency": 1,
+      "reschedule_appointment": 1
+    },
+    "by_outcome": {
+      "approved": 3,
+      "edited": 3,
+      "rejected": 1
+    },
+    "edit_rate": 0.4286,
+    "invalid_outcome": 1,
+    "privacy_held": 2,
+    "rejection_rate": 0.1429,
+    "total_records": 11,
+    "trainable": 7
+  },
+  "gates": {
+    "integrity_gate": {
+      "bad_label_type": 0,
+      "bad_weight": 0,
+      "pass": true,
+      "target": "geçerli tip + ağırlık∈[0,1] + tekil review_id",
+      "unique_review_ids": true
+    },
+    "privacy_gate": {
+      "pass": true,
+      "pending_leak": 0,
+      "privacy_held": 2,
+      "target": "pending_redaction sızıntısı = 0"
+    }
+  },
+  "ip": "4.2",
+  "labels": {
+    "by_label_type": {
+      "correction": 3,
+      "negative": 1,
+      "positive_confirm": 3
+    },
+    "count": 7,
+    "examples": [
+      {
+        "intent": "book_appointment",
+        "label_type": "positive_confirm",
+        "review_id": 101,
+        "source_outcome": "approved",
+        "weight": 1.0
+      },
+      {
+        "intent": "ask_price",
+        "label_type": "correction",
+        "review_id": 102,
+        "source_outcome": "edited",
+        "weight": 1.0
+      },
+      {
+        "intent": "book_appointment",
+        "label_type": "correction",
+        "review_id": 103,
+        "source_outcome": "edited",
+        "weight": 1.0
+      },
+      {
+        "intent": "medical_emergency",
+        "label_type": "negative",
+        "review_id": 104,
+        "source_outcome": "rejected",
+        "weight": 1.0
+      },
+      {
+        "intent": "reschedule_appointment",
+        "label_type": "positive_confirm",
+        "review_id": 105,
+        "source_outcome": "approved",
+        "weight": 1.0
+      },
+      {
+        "intent": "ask_price",
+        "label_type": "correction",
+        "review_id": 106,
+        "source_outcome": "edited",
+        "weight": 1.0
+      },
+      {
+        "intent": "cancel_appointment",
+        "label_type": "positive_confirm",
+        "review_id": 107,
+        "source_outcome": "approved",
+        "weight": 1.0
+      }
+    ]
+  },
+  "name": "rlhf_label_dataset",
+  "overall_pass": true
+}
