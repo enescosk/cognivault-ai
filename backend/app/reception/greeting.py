@@ -251,15 +251,18 @@ def human_delay_ms(patient_text: str, reply: str, *, seed: str = "") -> int:
 
 
 # ── Doğal yanıt havuzları (deterministik seçim) ──────────────────────────────
+# Doğal, düz (devrik olmayan) Türkçe tanıtımlar. Klinik adına ek getirmeyiz
+# (özel ada uygun ek/kesme işareti adın sonuna göre değişir → "Demo'ten" gibi
+# hataları önlemek için ad çıplak niteleyici olarak bırakılır).
 _INTRO_TR_FORMAL = (
     "Ben {a}, {c} dijital asistanıyım.",
-    "Ben {c} dijital asistanı {a}.",
-    "{c} dijital asistanı {a} sizinle.",
+    "Adım {a}, {c} dijital asistanıyım.",
+    "Ben {a}, {c} dijital asistanı olarak buradayım.",
 )
 _INTRO_TR_INFORMAL = (
-    "Ben {a}, {c} asistanı.",
-    "Ben {c}'ten {a}.",
-    "{a} ben, {c} asistanı.",
+    "Ben {a}, {c} asistanıyım.",
+    "Adım {a}, {c} asistanıyım.",
+    "Ben {a}, {c} asistanı olarak buradayım.",
 )
 _INTRO_EN = (
     "I'm {a}, the digital assistant at {c}.",

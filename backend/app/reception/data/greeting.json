@@ -23,9 +23,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "time_of_day",
-      "reply": "İyi günler! Ben Demo Klinik dijital asistanı Selin. Size nasıl yardımcı olabilirim?",
+      "reply": "İyi günler! Adım Selin, Demo Klinik dijital asistanıyım. Size nasıl yardımcı olabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 2476,
+      "response_delay_ms": 2593,
       "should_handoff": false,
       "styles": [
         "time_of_day"
@@ -39,9 +39,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "time_of_day",
-      "reply": "İyi akşamlar! Ben Demo Klinik dijital asistanı Selin. Nasıl yardımcı olmamı istersiniz?",
+      "reply": "İyi akşamlar! Adım Selin, Demo Klinik dijital asistanıyım. Nasıl yardımcı olmamı istersiniz?",
       "requires_human_review": false,
-      "response_delay_ms": 2521,
+      "response_delay_ms": 2600,
       "should_handoff": false,
       "styles": [
         "time_of_day"
@@ -55,9 +55,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "time_of_day",
-      "reply": "Günaydın! Demo Klinik dijital asistanı Selin sizinle. Sizin için ne yapabilirim?",
+      "reply": "Günaydın! Ben Selin, Demo Klinik dijital asistanı olarak buradayım. Sizin için ne yapabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 2333,
+      "response_delay_ms": 2600,
       "should_handoff": false,
       "styles": [
         "time_of_day"
@@ -87,7 +87,7 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "standard",
-      "reply": "İyi günler! Demo Klinik dijital asistanı Selin sizinle. Nasıl yardımcı olmamı istersiniz?",
+      "reply": "İyi günler! Ben Selin, Demo Klinik dijital asistanı olarak buradayım. Nasıl yardımcı olmamı istersiniz?",
       "requires_human_review": false,
       "response_delay_ms": 2600,
       "should_handoff": false,
@@ -103,9 +103,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "standard",
-      "reply": "İyi günler! Ben Demo Klinik dijital asistanı Selin. Size nasıl yardımcı olabilirim?",
+      "reply": "İyi günler! Adım Selin, Demo Klinik dijital asistanıyım. Size nasıl yardımcı olabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 2512,
+      "response_delay_ms": 2600,
       "should_handoff": false,
       "styles": [
         "standard"
@@ -135,9 +135,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "standard",
-      "reply": "İyi günler! Demo Klinik dijital asistanı Selin sizinle. Size nasıl yardımcı olabilirim?",
+      "reply": "İyi günler! Ben Selin, Demo Klinik dijital asistanı olarak buradayım. Size nasıl yardımcı olabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 2207,
+      "response_delay_ms": 2496,
       "should_handoff": false,
       "styles": [
         "standard"
@@ -151,9 +151,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "religious",
-      "reply": "Aleykümselam! Demo Klinik dijital asistanı Selin sizinle. Bugün size nasıl yardımcı olabilirim?",
+      "reply": "Aleykümselam! Ben Selin, Demo Klinik dijital asistanı olarak buradayım. Bugün size nasıl yardımcı olabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 2356,
+      "response_delay_ms": 2600,
       "should_handoff": false,
       "styles": [
         "religious"
@@ -183,9 +183,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "wellwish",
-      "reply": "Çok teşekkürler! Ben Demo Klinik dijital asistanı Selin. Bugün size nasıl yardımcı olabilirim?",
+      "reply": "Çok teşekkürler! Adım Selin, Demo Klinik dijital asistanıyım. Bugün size nasıl yardımcı olabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 2422,
+      "response_delay_ms": 2524,
       "should_handoff": false,
       "styles": [
         "wellwish"
@@ -199,9 +199,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "wellwish",
-      "reply": "Teşekkür ederim! Ben Demo Klinik dijital asistanı Selin. Sizin için ne yapabilirim?",
+      "reply": "Teşekkür ederim! Adım Selin, Demo Klinik dijital asistanıyım. Sizin için ne yapabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 2477,
+      "response_delay_ms": 2592,
       "should_handoff": false,
       "styles": [
         "wellwish"
@@ -215,9 +215,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "informal",
-      "reply": "Selam! Ben Demo Klinik'ten Selin. Nasıl yardımcı olabilirim?",
+      "reply": "Selam! Adım Selin, Demo Klinik asistanıyım. Nasıl yardımcı olabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 1898,
+      "response_delay_ms": 2136,
       "should_handoff": false,
       "styles": [
         "informal"
@@ -231,9 +231,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "informal",
-      "reply": "Selam! Ben Selin, Demo Klinik asistanı. Nasıl yardımcı olabilirim?",
+      "reply": "Selam! Ben Selin, Demo Klinik asistanıyım. Nasıl yardımcı olabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 1867,
+      "response_delay_ms": 1934,
       "should_handoff": false,
       "styles": [
         "informal"
@@ -247,9 +247,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "informal",
-      "reply": "Selam! Selin ben, Demo Klinik asistanı. Nasıl yardımcı olayım?",
+      "reply": "Selam! Ben Selin, Demo Klinik asistanı olarak buradayım. Nasıl yardımcı olayım?",
       "requires_human_review": false,
-      "response_delay_ms": 1777,
+      "response_delay_ms": 2155,
       "should_handoff": false,
       "styles": [
         "informal"
@@ -263,7 +263,7 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "standard",
-      "reply": "İyi günler! Ben Demo Klinik dijital asistanı Selin. Bugün size nasıl yardımcı olabilirim?",
+      "reply": "İyi günler! Adım Selin, Demo Klinik dijital asistanıyım. Bugün size nasıl yardımcı olabilirim?",
       "requires_human_review": false,
       "response_delay_ms": 2600,
       "should_handoff": false,
@@ -279,9 +279,9 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "informal",
-      "reply": "Selam! Ben Selin, Demo Klinik asistanı. Senin için ne yapabilirim?",
+      "reply": "Selam! Ben Selin, Demo Klinik asistanıyım. Senin için ne yapabilirim?",
       "requires_human_review": false,
-      "response_delay_ms": 1777,
+      "response_delay_ms": 1837,
       "should_handoff": false,
       "styles": [
         "informal"
@@ -312,7 +312,7 @@
       "language": "tr",
       "prefix": "",
       "primary_style": "polite_inquiry",
-      "reply": "İyi günler! İyiyim, sorduğunuz için teşekkürler. Demo Klinik dijital asistanı Selin sizinle. Sizin için ne yapabilirim?",
+      "reply": "İyi günler! İyiyim, sorduğunuz için teşekkürler. Ben Selin, Demo Klinik dijital asistanı olarak buradayım. Sizin için ne yapabilirim?",
       "requires_human_review": false,
       "response_delay_ms": 2600,
       "should_handoff": false,
