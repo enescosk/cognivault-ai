@@ -1,0 +1,451 @@
+{
+  "engine_count": 6,
+  "engines": {
+    "4.2": {
+      "collection": {
+        "agreement_rate": 0.4286,
+        "approval_rate": 0.4286,
+        "by_intent": {
+          "ask_price": 2,
+          "book_appointment": 2,
+          "cancel_appointment": 1,
+          "medical_emergency": 1,
+          "reschedule_appointment": 1
+        },
+        "by_outcome": {
+          "approved": 3,
+          "edited": 3,
+          "rejected": 1
+        },
+        "edit_rate": 0.4286,
+        "invalid_outcome": 1,
+        "privacy_held": 2,
+        "rejection_rate": 0.1429,
+        "total_records": 11,
+        "trainable": 7
+      },
+      "gates": {
+        "integrity_gate": {
+          "bad_label_type": 0,
+          "bad_weight": 0,
+          "pass": true,
+          "target": "geçerli tip + ağırlık∈[0,1] + tekil review_id",
+          "unique_review_ids": true
+        },
+        "privacy_gate": {
+          "pass": true,
+          "pending_leak": 0,
+          "privacy_held": 2,
+          "target": "pending_redaction sızıntısı = 0"
+        }
+      },
+      "ip": "4.2",
+      "labels": {
+        "by_label_type": {
+          "correction": 3,
+          "negative": 1,
+          "positive_confirm": 3
+        },
+        "count": 7,
+        "examples": [
+          {
+            "intent": "book_appointment",
+            "label_type": "positive_confirm",
+            "review_id": 101,
+            "source_outcome": "approved",
+            "weight": 1.0
+          },
+          {
+            "intent": "ask_price",
+            "label_type": "correction",
+            "review_id": 102,
+            "source_outcome": "edited",
+            "weight": 1.0
+          },
+          {
+            "intent": "book_appointment",
+            "label_type": "correction",
+            "review_id": 103,
+            "source_outcome": "edited",
+            "weight": 1.0
+          },
+          {
+            "intent": "medical_emergency",
+            "label_type": "negative",
+            "review_id": 104,
+            "source_outcome": "rejected",
+            "weight": 1.0
+          },
+          {
+            "intent": "reschedule_appointment",
+            "label_type": "positive_confirm",
+            "review_id": 105,
+            "source_outcome": "approved",
+            "weight": 1.0
+          },
+          {
+            "intent": "ask_price",
+            "label_type": "correction",
+            "review_id": 106,
+            "source_outcome": "edited",
+            "weight": 1.0
+          },
+          {
+            "intent": "cancel_appointment",
+            "label_type": "positive_confirm",
+            "review_id": 107,
+            "source_outcome": "approved",
+            "weight": 1.0
+          }
+        ]
+      },
+      "name": "rlhf_label_dataset",
+      "overall_pass": true
+    },
+    "4.3": {
+      "gates": {
+        "emergency_never_auto": {
+          "emergency_in_pool": 0,
+          "pass": true,
+          "target": "acil/sigorta otomatik havuzunda = 0"
+        },
+        "error_budget_met": {
+          "budget": 0.05,
+          "error_rate": 0.0,
+          "pass": true,
+          "target": "otomatik-yanıt hata ≤ bütçe"
+        },
+        "floor_respected": {
+          "floor": 0.75,
+          "pass": true,
+          "recommended": 0.9,
+          "target": "önerilen ≥ güvenlik tabanı"
+        }
+      },
+      "ip": "4.3",
+      "name": "auto_reply_threshold_learning",
+      "overall_pass": true,
+      "policy": {
+        "current_floor": 0.75,
+        "error_budget": 0.05,
+        "force_human_intents": [
+          "ask_insurance",
+          "medical_emergency"
+        ]
+      },
+      "pool": {
+        "by_intent": {
+          "ask_price": 2,
+          "book_appointment": 2,
+          "cancel_appointment": 1,
+          "reschedule_appointment": 1
+        },
+        "forced_human": 1,
+        "size": 6
+      },
+      "recommendation": {
+        "coverage": 0.3333,
+        "error_rate": 0.0,
+        "forced_human": 1,
+        "met_budget": true,
+        "pool_size": 6,
+        "recommended_threshold": 0.9
+      }
+    },
+    "4.4": {
+      "gates": {
+        "p50_under_target": {
+          "p50": 14.0,
+          "pass": true,
+          "target": "p50 < 30.0 sn"
+        },
+        "p95_under_target": {
+          "p95": 22.64,
+          "pass": true,
+          "target": "p95 < 30.0 sn"
+        }
+      },
+      "ip": "4.4",
+      "name": "approval_decision_time",
+      "optimization": {
+        "bottleneck_mean_seconds": 20.14,
+        "bottleneck_reason": "ask_insurance",
+        "hint": "Sigorta sorgularında ön-doldurulmuş poliçe özeti göster → hekim okuma süresi düşer."
+      },
+      "overall_pass": true,
+      "stats": {
+        "by_reason_mean": {
+          "ask_insurance": 20.14,
+          "confidence_below_auto_reply_threshold": 8.78,
+          "medical_emergency_guardrail": 11.83,
+          "requires_human_review": 16.58
+        },
+        "count": 220,
+        "max": 24.99,
+        "mean": 14.33,
+        "p50": 14.0,
+        "p90": 21.18,
+        "p95": 22.64
+      },
+      "target_seconds": 30.0
+    },
+    "4.5": {
+      "gates": {
+        "auc_target": {
+          "auc_test": 0.8301,
+          "pass": true,
+          "target": "AUC ≥ 0.75"
+        }
+      },
+      "ip": "4.5",
+      "metrics": {
+        "auc_test": 0.8301,
+        "auc_train": 0.85,
+        "n_test": 480,
+        "n_train": 1120,
+        "no_show_rate": 0.2894
+      },
+      "model": {
+        "bias": -1.4434,
+        "feature_order": [
+          "lead_time_days",
+          "prior_no_shows",
+          "prior_completed",
+          "reminder_sent",
+          "is_first_visit",
+          "days_since_last",
+          "age",
+          "slot_hour"
+        ],
+        "means": [
+          15.225,
+          2.2232,
+          5.983,
+          0.5839,
+          0.05,
+          172.4679,
+          47.1911,
+          12.8536
+        ],
+        "stds": [
+          8.9797,
+          1.6728,
+          3.7291,
+          0.4929,
+          0.2179,
+          110.7186,
+          18.1225,
+          3.149
+        ],
+        "weights": [
+          0.5357,
+          1.5791,
+          -0.608,
+          -0.3999,
+          0.1473,
+          0.1987,
+          -0.0124,
+          0.07
+        ]
+      },
+      "name": "no_show_risk_model",
+      "overall_pass": true,
+      "standardized_coefficients": {
+        "age": -0.0124,
+        "days_since_last": 0.1987,
+        "is_first_visit": 0.1473,
+        "lead_time_days": 0.5357,
+        "prior_completed": -0.608,
+        "prior_no_shows": 1.5791,
+        "reminder_sent": -0.3999,
+        "slot_hour": 0.07
+      }
+    },
+    "4.6": {
+      "gates": {
+        "no_full_recommended": {
+          "pass": true,
+          "target": "dolu slot önerilmez"
+        },
+        "peak_not_top_for_risky": {
+          "pass": true,
+          "target": "riskli hastada yoğun slot #1 değil"
+        },
+        "reminder_preference": {
+          "pass": true,
+          "target": "riskli hastada hatırlatma slotu öncelikli"
+        },
+        "sorted_bounded": {
+          "pass": true,
+          "target": "skor azalan + ≤ top_k"
+        }
+      },
+      "input": {
+        "n_full": 1,
+        "n_slots": 5,
+        "no_show_risk": 0.7,
+        "prefer_window": [
+          9,
+          12
+        ]
+      },
+      "ip": "4.6",
+      "name": "dynamic_slot_recommender",
+      "overall_pass": true,
+      "recommendations": [
+        {
+          "day_offset": 1,
+          "hour": 9,
+          "reasons": [
+            "tercih_penceresi",
+            "hatirlatma_penceresi"
+          ],
+          "score": 1.12,
+          "slot_id": "S3"
+        },
+        {
+          "day_offset": 0,
+          "hour": 9,
+          "reasons": [
+            "tercih_penceresi"
+          ],
+          "score": 0.72,
+          "slot_id": "S1"
+        },
+        {
+          "day_offset": 2,
+          "hour": 17,
+          "reasons": [
+            "hatirlatma_penceresi"
+          ],
+          "score": 0.52,
+          "slot_id": "S4"
+        }
+      ]
+    },
+    "4.7": {
+      "gates": {
+        "consent_gate": {
+          "pass": true,
+          "target": "rızasız hasta aranmaz"
+        },
+        "cooldown_gate": {
+          "pass": true,
+          "target": "cooldown içinde tekrar aranmaz"
+        },
+        "priority_sorted": {
+          "pass": true,
+          "target": "öncelik azalan sıralı"
+        },
+        "quiet_hours": {
+          "pass": true,
+          "target": "arama izinli saat penceresinde"
+        }
+      },
+      "input": {
+        "contact_window": [
+          9,
+          18
+        ],
+        "cooldown_days": 14,
+        "n_candidates": 6,
+        "n_in_cooldown": 1,
+        "n_no_consent": 1
+      },
+      "ip": "4.7",
+      "name": "proactive_recall_scheduler",
+      "overall_pass": true,
+      "scheduled": [
+        {
+          "channel": "call",
+          "patient_ref": "P-001",
+          "priority": 2.244,
+          "reasons": [
+            "aciliyet_high",
+            "yarim_tedavi",
+            "geciken_kontrol",
+            "yuksek_noshow_riski"
+          ],
+          "scheduled_hour": 9
+        },
+        {
+          "channel": "whatsapp",
+          "patient_ref": "P-003",
+          "priority": 2.22,
+          "reasons": [
+            "aciliyet_medium",
+            "yarim_tedavi",
+            "geciken_kontrol",
+            "yuksek_noshow_riski"
+          ],
+          "scheduled_hour": 10
+        },
+        {
+          "channel": "sms",
+          "patient_ref": "P-006",
+          "priority": 1.29,
+          "reasons": [
+            "aciliyet_medium",
+            "geciken_kontrol"
+          ],
+          "scheduled_hour": 11
+        },
+        {
+          "channel": "sms",
+          "patient_ref": "P-002",
+          "priority": 0.56,
+          "reasons": [
+            "aciliyet_low",
+            "geciken_kontrol"
+          ],
+          "scheduled_hour": 12
+        }
+      ]
+    }
+  },
+  "headline_metrics": {
+    "auto_reply_coverage": 0.3333,
+    "auto_reply_threshold": 0.9,
+    "decision_p95_seconds": 22.64,
+    "no_show_auc_test": 0.8301,
+    "recall_scheduled": 4,
+    "rlhf_labels_count": 7,
+    "rlhf_privacy_held": 2,
+    "slot_recommendations": 3
+  },
+  "ip": "4",
+  "overall_pass": true,
+  "summary": {
+    "4.2": {
+      "key": "rlhf_labels",
+      "label": "RLHF etiket üretimi",
+      "pass": true
+    },
+    "4.3": {
+      "key": "auto_reply_threshold",
+      "label": "Otomatik-yanıt eşiği",
+      "pass": true
+    },
+    "4.4": {
+      "key": "decision_time",
+      "label": "Karar süresi",
+      "pass": true
+    },
+    "4.5": {
+      "key": "no_show_model",
+      "label": "No-show risk modeli",
+      "pass": true
+    },
+    "4.6": {
+      "key": "slot_recommender",
+      "label": "Dinamik slot önerisi",
+      "pass": true
+    },
+    "4.7": {
+      "key": "proactive_recall",
+      "label": "Proaktif geri-çağırma",
+      "pass": true
+    }
+  },
+  "title": "CogniVault Hekim-Döngülü Öğrenme — Konsolide Kanıt Panosu"
+}
