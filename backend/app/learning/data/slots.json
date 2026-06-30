@@ -1,0 +1,62 @@
+{
+  "gates": {
+    "no_full_recommended": {
+      "pass": true,
+      "target": "dolu slot önerilmez"
+    },
+    "peak_not_top_for_risky": {
+      "pass": true,
+      "target": "riskli hastada yoğun slot #1 değil"
+    },
+    "reminder_preference": {
+      "pass": true,
+      "target": "riskli hastada hatırlatma slotu öncelikli"
+    },
+    "sorted_bounded": {
+      "pass": true,
+      "target": "skor azalan + ≤ top_k"
+    }
+  },
+  "input": {
+    "n_full": 1,
+    "n_slots": 5,
+    "no_show_risk": 0.7,
+    "prefer_window": [
+      9,
+      12
+    ]
+  },
+  "ip": "4.6",
+  "name": "dynamic_slot_recommender",
+  "overall_pass": true,
+  "recommendations": [
+    {
+      "day_offset": 1,
+      "hour": 9,
+      "reasons": [
+        "tercih_penceresi",
+        "hatirlatma_penceresi"
+      ],
+      "score": 1.12,
+      "slot_id": "S3"
+    },
+    {
+      "day_offset": 0,
+      "hour": 9,
+      "reasons": [
+        "tercih_penceresi"
+      ],
+      "score": 0.72,
+      "slot_id": "S1"
+    },
+    {
+      "day_offset": 2,
+      "hour": 17,
+      "reasons": [
+        "hatirlatma_penceresi"
+      ],
+      "score": 0.52,
+      "slot_id": "S4"
+    }
+  ]
+}
