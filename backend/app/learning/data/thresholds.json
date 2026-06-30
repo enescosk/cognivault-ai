@@ -1,0 +1,50 @@
+{
+  "gates": {
+    "emergency_never_auto": {
+      "emergency_in_pool": 0,
+      "pass": true,
+      "target": "acil/sigorta otomatik havuzunda = 0"
+    },
+    "error_budget_met": {
+      "budget": 0.05,
+      "error_rate": 0.0,
+      "pass": true,
+      "target": "otomatik-yanıt hata ≤ bütçe"
+    },
+    "floor_respected": {
+      "floor": 0.75,
+      "pass": true,
+      "recommended": 0.9,
+      "target": "önerilen ≥ güvenlik tabanı"
+    }
+  },
+  "ip": "4.3",
+  "name": "auto_reply_threshold_learning",
+  "overall_pass": true,
+  "policy": {
+    "current_floor": 0.75,
+    "error_budget": 0.05,
+    "force_human_intents": [
+      "ask_insurance",
+      "medical_emergency"
+    ]
+  },
+  "pool": {
+    "by_intent": {
+      "ask_price": 2,
+      "book_appointment": 2,
+      "cancel_appointment": 1,
+      "reschedule_appointment": 1
+    },
+    "forced_human": 1,
+    "size": 6
+  },
+  "recommendation": {
+    "coverage": 0.3333,
+    "error_rate": 0.0,
+    "forced_human": 1,
+    "met_budget": true,
+    "pool_size": 6,
+    "recommended_threshold": 0.9
+  }
+}
