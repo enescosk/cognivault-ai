@@ -1,0 +1,79 @@
+{
+  "gates": {
+    "consent_gate": {
+      "pass": true,
+      "target": "rızasız hasta aranmaz"
+    },
+    "cooldown_gate": {
+      "pass": true,
+      "target": "cooldown içinde tekrar aranmaz"
+    },
+    "priority_sorted": {
+      "pass": true,
+      "target": "öncelik azalan sıralı"
+    },
+    "quiet_hours": {
+      "pass": true,
+      "target": "arama izinli saat penceresinde"
+    }
+  },
+  "input": {
+    "contact_window": [
+      9,
+      18
+    ],
+    "cooldown_days": 14,
+    "n_candidates": 6,
+    "n_in_cooldown": 1,
+    "n_no_consent": 1
+  },
+  "ip": "4.7",
+  "name": "proactive_recall_scheduler",
+  "overall_pass": true,
+  "scheduled": [
+    {
+      "channel": "call",
+      "patient_ref": "P-001",
+      "priority": 2.244,
+      "reasons": [
+        "aciliyet_high",
+        "yarim_tedavi",
+        "geciken_kontrol",
+        "yuksek_noshow_riski"
+      ],
+      "scheduled_hour": 9
+    },
+    {
+      "channel": "whatsapp",
+      "patient_ref": "P-003",
+      "priority": 2.22,
+      "reasons": [
+        "aciliyet_medium",
+        "yarim_tedavi",
+        "geciken_kontrol",
+        "yuksek_noshow_riski"
+      ],
+      "scheduled_hour": 10
+    },
+    {
+      "channel": "sms",
+      "patient_ref": "P-006",
+      "priority": 1.29,
+      "reasons": [
+        "aciliyet_medium",
+        "geciken_kontrol"
+      ],
+      "scheduled_hour": 11
+    },
+    {
+      "channel": "sms",
+      "patient_ref": "P-002",
+      "priority": 0.56,
+      "reasons": [
+        "aciliyet_low",
+        "geciken_kontrol"
+      ],
+      "scheduled_hour": 12
+    }
+  ]
+}
