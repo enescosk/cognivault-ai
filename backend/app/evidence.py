@@ -34,6 +34,7 @@ PANELS: list[tuple[str, str, str, str]] = [
     ("İP-6.2", "Tek komut klinik onboarding provizyonu", "app.onboarding.provision", "build_report"),
     ("İP-5.2", "HBYS/takvim adapteri dayanıklılık sözleşmesi", "app.integrations.hbys", "build_report"),
     ("Prod-Ops", "Dağıtım öncesi güvenlik preflight (guard doğrulama + migration head)", "app.ops.preflight", "build_report"),
+    ("Ses-Rıza", "Dış ses rıza kapısı (KVKK sınır-ötesi; ElevenLabs/OpenAI opt-in)", "app.ai.voice_routing", "build_report"),
 ]
 
 

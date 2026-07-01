@@ -26,6 +26,25 @@ logger = logging.getLogger("cognivault.voice")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Dış ses (bulut STT/TTS) rıza kapısı — KVKK sınır-ötesi transfer
+# ─────────────────────────────────────────────────────────────────────────────
+def external_voice_permitted(
+    *, external_enabled: bool, consent_granted: bool, has_credentials: bool
+) -> bool:
+    """Ses verisi buluta (OpenAI/ElevenLabs) gönderilebilir mi?
+
+    Üç koşulun HEPSİ gerekir (yumuşatılamaz KVKK kapısı):
+    - external_enabled: klinik dış işlemeyi/DPA'yı açıkça açtı (`voice_external_enabled`).
+    - consent_granted:  hasta VOICE_RECORDING açık rızası verdi (governance katmanı).
+    - has_credentials:  sağlayıcı API anahtarı yapılandırılmış.
+
+    Biri bile eksikse ses yurt içinde (yerel yığın) işlenir. Bu saf fonksiyon
+    çağrı-yolundan bağımsız test edilir; canlı yol per-hasta rızayı buraya taşır.
+    """
+    return bool(external_enabled and consent_granted and has_credentials)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # STT — Speech to Text
 # ─────────────────────────────────────────────────────────────────────────────
 class STTProvider(ABC):
@@ -80,10 +99,47 @@ class OpenAIWhisperSTT(STTProvider):
         return result.strip() if isinstance(result, str) else str(result).strip()
 
 
-def get_stt_provider() -> STTProvider:
-    """Local-first: yalnızca açıkça openai + dış aktarım izni varsa buluta gider."""
+class ElevenLabsScribeSTT(STTProvider):
+    """ElevenLabs Scribe v2 Realtime — düşük gecikmeli TR konuşma tanıma.
+
+    Yalnızca rıza kapısı (klinik DPA + hasta rızası + API anahtarı) geçilince
+    devreye girer. Ses baytları ElevenLabs'e HTTP ile gider — sınır-ötesi
+    transfer; bu yüzden çağrı yolu `external_voice_permitted()` kapısını
+    geçmeden bu sınıf seçilmez.
+    """
+
+    def transcribe(self, audio: bytes, language: str = "tr") -> str:
+        import httpx
+
+        s = get_settings()
+        resp = httpx.post(
+            "https://api.elevenlabs.io/v1/speech-to-text",
+            headers={"xi-api-key": s.elevenlabs_api_key},
+            data={"model_id": s.elevenlabs_stt_model, "language_code": language or "tr"},
+            files={"file": ("audio.webm", audio, "audio/webm")},
+            timeout=s.local_llm_timeout,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        return str(payload.get("text", "")).strip()
+
+
+def get_stt_provider(*, consent_granted: bool = False) -> STTProvider:
+    """Local-first: bulut STT yalnızca rıza kapısı (dış izin + hasta rızası +
+    anahtar) geçilirse. Aksi halde her zaman yerel Whisper.
+    """
     s = get_settings()
-    if s.voice_stt_provider == "openai" and s.voice_external_enabled and s.openai_api_key:
+    if s.voice_stt_provider == "elevenlabs" and external_voice_permitted(
+        external_enabled=s.voice_external_enabled,
+        consent_granted=consent_granted,
+        has_credentials=bool(s.elevenlabs_api_key),
+    ):
+        return ElevenLabsScribeSTT()
+    if s.voice_stt_provider == "openai" and external_voice_permitted(
+        external_enabled=s.voice_external_enabled,
+        consent_granted=consent_granted,
+        has_credentials=bool(s.openai_api_key),
+    ):
         return OpenAIWhisperSTT()
     return LocalWhisperSTT()
 
@@ -163,11 +219,44 @@ class OpenAITTS(TTSProvider):
         return resp.content, "audio/mpeg"
 
 
-def get_tts_provider() -> TTSProvider:
-    """Local-first: openai yalnızca açıkça seçilip izin verilirse. Lokalde önce
-    Piper, yüklenemezse macOS `say` — her durumda ses yurt içinde kalır."""
+class ElevenLabsTTS(TTSProvider):
+    """ElevenLabs Flash/Turbo TTS — düşük gecikmeli (~75ms) premium TR ses.
+
+    Rıza kapısı (klinik DPA + hasta rızası + API anahtarı) geçilmeden seçilmez;
+    metin ElevenLabs'e HTTP ile gider (sınır-ötesi transfer).
+    """
+
+    def synthesize(self, text: str, voice: str | None = None) -> tuple[bytes, str]:
+        import httpx
+
+        s = get_settings()
+        voice_id = voice or s.elevenlabs_voice_id
+        resp = httpx.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            headers={"xi-api-key": s.elevenlabs_api_key, "accept": "audio/mpeg"},
+            json={"text": text[:5000], "model_id": s.elevenlabs_tts_model},
+            timeout=s.local_llm_timeout,
+        )
+        resp.raise_for_status()
+        return resp.content, "audio/mpeg"
+
+
+def get_tts_provider(*, consent_granted: bool = False) -> TTSProvider:
+    """Local-first: bulut TTS yalnızca rıza kapısı (dış izin + hasta rızası +
+    anahtar) geçilirse. Aksi halde önce Piper, yoksa macOS `say` — ses yurt
+    içinde kalır."""
     s = get_settings()
-    if s.voice_tts_provider == "openai" and s.voice_external_enabled and s.openai_api_key:
+    if s.voice_tts_provider == "elevenlabs" and external_voice_permitted(
+        external_enabled=s.voice_external_enabled,
+        consent_granted=consent_granted,
+        has_credentials=bool(s.elevenlabs_api_key and s.elevenlabs_voice_id),
+    ):
+        return ElevenLabsTTS()
+    if s.voice_tts_provider == "openai" and external_voice_permitted(
+        external_enabled=s.voice_external_enabled,
+        consent_granted=consent_granted,
+        has_credentials=bool(s.openai_api_key),
+    ):
         return OpenAITTS()
     # Lokal: Piper varsa onu kullan (model lazy yüklenir, hata olursa say'e düşer),
     # hiç yoksa doğrudan macOS say. Her durumda ses yurt içinde kalır.

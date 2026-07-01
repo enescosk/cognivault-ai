@@ -1,0 +1,99 @@
+{
+  "default_local_providers": [
+    "faster-whisper",
+    "piper"
+  ],
+  "gates": {
+    "consent_required": {
+      "pass": true,
+      "target": "dış-izin + anahtar var ama hasta rızası yoksa reddedilir"
+    },
+    "default_denies": {
+      "pass": true,
+      "target": "hiçbir koşul yokken (varsayılan) bulut reddedilir → yerel"
+    },
+    "dpa_required": {
+      "pass": true,
+      "target": "hasta rızası + anahtar var ama klinik dış-izni (DPA) yoksa reddedilir"
+    },
+    "only_all_three_permits": {
+      "pass": true,
+      "permitted_count": 1,
+      "target": "yalnızca (dış-izin ∧ rıza ∧ anahtar) buluta izin verir"
+    },
+    "truth_table_consistent": {
+      "pass": true,
+      "target": "tüm 8 kombinasyon beklenen sonucu verir"
+    }
+  },
+  "name": "external_voice_consent_gate",
+  "overall_pass": true,
+  "providers_behind_gate": [
+    "openai",
+    "elevenlabs"
+  ],
+  "purpose": "kvkk_cross_border_voice_gate",
+  "remaining": [
+    "Canlı çağrı yolunun (public.py/voice.py) per-hasta VOICE_RECORDING rızasını get_stt/tts_provider'a taşıması.",
+    "ElevenLabs sözleşmesi/DPA imzası ve API anahtarı temini.",
+    "Gerçek Türkçe kalite/gecikme A/B ölçümü (yerel vs ElevenLabs)."
+  ],
+  "truth_table": [
+    {
+      "consent_granted": false,
+      "expected": false,
+      "external_enabled": false,
+      "has_credentials": false,
+      "permitted": false
+    },
+    {
+      "consent_granted": false,
+      "expected": false,
+      "external_enabled": false,
+      "has_credentials": true,
+      "permitted": false
+    },
+    {
+      "consent_granted": true,
+      "expected": false,
+      "external_enabled": false,
+      "has_credentials": false,
+      "permitted": false
+    },
+    {
+      "consent_granted": true,
+      "expected": false,
+      "external_enabled": false,
+      "has_credentials": true,
+      "permitted": false
+    },
+    {
+      "consent_granted": false,
+      "expected": false,
+      "external_enabled": true,
+      "has_credentials": false,
+      "permitted": false
+    },
+    {
+      "consent_granted": false,
+      "expected": false,
+      "external_enabled": true,
+      "has_credentials": true,
+      "permitted": false
+    },
+    {
+      "consent_granted": true,
+      "expected": false,
+      "external_enabled": true,
+      "has_credentials": false,
+      "permitted": false
+    },
+    {
+      "consent_granted": true,
+      "expected": true,
+      "external_enabled": true,
+      "has_credentials": true,
+      "permitted": true
+    }
+  ]
+}

@@ -91,12 +91,21 @@
       "source": "app.ops.preflight.build_report",
       "status": "ok",
       "title": "Dağıtım öncesi güvenlik preflight (guard doğrulama + migration head)"
+    },
+    {
+      "gates_passed": 5,
+      "gates_total": 5,
+      "ip": "Ses-Rıza",
+      "overall_pass": true,
+      "source": "app.ai.voice_routing.build_report",
+      "status": "ok",
+      "title": "Dış ses rıza kapısı (KVKK sınır-ötesi; ElevenLabs/OpenAI opt-in)"
     }
   ],
   "summary": {
-    "gates_passed": 81,
-    "gates_total": 81,
-    "panels": 10,
-    "panels_passed": 10
+    "gates_passed": 86,
+    "gates_total": 86,
+    "panels": 11,
+    "panels_passed": 11
   }
 }

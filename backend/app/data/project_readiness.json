@@ -228,9 +228,9 @@
   "recommended_label": "production-oriented pilot",
   "technical_overall_pass": true,
   "technical_summary": {
-    "gates_passed": 81,
-    "gates_total": 81,
-    "panels": 10,
-    "panels_passed": 10
+    "gates_passed": 86,
+    "gates_total": 86,
+    "panels": 11,
+    "panels_passed": 11
   }
 }

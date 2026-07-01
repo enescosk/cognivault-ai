@@ -68,8 +68,16 @@ class Settings(BaseSettings):
     # ── Lokal ses (KVKK local-first): STT=faster-whisper, TTS=Piper TR ──────
     # "local" => ses verisi yurt dışına çıkmaz; "openai" sadece voice_external_enabled
     # true iken ve açıkça seçilirse kullanılır. Varsayılan tamamen lokaldir.
-    voice_stt_provider: str = "local"   # local | openai
-    voice_tts_provider: str = "local"   # local | openai
+    voice_stt_provider: str = "local"   # local | openai | elevenlabs
+    voice_tts_provider: str = "local"   # local | openai | elevenlabs
+    # ── ElevenLabs (opt-in, rıza+DPA kapılı premium ses) ────────────────────
+    # Varsayılan boş → devre dışı. Yalnızca voice_external_enabled=True VE
+    # hasta VOICE_RECORDING rızası varken kullanılır (KVKK sınır-ötesi transfer).
+    # TTS: Flash/Turbo (düşük gecikme). STT: Scribe v2 Realtime.
+    elevenlabs_api_key: str = ""
+    elevenlabs_tts_model: str = "eleven_flash_v2_5"
+    elevenlabs_stt_model: str = "scribe_v2_realtime"
+    elevenlabs_voice_id: str = ""  # klinik başına seçilen Selin sesi
     local_whisper_model: str = "small"  # tiny|base|small|medium — small TR için iyi denge
     local_whisper_compute: str = "int8"
     local_whisper_language: str = "tr"

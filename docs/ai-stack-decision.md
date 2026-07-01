@@ -115,3 +115,22 @@ Bu karar dokümanı kabul edildi. **Faz 2 (Local AI Stack)** başlatılınca:
 2. `backend/app/ai/{llm,stt,tts}/` provider abstraction PR
 3. Golden eval seti PR
 4. Latency benchmark scripti PR
+
+---
+
+## Ek (2026-07-02): ElevenLabs — opt-in, rıza+DPA kapılı premium ses katmanı
+
+**Karar:** Varsayılan ses yığını yerel kalır (faster-whisper STT + Piper tr_TR TTS; KVKK local-first). ElevenLabs, klinik ödeme istekliliği gösterirse devreye alınacak **opt-in premium katman** olarak konumlanır — hasta sesi/metni yurt dışına çıktığı için sınır-ötesi transfer sayılır ve üç-koşullu rıza kapısı arkasındadır.
+
+**Seçilen ürünler (elevenlabs.io/pricing/api):**
+- **TTS (Selin sesi):** Flash / Turbo (`eleven_flash_v2_5`) — ~75ms ultra-düşük gecikme; telefon turn-taking için kritik. Multilingual v2/v3 daha kaliteli ama 250-300ms real-time hissi bozar.
+- **STT (hasta konuşması):** Scribe v2 Realtime (`scribe_v2_realtime`) — ~150ms, gerçek-zamanlı, 90+ dil (TR dahil).
+- **KULLANILMAYACAK:** ElevenAgents tam pipeline — İP-2 deterministik yönetişim zarfını + kalibre/çekimser triyajı bypass eder (çekirdek farklılaştırıcı + patent istemleri).
+
+**Maliyet hissi:** ~5 turluk çağrı ≈ TTS $0.12 (Flash) + STT $0.03 = **~$0.15/çağrı**; yerel yığın $0. Premium katman yalnızca kalite farkı ödeme istekliliği yarattığında.
+
+**Rıza kapısı (yumuşatılamaz):** `app/ai/voice_factory.py::external_voice_permitted` üç koşulu birden ister: (1) klinik dış-işleme/DPA açık (`voice_external_enabled`), (2) hasta VOICE_RECORDING açık rızası, (3) sağlayıcı API anahtarı. Biri eksikse ses yereldedir. Doğruluk tablosu `app/ai/voice_routing.py` panosunda (8 kombinasyon) kanıtlı; `app.evidence` "Ses-Rıza" panosuna bağlı.
+
+**Uygulanan:** config alanları (`elevenlabs_api_key/tts_model/stt_model/voice_id`), `ElevenLabsTTS` + `ElevenLabsScribeSTT` provider iskeletleri, kapılı routing, `voice_routing` kanıt panosu + 18 test.
+
+**Kalan:** ElevenLabs sözleşmesi/DPA + API anahtarı temini; canlı çağrı yolunun (`public.py`/`voice.py`) per-hasta rızayı `get_stt/tts_provider(consent_granted=...)`'a taşıması; gerçek TR kalite/gecikme A/B ölçümü (yerel vs ElevenLabs).
