@@ -1,10 +1,10 @@
 {
   "counts": {
     "blocked": 8,
-    "partial": 2,
+    "partial": 3,
     "passed": 1,
     "pending": 2,
-    "total": 13
+    "total": 14
   },
   "current_phase": "İP-5.2 pilot hazirlik + İP-3.6/3.7 saha teknik tamamlama",
   "distillation_summary": {
@@ -112,12 +112,23 @@
       "title": "Resepsiyonist/hekim gorev tamamlama testi"
     },
     {
+      "evidence": "Tek komut idempotent provizyon (klinik+sube+hekim+hizmet+personel+KVKK) kapilari testli.",
+      "id": "one_day_onboarding",
+      "kind": "engineering",
+      "pass": false,
+      "phase": "İP-6.2/6.3",
+      "priority": 9,
+      "remaining": "Pilot klinikte kronometreli gercek kurulum (<6 saat) ve kanal baglama izinleri.",
+      "status": "partial",
+      "title": "Tek komut tenant provizyonu + <1 gun onboarding"
+    },
+    {
       "evidence": "Ic randevu modeli, cakisma kontrolu ve procedure planlama mevcut.",
       "id": "hbys_calendar_adapter",
       "kind": "engineering",
       "pass": false,
       "phase": "İP-5.2",
-      "priority": 9,
+      "priority": 10,
       "remaining": "Adapter arayuzu, idempotency, rollback, conflict ve retry testleri.",
       "status": "pending",
       "title": "Gercek HBYS/takvim adapteri"
@@ -128,7 +139,7 @@
       "kind": "ops",
       "pass": false,
       "phase": "Prod",
-      "priority": 10,
+      "priority": 11,
       "remaining": "Gercek prod ortaminda migration, backup restore provasi, secret rotation, alert/runbook tatbikati.",
       "status": "pending",
       "title": "Production PostgreSQL, backup/restore, secret, alarm ve olay tatbikati"
@@ -139,7 +150,7 @@
       "kind": "commercial",
       "pass": false,
       "phase": "İP-6.1",
-      "priority": 11,
+      "priority": 12,
       "remaining": "Pilot gorusmelerinden odeme istekliligi, plan sinirlari ve manuel fatura karari.",
       "status": "blocked",
       "title": "Fiyat ve odeme istekliligi validasyonu"
@@ -150,7 +161,7 @@
       "kind": "legal",
       "pass": false,
       "phase": "İP-6.4-6.6",
-      "priority": 12,
+      "priority": 13,
       "remaining": "Vekilin resmi arama/istem kapsami gorusu ve basvuru stratejisi.",
       "status": "blocked",
       "title": "Patent vekili novelty/istem incelemesi"
@@ -161,7 +172,7 @@
       "kind": "commercial",
       "pass": false,
       "phase": "İP-6.8",
-      "priority": 13,
+      "priority": 14,
       "remaining": "Pilot basarisi, teklif, sozlesme ve odeme/donusum kaydi.",
       "status": "blocked",
       "title": "En az 5 ucretli klinik donusumu"
@@ -217,9 +228,9 @@
   "recommended_label": "production-oriented pilot",
   "technical_overall_pass": true,
   "technical_summary": {
-    "gates_passed": 48,
-    "gates_total": 48,
-    "panels": 6,
-    "panels_passed": 6
+    "gates_passed": 69,
+    "gates_total": 69,
+    "panels": 8,
+    "panels_passed": 8
   }
 }

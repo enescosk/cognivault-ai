@@ -1,0 +1,121 @@
+{
+  "gates": {
+    "acceptance_scenarios": {
+      "checks": {
+        "ambiguous_abstains": {
+          "abstain_reasons": [
+            "no_evidence"
+          ],
+          "pass": true,
+          "scenario": "6 — belirsiz şikâyet çekimser/insan incelemesine gider"
+        },
+        "booking_prereqs": {
+          "branches": 1,
+          "doctors": 2,
+          "pass": true,
+          "scenario": "2 — randevu önkoşulları: aktif hekim + hizmet + çalışma saatli şube",
+          "services": 3
+        },
+        "emergency_escalation": {
+          "pass": true,
+          "scenario": "3 — acil kanama insana yükselir",
+          "urgency": "emergency"
+        },
+        "identity_masking": {
+          "pass": true,
+          "scenario": "4 — TC/telefon ham yankılanmaz"
+        },
+        "kvkk_versioned": {
+          "active_versions": [
+            "v1.0-pilot"
+          ],
+          "pass": true,
+          "scenario": "10 — KVKK metni versiyonlu ve aktif"
+        },
+        "safety_thresholds": {
+          "auto_reply": 0.9,
+          "pass": true,
+          "scenario": "6 — düşük-güven shadow review eşiği güvenlik tabanında",
+          "shadow": 0.75
+        },
+        "staff_access": {
+          "pass": true,
+          "roles": [
+            "clinician",
+            "operator",
+            "owner"
+          ],
+          "scenario": "7/8 — operatör paneli + hekim shadow review rolleri tanımlı"
+        }
+      },
+      "pass": true,
+      "target": "playbook kabul senaryolarının fonksiyon-seviyesi kısmı geçer"
+    },
+    "idempotency": {
+      "pass": true,
+      "second_run_created": {},
+      "second_run_updated": {},
+      "target": "aynı intake ikinci koşuda hiçbir şey oluşturmaz/değiştirmez"
+    },
+    "intake_validation": {
+      "issues": [],
+      "pass": true,
+      "target": "intake formu yapısal olarak geçerli"
+    },
+    "single_command_provision": {
+      "created": {
+        "branch": 1,
+        "clinic": 1,
+        "doctor": 2,
+        "kvkk_disclosure": 1,
+        "membership": 3,
+        "service": 3,
+        "user": 3
+      },
+      "expected_created": {
+        "branch": 1,
+        "clinic": 1,
+        "doctor": 2,
+        "kvkk_disclosure": 1,
+        "membership": 3,
+        "service": 3,
+        "user": 3
+      },
+      "pass": true,
+      "target": "tek çağrıda tüm kayıtlar oluşur"
+    },
+    "tenant_isolation": {
+      "demo_doctor_count": 2,
+      "orphan_rows": 0,
+      "pass": true,
+      "target": "ikinci kiracının provizyonu ilk kliniğin verisine dokunmaz"
+    },
+    "time_budget": {
+      "budget_seconds": 21600,
+      "pass": true,
+      "target": "otomatik provizyon playbook bütçesinin (6 saat) çok altında"
+    }
+  },
+  "intake_slug": "demo-dis-klinigi",
+  "name": "ip6_2_onboarding_provision",
+  "overall_pass": true,
+  "provision_counts": {
+    "clinic_id": 1,
+    "created": {
+      "branch": 1,
+      "clinic": 1,
+      "doctor": 2,
+      "kvkk_disclosure": 1,
+      "membership": 3,
+      "service": 3,
+      "user": 3
+    },
+    "updated": {}
+  },
+  "remaining": [
+    "Pilot klinikte kronometreli gerçek kurulum (<6 saat) doğrulaması.",
+    "Gerçek WhatsApp/telefon kanal bağlama izinleri.",
+    "Avukat onaylı nihai KVKK aydınlatma metni (pilot taslak yerine).",
+    "Gerçek HBYS/takvim adapteri (İP-5.2 kapsamı)."
+  ]
+}

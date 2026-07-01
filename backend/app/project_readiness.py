@@ -18,6 +18,7 @@ from typing import Literal
 
 from app.clinical.distillation import build_report as build_distillation_report
 from app.evidence import build_readiness
+from app.onboarding.provision import build_report as build_onboarding_report
 
 
 ARTIFACT_PATH = Path(__file__).resolve().parent / "data" / "project_readiness.json"
@@ -55,7 +56,9 @@ def _status_rank(status: GateStatus) -> int:
     return {"blocked": 0, "pending": 1, "partial": 2, "passed": 3}[status]
 
 
-def _base_gates(technical_passed: bool, distillation_passed: bool) -> list[PhaseGate]:
+def _base_gates(
+    technical_passed: bool, distillation_passed: bool, onboarding_passed: bool
+) -> list[PhaseGate]:
     technical_status: GateStatus = "passed" if technical_passed else "blocked"
     technical_remaining = (
         "Teknik kanit panosunda kalan paket yok."
@@ -150,6 +153,20 @@ def _base_gates(technical_passed: bool, distillation_passed: bool) -> list[Phase
             priority=8,
         ),
         PhaseGate(
+            id="one_day_onboarding",
+            phase="İP-6.2/6.3",
+            title="Tek komut tenant provizyonu + <1 gun onboarding",
+            kind="engineering",
+            status="partial" if onboarding_passed else "pending",
+            evidence=(
+                "Tek komut idempotent provizyon (klinik+sube+hekim+hizmet+personel+KVKK) kapilari testli."
+                if onboarding_passed
+                else "Onboarding playbook hazir; provizyon otomasyonu kapilari henuz gecmedi."
+            ),
+            remaining="Pilot klinikte kronometreli gercek kurulum (<6 saat) ve kanal baglama izinleri.",
+            priority=9,
+        ),
+        PhaseGate(
             id="hbys_calendar_adapter",
             phase="İP-5.2",
             title="Gercek HBYS/takvim adapteri",
@@ -157,7 +174,7 @@ def _base_gates(technical_passed: bool, distillation_passed: bool) -> list[Phase
             status="pending",
             evidence="Ic randevu modeli, cakisma kontrolu ve procedure planlama mevcut.",
             remaining="Adapter arayuzu, idempotency, rollback, conflict ve retry testleri.",
-            priority=9,
+            priority=10,
         ),
         PhaseGate(
             id="production_ops",
@@ -167,7 +184,7 @@ def _base_gates(technical_passed: bool, distillation_passed: bool) -> list[Phase
             status="pending",
             evidence="Health/readyz, metrics, request-id ve prod runtime fail-fast kontrolleri mevcut.",
             remaining="Gercek prod ortaminda migration, backup restore provasi, secret rotation, alert/runbook tatbikati.",
-            priority=10,
+            priority=11,
         ),
         PhaseGate(
             id="pricing_wtp_validation",
@@ -177,7 +194,7 @@ def _base_gates(technical_passed: bool, distillation_passed: bool) -> list[Phase
             status="blocked",
             evidence="Pricing/billing model paketi hazir.",
             remaining="Pilot gorusmelerinden odeme istekliligi, plan sinirlari ve manuel fatura karari.",
-            priority=11,
+            priority=12,
         ),
         PhaseGate(
             id="patent_attorney_review",
@@ -187,7 +204,7 @@ def _base_gates(technical_passed: bool, distillation_passed: bool) -> list[Phase
             status="blocked",
             evidence="Novelty cercevesi, istem taslaklari ve vekil paketi hazir.",
             remaining="Vekilin resmi arama/istem kapsami gorusu ve basvuru stratejisi.",
-            priority=12,
+            priority=13,
         ),
         PhaseGate(
             id="paid_clinic_conversion",
@@ -197,7 +214,7 @@ def _base_gates(technical_passed: bool, distillation_passed: bool) -> list[Phase
             status="blocked",
             evidence="Ticari paket hazir; canli ucretli klinik kaniti yok.",
             remaining="Pilot basarisi, teklif, sozlesme ve odeme/donusum kaydi.",
-            priority=13,
+            priority=14,
         ),
     ]
 
@@ -205,9 +222,14 @@ def _base_gates(technical_passed: bool, distillation_passed: bool) -> list[Phase
 def build_project_readiness() -> dict:
     technical = build_readiness()
     distillation = build_distillation_report()
+    onboarding = build_onboarding_report()
     gates = [
         gate.to_dict()
-        for gate in _base_gates(bool(technical["overall_pass"]), bool(distillation["overall_pass"]))
+        for gate in _base_gates(
+            bool(technical["overall_pass"]),
+            bool(distillation["overall_pass"]),
+            bool(onboarding["overall_pass"]),
+        )
     ]
     counts = {
         "total": len(gates),

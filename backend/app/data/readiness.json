@@ -55,12 +55,30 @@
       "source": "app.reception.greeting.build_report",
       "status": "ok",
       "title": "API öncesi karşılama + kötü-girdi koruması"
+    },
+    {
+      "gates_passed": 8,
+      "gates_total": 8,
+      "ip": "İP-3.6",
+      "overall_pass": true,
+      "source": "app.clinical.distillation.build_report",
+      "status": "ok",
+      "title": "Damıtma veri paketi (PII-temiz SFT + baseline protokolü)"
+    },
+    {
+      "gates_passed": 13,
+      "gates_total": 13,
+      "ip": "İP-6.2",
+      "overall_pass": true,
+      "source": "app.onboarding.provision.build_report",
+      "status": "ok",
+      "title": "Tek komut klinik onboarding provizyonu"
     }
   ],
   "summary": {
-    "gates_passed": 48,
-    "gates_total": 48,
-    "panels": 6,
-    "panels_passed": 6
+    "gates_passed": 69,
+    "gates_total": 69,
+    "panels": 8,
+    "panels_passed": 8
   }
 }
