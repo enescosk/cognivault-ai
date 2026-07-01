@@ -1,0 +1,61 @@
+{
+  "gates": {
+    "auto_schema_blocked": {
+      "pass": true,
+      "target": "prod'da AUTO_CREATE_SCHEMA açıkken başlatma engellenir (migration zorunlu)",
+      "unsafe_blocked": true
+    },
+    "cors_wildcard_flagged": {
+      "pass": true,
+      "scoped_ok": true,
+      "target": "prod'da wildcard CORS işaretlenir; kapsamlı origin kabul edilir",
+      "wildcard_flagged": true
+    },
+    "demo_seed_blocked": {
+      "pass": true,
+      "safe_allowed": true,
+      "target": "prod'da SEED_DEMO_DATA açıkken başlatma engellenir",
+      "unsafe_blocked": true
+    },
+    "kvkk_residency_defaults": {
+      "external_ai_off": true,
+      "external_voice_off": true,
+      "pass": true,
+      "residency_default": "tr_local_first",
+      "target": "KVKK local-first varsayılanları: residency=tr_local_first, dış AI/ses kapalı"
+    },
+    "migration_single_head": {
+      "heads": [
+        "0009_merge_heads"
+      ],
+      "pass": true,
+      "revision_count": 10,
+      "target": "tam olarak tek alembic head (çift-head yok)"
+    },
+    "sqlite_flagged_in_prod": {
+      "pass": true,
+      "postgres_ok": true,
+      "sqlite_flagged": true,
+      "target": "prod'da sqlite backend işaretlenir; postgres kabul edilir"
+    },
+    "weak_jwt_rejected": {
+      "dev_unrestricted": true,
+      "pass": true,
+      "short_rejected": true,
+      "strong_accepted": true,
+      "target": "prod'da zayıf/kısa JWT reddedilir, güçlü kabul edilir; dev serbest",
+      "weak_rejected": true
+    }
+  },
+  "name": "prod_ops_preflight",
+  "overall_pass": true,
+  "purpose": "deployment_safety_guard_verification",
+  "runbook_remaining": [
+    "Gerçek prod PostgreSQL migration koşumu (alembic upgrade head).",
+    "Backup alma + restore provası (RPO/RTO ölçümü).",
+    "Secret rotation tatbikatı (JWT + DB + webhook token).",
+    "Alert/runbook tatbikatı (health/readyz + hata oranı + gecikme alarmı).",
+    "Olay müdahale (incident) kuru-koşusu."
+  ],
+  "safe_prod_profile_blocking_findings": []
+}

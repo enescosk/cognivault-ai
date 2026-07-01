@@ -20,6 +20,7 @@ from app.clinical.distillation import build_report as build_distillation_report
 from app.evidence import build_readiness
 from app.integrations.hbys import build_report as build_hbys_report
 from app.onboarding.provision import build_report as build_onboarding_report
+from app.ops.preflight import build_report as build_preflight_report
 
 
 ARTIFACT_PATH = Path(__file__).resolve().parent / "data" / "project_readiness.json"
@@ -62,6 +63,7 @@ def _base_gates(
     distillation_passed: bool,
     onboarding_passed: bool,
     hbys_passed: bool,
+    preflight_passed: bool,
 ) -> list[PhaseGate]:
     technical_status: GateStatus = "passed" if technical_passed else "blocked"
     technical_remaining = (
@@ -189,9 +191,13 @@ def _base_gates(
             phase="Prod",
             title="Production PostgreSQL, backup/restore, secret, alarm ve olay tatbikati",
             kind="ops",
-            status="pending",
-            evidence="Health/readyz, metrics, request-id ve prod runtime fail-fast kontrolleri mevcut.",
-            remaining="Gercek prod ortaminda migration, backup restore provasi, secret rotation, alert/runbook tatbikati.",
+            status="partial" if preflight_passed else "pending",
+            evidence=(
+                "Dagitim oncesi preflight: prod guvenlik guard'lari (zayif JWT/demo-seed/auto-schema/sqlite/CORS) + tek migration head test-kanitli."
+                if preflight_passed
+                else "Health/readyz, metrics, request-id ve prod runtime fail-fast kontrolleri mevcut."
+            ),
+            remaining="Gercek prod ortaminda migration kosumu, backup restore provasi, secret rotation, alert/runbook tatbikati.",
             priority=11,
         ),
         PhaseGate(
@@ -232,6 +238,7 @@ def build_project_readiness() -> dict:
     distillation = build_distillation_report()
     onboarding = build_onboarding_report()
     hbys = build_hbys_report()
+    preflight = build_preflight_report()
     gates = [
         gate.to_dict()
         for gate in _base_gates(
@@ -239,6 +246,7 @@ def build_project_readiness() -> dict:
             bool(distillation["overall_pass"]),
             bool(onboarding["overall_pass"]),
             bool(hbys["overall_pass"]),
+            bool(preflight["overall_pass"]),
         )
     ]
     counts = {

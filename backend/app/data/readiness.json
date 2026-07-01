@@ -82,12 +82,21 @@
       "source": "app.integrations.hbys.build_report",
       "status": "ok",
       "title": "HBYS/takvim adapteri dayanıklılık sözleşmesi"
+    },
+    {
+      "gates_passed": 7,
+      "gates_total": 7,
+      "ip": "Prod-Ops",
+      "overall_pass": true,
+      "source": "app.ops.preflight.build_report",
+      "status": "ok",
+      "title": "Dağıtım öncesi güvenlik preflight (guard doğrulama + migration head)"
     }
   ],
   "summary": {
-    "gates_passed": 74,
-    "gates_total": 74,
-    "panels": 9,
-    "panels_passed": 9
+    "gates_passed": 81,
+    "gates_total": 81,
+    "panels": 10,
+    "panels_passed": 10
   }
 }

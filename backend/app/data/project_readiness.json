@@ -1,9 +1,9 @@
 {
   "counts": {
     "blocked": 8,
-    "partial": 4,
+    "partial": 5,
     "passed": 1,
-    "pending": 1,
+    "pending": 0,
     "total": 14
   },
   "current_phase": "İP-5.2 pilot hazirlik + İP-3.6/3.7 saha teknik tamamlama",
@@ -134,14 +134,14 @@
       "title": "Gercek HBYS/takvim adapteri"
     },
     {
-      "evidence": "Health/readyz, metrics, request-id ve prod runtime fail-fast kontrolleri mevcut.",
+      "evidence": "Dagitim oncesi preflight: prod guvenlik guard'lari (zayif JWT/demo-seed/auto-schema/sqlite/CORS) + tek migration head test-kanitli.",
       "id": "production_ops",
       "kind": "ops",
       "pass": false,
       "phase": "Prod",
       "priority": 11,
-      "remaining": "Gercek prod ortaminda migration, backup restore provasi, secret rotation, alert/runbook tatbikati.",
-      "status": "pending",
+      "remaining": "Gercek prod ortaminda migration kosumu, backup restore provasi, secret rotation, alert/runbook tatbikati.",
+      "status": "partial",
       "title": "Production PostgreSQL, backup/restore, secret, alarm ve olay tatbikati"
     },
     {
@@ -228,9 +228,9 @@
   "recommended_label": "production-oriented pilot",
   "technical_overall_pass": true,
   "technical_summary": {
-    "gates_passed": 74,
-    "gates_total": 74,
-    "panels": 9,
-    "panels_passed": 9
+    "gates_passed": 81,
+    "gates_total": 81,
+    "panels": 10,
+    "panels_passed": 10
   }
 }
