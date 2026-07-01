@@ -1,0 +1,47 @@
+{
+  "config": {
+    "barge_in_ms": 200,
+    "endpoint_ms": 600,
+    "frame_ms": 20,
+    "max_utterance_ms": 30000,
+    "min_utterance_ms": 200,
+    "onset_ms": 120
+  },
+  "event_counts": {
+    "agent_turn_end": 1,
+    "barge_in": 1,
+    "noise_ignored": 1,
+    "user_turn_end": 2,
+    "user_turn_start": 2
+  },
+  "event_sequence": [
+    "user_turn_start",
+    "user_turn_end",
+    "user_turn_start",
+    "noise_ignored",
+    "barge_in",
+    "user_turn_end",
+    "agent_turn_end"
+  ],
+  "gates": {
+    "agent_turn_end_on_natural_stop": {
+      "pass": true,
+      "target": "kesintisiz bitişte agent_turn_end"
+    },
+    "barge_in_detected": {
+      "pass": true,
+      "target": "ajan konuşurken kesinti"
+    },
+    "noise_rejected": {
+      "pass": true,
+      "target": "kısa söylem gürültü sayılır"
+    },
+    "user_turn_detected": {
+      "pass": true,
+      "target": "geçerli söylemde start+end"
+    }
+  },
+  "ip": "3.7",
+  "name": "turn_taking_state_machine",
+  "overall_pass": true
+}
