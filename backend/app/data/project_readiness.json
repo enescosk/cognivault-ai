@@ -1,0 +1,225 @@
+{
+  "counts": {
+    "blocked": 8,
+    "partial": 2,
+    "passed": 1,
+    "pending": 2,
+    "total": 13
+  },
+  "current_phase": "İP-5.2 pilot hazirlik + İP-3.6/3.7 saha teknik tamamlama",
+  "distillation_summary": {
+    "baseline": {
+      "test_exact_label_accuracy": 0.5142857142857142,
+      "validation_exact_label_accuracy": 0.8
+    },
+    "dataset_artifact": "distillation_dataset.jsonl",
+    "eval_input_artifact": "distillation_eval_inputs.jsonl",
+    "overall_pass": true,
+    "splits": {
+      "test": 35,
+      "train": 436,
+      "validation": 110
+    },
+    "total_examples": 581
+  },
+  "gates": [
+    {
+      "evidence": "app.evidence: teknik panolarin tek komut orkestrasyonu",
+      "id": "technical_readiness_board",
+      "kind": "technical",
+      "pass": true,
+      "phase": "İP-1/2/3.7/4/R",
+      "priority": 1,
+      "remaining": "Teknik kanit panosunda kalan paket yok.",
+      "status": "passed",
+      "title": "Teknik cekirdek kanit panosu"
+    },
+    {
+      "evidence": "Deterministik, PII-temiz distillation veri paketi hazir; gercek egitim kosumu yok.",
+      "id": "ip3_6_model_distillation",
+      "kind": "engineering",
+      "pass": false,
+      "phase": "İP-3.6",
+      "priority": 2,
+      "remaining": "Baseline model secimi, distillation/fine-tune kosumu, kalite/latency karsilastirma raporu.",
+      "status": "partial",
+      "title": "Kucuk on-prem model TR dis korpusunda damitma/ince-ayar"
+    },
+    {
+      "evidence": "Turn-taking ve enerji VAD kontrol mantigi testli; gercek mikrofon/Twilio kosumu yok.",
+      "id": "ip3_7_real_voice_field",
+      "kind": "field",
+      "pass": false,
+      "phase": "İP-3.7",
+      "priority": 3,
+      "remaining": "Mikrofon yakalama, gercek kayitlarda gurultu/aksan testi, uc-tan-uca p95 ses gecikmesi.",
+      "status": "partial",
+      "title": "Gercek ses altyapisi ve saha gecikme olcumu"
+    },
+    {
+      "evidence": "Expo web ve TypeScript hazir; EAS profilleri dokumante.",
+      "id": "mobile_ios_qa_build",
+      "kind": "field",
+      "pass": false,
+      "phase": "Mobil",
+      "priority": 4,
+      "remaining": "Expo login, Apple Developer/UDID, gerekiyorsa Xcode, gercek iPhone uzerinde QA.",
+      "status": "blocked",
+      "title": "iPhone dokunmatik QA + ad hoc/TestFlight build"
+    },
+    {
+      "evidence": "Teknik local-first ve consent kapilari var; yazili hukukcu onayi repo disi.",
+      "id": "kvkk_legal_approval",
+      "kind": "legal",
+      "pass": false,
+      "phase": "İP-5/6",
+      "priority": 5,
+      "remaining": "Uzman hukukcu yazili onayi, pilot sozlesmesi/DPA, VERBIS ve saklama-silme yorumu.",
+      "status": "blocked",
+      "title": "KVKK aydinlatma, acik riza, DPA ve yurt disi aktarim hukuk onayi"
+    },
+    {
+      "evidence": "Pilot launch pack hazir.",
+      "id": "pilot_clinic_contracts",
+      "kind": "field",
+      "pass": false,
+      "phase": "İP-5.2",
+      "priority": 6,
+      "remaining": "Klinik aday listesi, gorusme notlari, imzali pilot kapsam/sorumluluk metni.",
+      "status": "blocked",
+      "title": "3-5 pilot klinik gorusmesi ve imzali pilot baslangici"
+    },
+    {
+      "evidence": "Webhook imza, CallSid conversation, status callback ve doctor feedback akisi testli.",
+      "id": "field_call_trial_30",
+      "kind": "field",
+      "pass": false,
+      "phase": "İP-5.3",
+      "priority": 7,
+      "remaining": "Gercek Twilio/alternatif numara, imza dogrulama acik, gurultu/aksan/kopma/gecikme raporu.",
+      "status": "blocked",
+      "title": "Gercek numarayla en az 30 Turkce cagri deneyi"
+    },
+    {
+      "evidence": "Web operator paneli, hekim inbox ve mobil hekim deneyimi hazir.",
+      "id": "clinic_task_completion",
+      "kind": "field",
+      "pass": false,
+      "phase": "İP-5.3",
+      "priority": 8,
+      "remaining": "En az bir klinikte onceden sabitlenmis kritik gorev hedefleriyle saha testi.",
+      "status": "blocked",
+      "title": "Resepsiyonist/hekim gorev tamamlama testi"
+    },
+    {
+      "evidence": "Ic randevu modeli, cakisma kontrolu ve procedure planlama mevcut.",
+      "id": "hbys_calendar_adapter",
+      "kind": "engineering",
+      "pass": false,
+      "phase": "İP-5.2",
+      "priority": 9,
+      "remaining": "Adapter arayuzu, idempotency, rollback, conflict ve retry testleri.",
+      "status": "pending",
+      "title": "Gercek HBYS/takvim adapteri"
+    },
+    {
+      "evidence": "Health/readyz, metrics, request-id ve prod runtime fail-fast kontrolleri mevcut.",
+      "id": "production_ops",
+      "kind": "ops",
+      "pass": false,
+      "phase": "Prod",
+      "priority": 10,
+      "remaining": "Gercek prod ortaminda migration, backup restore provasi, secret rotation, alert/runbook tatbikati.",
+      "status": "pending",
+      "title": "Production PostgreSQL, backup/restore, secret, alarm ve olay tatbikati"
+    },
+    {
+      "evidence": "Pricing/billing model paketi hazir.",
+      "id": "pricing_wtp_validation",
+      "kind": "commercial",
+      "pass": false,
+      "phase": "İP-6.1",
+      "priority": 11,
+      "remaining": "Pilot gorusmelerinden odeme istekliligi, plan sinirlari ve manuel fatura karari.",
+      "status": "blocked",
+      "title": "Fiyat ve odeme istekliligi validasyonu"
+    },
+    {
+      "evidence": "Novelty cercevesi, istem taslaklari ve vekil paketi hazir.",
+      "id": "patent_attorney_review",
+      "kind": "legal",
+      "pass": false,
+      "phase": "İP-6.4-6.6",
+      "priority": 12,
+      "remaining": "Vekilin resmi arama/istem kapsami gorusu ve basvuru stratejisi.",
+      "status": "blocked",
+      "title": "Patent vekili novelty/istem incelemesi"
+    },
+    {
+      "evidence": "Ticari paket hazir; canli ucretli klinik kaniti yok.",
+      "id": "paid_clinic_conversion",
+      "kind": "commercial",
+      "pass": false,
+      "phase": "İP-6.8",
+      "priority": 13,
+      "remaining": "Pilot basarisi, teklif, sozlesme ve odeme/donusum kaydi.",
+      "status": "blocked",
+      "title": "En az 5 ucretli klinik donusumu"
+    }
+  ],
+  "name": "project_readiness_board",
+  "next_actions": [
+    {
+      "id": "ip3_6_model_distillation",
+      "phase": "İP-3.6",
+      "remaining": "Baseline model secimi, distillation/fine-tune kosumu, kalite/latency karsilastirma raporu.",
+      "status": "partial",
+      "title": "Kucuk on-prem model TR dis korpusunda damitma/ince-ayar"
+    },
+    {
+      "id": "ip3_7_real_voice_field",
+      "phase": "İP-3.7",
+      "remaining": "Mikrofon yakalama, gercek kayitlarda gurultu/aksan testi, uc-tan-uca p95 ses gecikmesi.",
+      "status": "partial",
+      "title": "Gercek ses altyapisi ve saha gecikme olcumu"
+    },
+    {
+      "id": "mobile_ios_qa_build",
+      "phase": "Mobil",
+      "remaining": "Expo login, Apple Developer/UDID, gerekiyorsa Xcode, gercek iPhone uzerinde QA.",
+      "status": "blocked",
+      "title": "iPhone dokunmatik QA + ad hoc/TestFlight build"
+    },
+    {
+      "id": "kvkk_legal_approval",
+      "phase": "İP-5/6",
+      "remaining": "Uzman hukukcu yazili onayi, pilot sozlesmesi/DPA, VERBIS ve saklama-silme yorumu.",
+      "status": "blocked",
+      "title": "KVKK aydinlatma, acik riza, DPA ve yurt disi aktarim hukuk onayi"
+    },
+    {
+      "id": "pilot_clinic_contracts",
+      "phase": "İP-5.2",
+      "remaining": "Klinik aday listesi, gorusme notlari, imzali pilot kapsam/sorumluluk metni.",
+      "status": "blocked",
+      "title": "3-5 pilot klinik gorusmesi ve imzali pilot baslangici"
+    },
+    {
+      "id": "field_call_trial_30",
+      "phase": "İP-5.3",
+      "remaining": "Gercek Twilio/alternatif numara, imza dogrulama acik, gurultu/aksan/kopma/gecikme raporu.",
+      "status": "blocked",
+      "title": "Gercek numarayla en az 30 Turkce cagri deneyi"
+    }
+  ],
+  "overall_pass": false,
+  "production_ready": false,
+  "recommended_label": "production-oriented pilot",
+  "technical_overall_pass": true,
+  "technical_summary": {
+    "gates_passed": 48,
+    "gates_total": 48,
+    "panels": 6,
+    "panels_passed": 6
+  }
+}

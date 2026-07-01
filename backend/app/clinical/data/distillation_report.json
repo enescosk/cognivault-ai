@@ -1,0 +1,182 @@
+{
+  "baseline": {
+    "test": {
+      "channel_accuracy": 1.0,
+      "exact_label_accuracy": 0.5142857142857142,
+      "specialty_accuracy": 0.6571428571428571,
+      "total": 35,
+      "urgency_accuracy": 0.7714285714285715
+    },
+    "train": {
+      "channel_accuracy": 1.0,
+      "exact_label_accuracy": 0.8348623853211009,
+      "specialty_accuracy": 0.9587155963302753,
+      "total": 436,
+      "urgency_accuracy": 0.8761467889908257
+    },
+    "validation": {
+      "channel_accuracy": 1.0,
+      "exact_label_accuracy": 0.8,
+      "specialty_accuracy": 1.0,
+      "total": 110,
+      "urgency_accuracy": 0.8
+    }
+  },
+  "coverage": {
+    "channels": [
+      "form",
+      "phone",
+      "web",
+      "whatsapp"
+    ],
+    "specialties": [
+      "cene_cerrahisi",
+      "dermatoloji",
+      "endodonti",
+      "estetik_dis",
+      "genel_dis",
+      "implantoloji",
+      "medikal_estetik",
+      "ortodonti",
+      "pedodonti",
+      "periodontoloji",
+      "restoratif"
+    ],
+    "urgencies": [
+      "emergency",
+      "priority",
+      "routine"
+    ]
+  },
+  "dataset_artifact": "distillation_dataset.jsonl",
+  "eval_input_artifact": "distillation_eval_inputs.jsonl",
+  "gates": {
+    "baseline_protocol": {
+      "pass": true,
+      "target": "fine-tune sonrasi karsilastirma icin validation/test baseline metrikleri kayitli",
+      "test_exact_label_accuracy": 0.5142857142857142,
+      "validation_specialty_accuracy": 1.0
+    },
+    "eval_input_contract": {
+      "eval_file": "distillation_eval_inputs.jsonl",
+      "pass": true,
+      "target": "validation/test icin etiketsiz inference JSONL girdisi hazir"
+    },
+    "label_coverage": {
+      "missing_channels": [],
+      "missing_specialties": [],
+      "missing_urgencies": [],
+      "pass": true,
+      "target": "tum brans, aciliyet ve kanal etiketleri temsil edilir"
+    },
+    "output_contract": {
+      "keys": [
+        "channel",
+        "specialty_code",
+        "urgency"
+      ],
+      "pass": true,
+      "target": "cikti yalniz JSON etiket kontrati; serbest tani/tedavi metni yok"
+    },
+    "pii_clean": {
+      "hits": [],
+      "pass": true,
+      "target": "egitim paketinde PII yok"
+    },
+    "split_integrity": {
+      "overlaps": {
+        "train_test": 0,
+        "train_validation": 0,
+        "validation_test": 0
+      },
+      "pass": true,
+      "target": "train/validation/test kimlikleri ayrik"
+    },
+    "train_size": {
+      "pass": true,
+      "target": "train >= 400",
+      "train_n": 436
+    },
+    "training_export_contract": {
+      "dataset_file": "distillation_dataset.jsonl",
+      "pass": true,
+      "target": "JSONL kaydi system/user/assistant mesajlari ve triage_labels_v1 metadata tasir"
+    }
+  },
+  "improvement_targets": {
+    "note": "Fine-tuned model bu baseline'i gecmeli; test split golden settir ve egitime karismamalidir.",
+    "test_exact_label_accuracy_min": 0.5142857142857142,
+    "validation_exact_label_accuracy_min": 0.8
+  },
+  "name": "ip3_6_distillation_data_pack",
+  "overall_pass": true,
+  "purpose": "small_on_prem_triage_model_distillation",
+  "remaining": [
+    "Baseline kucuk model secimi ve local training runtime hazirligi.",
+    "Distillation/fine-tune kosumu.",
+    "Fine-tuned modelin baseline exact-label ve mevcut klinik kalite/latency panolarina karsi karsilastirmasi."
+  ],
+  "sample_examples": [
+    {
+      "id": "distill-dtr-0001",
+      "input_text": "abi çenem kırıldı düştüm kanıyor",
+      "output_json": {
+        "channel": "form",
+        "specialty_code": "cene_cerrahisi",
+        "urgency": "emergency"
+      },
+      "source": "synthetic_template",
+      "split": "train"
+    },
+    {
+      "id": "distill-dtr-0002",
+      "input_text": "abi yüzüm dayanılmaz derecede şişti gözüm kapanıyor",
+      "output_json": {
+        "channel": "web",
+        "specialty_code": "cene_cerrahisi",
+        "urgency": "emergency"
+      },
+      "source": "synthetic_template",
+      "split": "train"
+    },
+    {
+      "id": "distill-dtr-0003",
+      "input_text": "ağzımdaki şişlik boğazıma vurdu yutamıyorum",
+      "output_json": {
+        "channel": "form",
+        "specialty_code": "cene_cerrahisi",
+        "urgency": "emergency"
+      },
+      "source": "synthetic_template",
+      "split": "train"
+    },
+    {
+      "id": "distill-dtr-0004",
+      "input_text": "ağzımdaki şişlik boğazıma vurdu yutamıyorum abi",
+      "output_json": {
+        "channel": "whatsapp",
+        "specialty_code": "cene_cerrahisi",
+        "urgency": "emergency"
+      },
+      "source": "synthetic_template",
+      "split": "train"
+    },
+    {
+      "id": "distill-dtr-0005",
+      "input_text": "ağzımdaki şişlik boğazıma vurdu yutamıyorum valla",
+      "output_json": {
+        "channel": "whatsapp",
+        "specialty_code": "cene_cerrahisi",
+        "urgency": "emergency"
+      },
+      "source": "synthetic_template",
+      "split": "train"
+    }
+  ],
+  "splits": {
+    "test": 35,
+    "train": 436,
+    "validation": 110
+  },
+  "total_examples": 581
+}
