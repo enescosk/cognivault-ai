@@ -1,0 +1,29 @@
+{
+  "config": {
+    "frame_ms": 20,
+    "sample_rate": 16000,
+    "speech_margin_db": 10.0
+  },
+  "gates": {
+    "noise_tolerated": {
+      "pass": true,
+      "target": "sabit uğultu konuşma tetiklemez"
+    },
+    "silence_not_speech": {
+      "pass": true,
+      "target": "sessizlikte konuşma yok"
+    },
+    "speech_detected_in_tone": {
+      "pass": true,
+      "target": "konuşma-tonunda çoğunluk konuşma"
+    }
+  },
+  "ip": "3.7",
+  "name": "energy_vad",
+  "overall_pass": true,
+  "ratios": {
+    "hum_speech_ratio": 0.0,
+    "silence_speech_ratio": 0.0,
+    "tone_speech_ratio": 1.0
+  }
+}

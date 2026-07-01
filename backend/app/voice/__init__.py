@@ -13,3 +13,9 @@ from app.voice.turn_taking import (  # noqa: F401
     TurnTakingController,
     build_report,
 )
+from app.voice.vad import (  # noqa: F401
+    EnergyVad,
+    EnergyVadConfig,
+    rms_dbfs,
+    zero_crossing_rate,
+)
