@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.models import Clinic
+from app.services.clinical_compliance_service import mask_identifiers
 
 
 class MedicalUrgency(str, Enum):
@@ -258,11 +259,30 @@ Patient message:
 """.strip()
 
 
+def _external_clinical_ai_allowed(clinic: Clinic, settings) -> bool:
+    """Semptom/acil metni özel-nitelikli sağlık verisidir (KVKK).
+
+    Harici işlemciye (OpenAI) gönderilebilmesi için hem uygulama-seviyesi
+    `clinical_external_ai_allowed` hem de klinik-seviyesi sınır-ötesi rıza
+    (`allow_cross_border_processors`) birlikte açık olmalı — bkz.
+    `build_compliance_profile`'daki "openai" processor kaydı ("clinical_default":
+    "blocked"). Sadece genel `clinical_ai_enabled` bunu tek başına yetkilendirmez.
+    """
+    clinic_settings = clinic.settings_json or {}
+    external_transfer_allowed = bool(clinic_settings.get("allow_cross_border_processors", False))
+    return bool(
+        settings.clinical_ai_enabled
+        and settings.clinical_external_ai_allowed
+        and external_transfer_allowed
+    )
+
+
 def _try_openai_triage(clinic: Clinic, text: str, language: str) -> MedicalTriageAssessment | None:
     settings = get_settings()
-    if not settings.clinical_ai_enabled or not settings.openai_api_key:
+    if not settings.openai_api_key or not _external_clinical_ai_allowed(clinic, settings):
         return None
 
+    safe_text = mask_identifiers(text)
     client = OpenAI(api_key=settings.openai_api_key)
     try:
         response = client.chat.completions.create(
@@ -273,7 +293,7 @@ def _try_openai_triage(clinic: Clinic, text: str, language: str) -> MedicalTriag
                     "role": "system",
                     "content": "Return only JSON. You are safe clinical triage support, not a diagnosing physician.",
                 },
-                {"role": "user", "content": _triage_prompt(clinic, text, language)},
+                {"role": "user", "content": _triage_prompt(clinic, safe_text, language)},
             ],
             response_format={"type": "json_schema", "json_schema": TRIAGE_JSON_SCHEMA},
         )
