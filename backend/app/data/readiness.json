@@ -1,0 +1,66 @@
+{
+  "name": "technical_readiness_board",
+  "overall_pass": true,
+  "packages": [
+    {
+      "gates_passed": 4,
+      "gates_total": 4,
+      "ip": "İP-1",
+      "overall_pass": true,
+      "source": "app.clinical.report.build_dashboard",
+      "status": "ok",
+      "title": "Türkçe triyaj NLU + kalibre çekimser yönlendirici"
+    },
+    {
+      "gates_passed": 3,
+      "gates_total": 3,
+      "ip": "İP-2",
+      "overall_pass": true,
+      "source": "app.governance.gate_report.build_gate_dashboard",
+      "status": "ok",
+      "title": "Deterministik yönetişim zarfı (kapı ihlali=0)"
+    },
+    {
+      "gates_passed": 4,
+      "gates_total": 4,
+      "ip": "İP-3.7a",
+      "overall_pass": true,
+      "source": "app.voice.turn_taking.build_report",
+      "status": "ok",
+      "title": "Gerçek-zamanlı ses — turn-taking / barge-in"
+    },
+    {
+      "gates_passed": 3,
+      "gates_total": 3,
+      "ip": "İP-3.7b",
+      "overall_pass": true,
+      "source": "app.voice.vad.build_report",
+      "status": "ok",
+      "title": "Gerçek-zamanlı ses — enerji VAD"
+    },
+    {
+      "gates_passed": 22,
+      "gates_total": 22,
+      "ip": "İP-4",
+      "overall_pass": true,
+      "source": "app.learning.report.build_learning_dashboard",
+      "status": "ok",
+      "title": "Hekim-döngülü iyileştirme + öngörücü süreklilik"
+    },
+    {
+      "gates_passed": 12,
+      "gates_total": 12,
+      "ip": "Resepsiyon",
+      "overall_pass": true,
+      "source": "app.reception.greeting.build_report",
+      "status": "ok",
+      "title": "API öncesi karşılama + kötü-girdi koruması"
+    }
+  ],
+  "summary": {
+    "gates_passed": 48,
+    "gates_total": 48,
+    "panels": 6,
+    "panels_passed": 6
+  }
+}
