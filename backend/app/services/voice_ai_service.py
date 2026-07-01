@@ -72,22 +72,38 @@ def voice_capabilities() -> dict:
     }
 
 
-def _select_stt_provider() -> str | None:
+def _select_stt_provider(external_transfer_allowed: bool = False) -> str | None:
+    """`external_transfer_allowed` sürücüsü klinik-seviyesi sınır-ötesi rızayı
+    (`allow_cross_border_processors`) taşır. App-seviyesi `voice_external_enabled`
+    kapalıysa ya da rıza yoksa "openai" hiçbir zaman seçilmez — bkz.
+    `build_compliance_profile`'daki "external_voice_stt_tts" işlemcisi
+    ("clinical_default": "blocked").
+    """
     settings = get_settings()
     preferred = settings.speech_stt_provider.strip().lower()
     if preferred in {"local", "whisper_cpp", "auto"} and whisper_cpp_configured():
         return "whisper_cpp"
-    if preferred in {"openai", "auto"} and _openai_voice_configured():
+    if (
+        preferred in {"openai", "auto"}
+        and settings.voice_external_enabled
+        and external_transfer_allowed
+        and _openai_voice_configured()
+    ):
         return "openai"
     return None
 
 
-def _select_tts_provider() -> str | None:
+def _select_tts_provider(external_transfer_allowed: bool = False) -> str | None:
     settings = get_settings()
     preferred = settings.speech_tts_provider.strip().lower()
     if preferred in {"local", "piper", "auto"} and piper_configured():
         return "piper"
-    if preferred in {"openai", "auto"} and _openai_voice_configured():
+    if (
+        preferred in {"openai", "auto"}
+        and settings.voice_external_enabled
+        and external_transfer_allowed
+        and _openai_voice_configured()
+    ):
         return "openai"
     return None
 
@@ -98,6 +114,7 @@ def transcribe_audio_bytes(
     filename: str,
     content_type: str,
     language: str,
+    external_transfer_allowed: bool = False,
 ) -> tuple[str, str]:
     settings = get_settings()
     if not audio_bytes:
@@ -112,7 +129,7 @@ def transcribe_audio_bytes(
     if suffix and suffix not in ALLOWED_AUDIO_SUFFIXES:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Desteklenmeyen ses dosya uzantısı.")
 
-    provider = _select_stt_provider()
+    provider = _select_stt_provider(external_transfer_allowed)
     if provider == "whisper_cpp":
         return _transcribe_with_whisper_cpp(audio_bytes=audio_bytes, filename=filename, language=language), provider
     if provider == "openai":
@@ -127,20 +144,21 @@ def transcribe_audio_bytes(
         status.HTTP_503_SERVICE_UNAVAILABLE,
         detail=(
             "Ses tanıma sağlayıcısı hazır değil. Offline çalışmak için WHISPER_CPP_BINARY ve "
-            "WHISPER_CPP_MODEL ayarlayın; bulut modu için OPENAI_API_KEY girin."
+            "WHISPER_CPP_MODEL ayarlayın; bulut modu için OPENAI_API_KEY, VOICE_EXTERNAL_ENABLED ve "
+            "klinik sınır-ötesi rızası (clinic_id) gerekir."
         ),
     )
 
 
 def synthesize_speech_bytes(
-    *, text: str, voice: str, speed: float, is_confirmation: bool = False
+    *, text: str, voice: str, speed: float, is_confirmation: bool = False, external_transfer_allowed: bool = False
 ) -> SpeechSynthesisResult:
     text = text.strip()
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Metin boş.")
     text = text[:4096]
 
-    provider = _select_tts_provider()
+    provider = _select_tts_provider(external_transfer_allowed)
     if provider == "piper":
         return _synthesize_with_piper(text=text)
     if provider == "openai":

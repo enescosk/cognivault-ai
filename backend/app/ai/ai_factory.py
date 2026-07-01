@@ -254,16 +254,26 @@ class LocalQwenProvider(LLMProvider):
 def get_llm_provider(data_residency_mode: str, external_transfer_allowed: bool) -> LLMProvider:
     """
     Returns the appropriate LLM provider based on KVKK data residency settings.
+
+    Cross-border processors (Anthropic/OpenAI) require BOTH the app-level kill
+    switch `clinical_external_ai_allowed` AND clinic-level cross-border consent
+    (`external_transfer_allowed`) — matches `build_compliance_profile`'s
+    "openai"/"anthropic" processor entries ("clinical_default": "blocked").
+    Neither flag alone is sufficient; a clinic consenting to cross-border transfer
+    must not be able to override a platform-wide external-AI kill switch.
     """
     if data_residency_mode == "tr_local_first" and not external_transfer_allowed:
         return LocalQwenProvider()
-    
-    # Fallback/hybrid modes
+
     settings = get_settings()
+    if not (settings.clinical_external_ai_allowed and external_transfer_allowed):
+        return LocalQwenProvider()
+
+    # Fallback/hybrid modes
     if settings.anthropic_api_key:
         return AnthropicProvider()
     elif settings.openai_api_key:
         return OpenAIProvider()
-    
+
     # Ultimate local fallback
     return LocalQwenProvider()

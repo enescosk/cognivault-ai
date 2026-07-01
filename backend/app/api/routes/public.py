@@ -998,7 +998,7 @@ class PublicSynthesizeRequest(BaseModel):
 
 
 @router.post("/clinics/{slug}/voice/synthesize")
-def public_synthesize_speech(slug: str, body: PublicSynthesizeRequest) -> StreamingResponse:
+def public_synthesize_speech(slug: str, body: PublicSynthesizeRequest, db: Session = Depends(get_db)) -> StreamingResponse:
     """Hasta sayfası için metni doğal sese çevirir (varsayılan lokal Piper tr_TR).
 
     Auth gerekmez (anonim hasta akışı). Ses yurt içinde üretilir; klinik veri
@@ -1007,8 +1007,12 @@ def public_synthesize_speech(slug: str, body: PublicSynthesizeRequest) -> Stream
     text = body.text.strip()[:1200]
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Metin boş.")
+    clinic = db.scalars(select(Clinic).where(Clinic.slug == slug)).first()
+    if clinic is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="clinic_not_found")
+    external_transfer_allowed = bool((clinic.settings_json or {}).get("allow_cross_border_processors", False))
     try:
-        audio_bytes, mime = get_tts_provider().synthesize(text, voice=body.voice)
+        audio_bytes, mime = get_tts_provider(external_transfer_allowed).synthesize(text, voice=body.voice)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Ses sentezi hatası: {exc}") from exc
 
@@ -1040,8 +1044,9 @@ async def public_transcribe_speech(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Ses dosyası boş.")
     if len(audio_bytes) > 8 * 1024 * 1024:  # 8 MB üst sınır — kötüye kullanım koruması
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Ses dosyası çok büyük.")
+    external_transfer_allowed = bool((clinic.settings_json or {}).get("allow_cross_border_processors", False))
     try:
-        text = get_stt_provider().transcribe(audio_bytes, language=language)
+        text = get_stt_provider(external_transfer_allowed).transcribe(audio_bytes, language=language)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Ses tanıma hatası: {exc}") from exc
     return {"text": text}

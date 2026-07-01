@@ -2,8 +2,9 @@
 
 KVKK local-first ilkesi: varsayılan olarak ses verisi yurt içinde, tamamen
 cihaz/sunucu üzerinde işlenir. Bulut sağlayıcılar (OpenAI) yalnızca
-`voice_external_enabled=True` VE provider açıkça "openai" seçildiğinde devreye
-girer. Aksi halde ses verisi hiçbir koşulda dışarı çıkmaz.
+`voice_external_enabled=True` VE provider açıkça "openai" seçildiği VE arayanın
+ilettiği klinik-seviyesi sınır-ötesi rıza (`allow_cross_border_processors`) açık
+olduğunda devreye girer. Aksi halde ses verisi hiçbir koşulda dışarı çıkmaz.
 
 - STT: faster-whisper (CTranslate2, lokal). webm/opus dahil PyAV ile çözülür.
 - TTS: Piper (nöral, tr_TR). Piper yüklenemezse macOS `say -v Yelda` (yine lokal).
@@ -124,9 +125,19 @@ class ElevenLabsScribeSTT(STTProvider):
         return str(payload.get("text", "")).strip()
 
 
-def get_stt_provider(*, consent_granted: bool = False) -> STTProvider:
-    """Local-first: bulut STT yalnızca rıza kapısı (dış izin + hasta rızası +
-    anahtar) geçilirse. Aksi halde her zaman yerel Whisper.
+def get_stt_provider(external_transfer_allowed: bool = False, *, consent_granted: bool = False) -> STTProvider:
+    """Local-first: buluta yalnızca sağlayıcıya özel rıza kapısı geçilirse gidilir.
+
+    - "elevenlabs": `external_voice_permitted()` — app-seviyesi `voice_external_enabled`
+      ∧ hasta VOICE_RECORDING rızası (`consent_granted`) ∧ API anahtarı.
+    - "openai": app-seviyesi `voice_external_enabled` ∧ arayanın doğruladığı
+      klinik-seviyesi sınır-ötesi rıza (`external_transfer_allowed`,
+      `allow_cross_border_processors`) ∧ API anahtarı. Klinik rızası iletilmezse
+      (varsayılan False) hasta sesi hep yerelde kalır — bkz.
+      `build_compliance_profile`'daki "external_voice_stt_tts" işlemcisi
+      ("clinical_default": "blocked").
+
+    Her iki kapı de sağlanmazsa her zaman yerel Whisper.
     """
     s = get_settings()
     if s.voice_stt_provider == "elevenlabs" and external_voice_permitted(
@@ -135,11 +146,7 @@ def get_stt_provider(*, consent_granted: bool = False) -> STTProvider:
         has_credentials=bool(s.elevenlabs_api_key),
     ):
         return ElevenLabsScribeSTT()
-    if s.voice_stt_provider == "openai" and external_voice_permitted(
-        external_enabled=s.voice_external_enabled,
-        consent_granted=consent_granted,
-        has_credentials=bool(s.openai_api_key),
-    ):
+    if s.voice_stt_provider == "openai" and s.voice_external_enabled and external_transfer_allowed and s.openai_api_key:
         return OpenAIWhisperSTT()
     return LocalWhisperSTT()
 
@@ -241,10 +248,15 @@ class ElevenLabsTTS(TTSProvider):
         return resp.content, "audio/mpeg"
 
 
-def get_tts_provider(*, consent_granted: bool = False) -> TTSProvider:
-    """Local-first: bulut TTS yalnızca rıza kapısı (dış izin + hasta rızası +
-    anahtar) geçilirse. Aksi halde önce Piper, yoksa macOS `say` — ses yurt
-    içinde kalır."""
+def get_tts_provider(external_transfer_allowed: bool = False, *, consent_granted: bool = False) -> TTSProvider:
+    """Local-first: bulut TTS yalnızca sağlayıcıya özel rıza kapısı geçilirse.
+
+    - "elevenlabs": `external_voice_permitted()` — app-seviyesi dış izin ∧ hasta
+      VOICE_RECORDING rızası (`consent_granted`) ∧ API anahtarı (+ voice_id).
+    - "openai": app-seviyesi dış izin ∧ klinik-seviyesi sınır-ötesi rıza
+      (`external_transfer_allowed`) ∧ API anahtarı.
+
+    Aksi halde önce Piper, yoksa macOS `say` — ses yurt içinde kalır."""
     s = get_settings()
     if s.voice_tts_provider == "elevenlabs" and external_voice_permitted(
         external_enabled=s.voice_external_enabled,
@@ -252,11 +264,7 @@ def get_tts_provider(*, consent_granted: bool = False) -> TTSProvider:
         has_credentials=bool(s.elevenlabs_api_key and s.elevenlabs_voice_id),
     ):
         return ElevenLabsTTS()
-    if s.voice_tts_provider == "openai" and external_voice_permitted(
-        external_enabled=s.voice_external_enabled,
-        consent_granted=consent_granted,
-        has_credentials=bool(s.openai_api_key),
-    ):
+    if s.voice_tts_provider == "openai" and s.voice_external_enabled and external_transfer_allowed and s.openai_api_key:
         return OpenAITTS()
     # Lokal: Piper varsa onu kullan (model lazy yüklenir, hata olursa say'e düşer),
     # hiç yoksa doğrudan macOS say. Her durumda ses yurt içinde kalır.

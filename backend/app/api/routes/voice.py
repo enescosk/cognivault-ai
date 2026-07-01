@@ -16,12 +16,26 @@ from sqlalchemy.orm import Session
 
 from app.ai.voice_factory import get_stt_provider, get_tts_provider
 from app.api.dependencies import get_current_user, get_db
-from app.models import User
+from app.models import Clinic, User
 from app.services.voice_ai_service import synthesize_speech_bytes, transcribe_audio_bytes, voice_capabilities
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
 TTS_VOICE = "nova"
+
+
+def _external_transfer_allowed(db: Session, clinic_id: int | None) -> bool:
+    """Klinik sınır-ötesi rızasını (`allow_cross_border_processors`) okur.
+
+    `clinic_id` verilmezse ya da klinik bulunamazsa varsayılan KAPALI (fail-closed)
+    — bkz. `build_compliance_profile`'daki "external_voice_stt_tts" işlemcisi.
+    """
+    if clinic_id is None:
+        return False
+    clinic = db.scalars(select(Clinic).where(Clinic.id == clinic_id)).first()
+    if clinic is None:
+        return False
+    return bool((clinic.settings_json or {}).get("allow_cross_border_processors", False))
 
 
 # ── Whisper: ses → metin ──────────────────────────────────────────────────────
@@ -52,6 +66,7 @@ async def transcribe_audio(
         filename=filename,
         content_type=file.content_type or "audio/webm",
         language=language,
+        external_transfer_allowed=_external_transfer_allowed(db, clinic_id),
     )
     return {"text": transcript, "provider": provider}
 
@@ -63,6 +78,7 @@ class SynthesizeRequest(BaseModel):
     voice: str = TTS_VOICE        # nova / onyx / shimmer / alloy / echo / fable
     speed: float = 1.0             # 0.25–4.0; 1.0 normal
     is_confirmation: bool = False  # True → use tts-1-hd for higher quality
+    clinic_id: int | None = None   # sınır-ötesi rıza kontrolü için (bkz. _external_transfer_allowed)
 
 
 @router.post("/synthesize")
@@ -79,6 +95,7 @@ async def synthesize_speech(
     result = synthesize_speech_bytes(
         text=body.text, voice=body.voice, speed=body.speed,
         is_confirmation=body.is_confirmation,
+        external_transfer_allowed=_external_transfer_allowed(db, body.clinic_id),
     )
 
     return StreamingResponse(

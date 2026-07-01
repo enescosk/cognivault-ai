@@ -96,6 +96,7 @@ def test_local_first_never_routes_to_cloud_even_with_keys(monkeypatch, anthropic
 
 def test_local_first_with_explicit_external_transfer_uses_cloud(monkeypatch):
     settings = get_settings()
+    monkeypatch.setattr(settings, "clinical_external_ai_allowed", True)
     monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-x")
     monkeypatch.setattr(settings, "openai_api_key", "")
     provider = get_llm_provider("tr_local_first", external_transfer_allowed=True)
@@ -104,23 +105,49 @@ def test_local_first_with_explicit_external_transfer_uses_cloud(monkeypatch):
 
 def test_hybrid_prefers_anthropic_over_openai(monkeypatch):
     settings = get_settings()
+    monkeypatch.setattr(settings, "clinical_external_ai_allowed", True)
     monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-x")
     monkeypatch.setattr(settings, "openai_api_key", "sk-oai-x")
-    assert isinstance(get_llm_provider("hybrid", external_transfer_allowed=False), AnthropicProvider)
+    assert isinstance(get_llm_provider("hybrid", external_transfer_allowed=True), AnthropicProvider)
 
 
 def test_hybrid_falls_back_to_openai_when_only_openai_key(monkeypatch):
     settings = get_settings()
+    monkeypatch.setattr(settings, "clinical_external_ai_allowed", True)
     monkeypatch.setattr(settings, "anthropic_api_key", "")
     monkeypatch.setattr(settings, "openai_api_key", "sk-oai-x")
-    assert isinstance(get_llm_provider("hybrid", external_transfer_allowed=False), OpenAIProvider)
+    assert isinstance(get_llm_provider("hybrid", external_transfer_allowed=True), OpenAIProvider)
 
 
 def test_no_cloud_keys_falls_back_to_local(monkeypatch):
     settings = get_settings()
+    monkeypatch.setattr(settings, "clinical_external_ai_allowed", True)
     monkeypatch.setattr(settings, "anthropic_api_key", "")
     monkeypatch.setattr(settings, "openai_api_key", "")
     assert isinstance(get_llm_provider("hybrid", external_transfer_allowed=True), LocalQwenProvider)
+
+
+def test_hybrid_without_app_level_switch_stays_local_even_with_clinic_consent(monkeypatch):
+    """KVKK değişmezi: klinik `allow_cross_border_processors` rızası tek başına
+    yetmez — platform-seviyesi `clinical_external_ai_allowed` kapalıysa (varsayılan),
+    anahtarlar mevcut olsa bile bulut sağlayıcıya asla gidilmez."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "clinical_external_ai_allowed", False)
+    monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-x")
+    monkeypatch.setattr(settings, "openai_api_key", "sk-oai-x")
+    assert isinstance(get_llm_provider("hybrid", external_transfer_allowed=True), LocalQwenProvider)
+    assert isinstance(get_llm_provider("tr_local_first", external_transfer_allowed=True), LocalQwenProvider)
+
+
+def test_hybrid_without_clinic_consent_stays_local_even_with_app_switch_on(monkeypatch):
+    """Tersi yön: platform-seviyesi `clinical_external_ai_allowed` açık olsa bile
+    klinik sınır-ötesi rızası (`external_transfer_allowed`) yoksa bulut sağlayıcıya
+    gidilmez."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "clinical_external_ai_allowed", True)
+    monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-x")
+    monkeypatch.setattr(settings, "openai_api_key", "sk-oai-x")
+    assert isinstance(get_llm_provider("hybrid", external_transfer_allowed=False), LocalQwenProvider)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
