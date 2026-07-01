@@ -18,6 +18,7 @@ from typing import Literal
 
 from app.clinical.distillation import build_report as build_distillation_report
 from app.evidence import build_readiness
+from app.integrations.hbys import build_report as build_hbys_report
 from app.onboarding.provision import build_report as build_onboarding_report
 
 
@@ -57,7 +58,10 @@ def _status_rank(status: GateStatus) -> int:
 
 
 def _base_gates(
-    technical_passed: bool, distillation_passed: bool, onboarding_passed: bool
+    technical_passed: bool,
+    distillation_passed: bool,
+    onboarding_passed: bool,
+    hbys_passed: bool,
 ) -> list[PhaseGate]:
     technical_status: GateStatus = "passed" if technical_passed else "blocked"
     technical_remaining = (
@@ -171,9 +175,13 @@ def _base_gates(
             phase="İP-5.2",
             title="Gercek HBYS/takvim adapteri",
             kind="engineering",
-            status="pending",
-            evidence="Ic randevu modeli, cakisma kontrolu ve procedure planlama mevcut.",
-            remaining="Adapter arayuzu, idempotency, rollback, conflict ve retry testleri.",
+            status="partial" if hbys_passed else "pending",
+            evidence=(
+                "Adapter arayuzu + dayaniklilik sozlesmesi (idempotency/conflict/retry/saga-rollback) testli."
+                if hbys_passed
+                else "Ic randevu modeli, cakisma kontrolu ve procedure planlama mevcut."
+            ),
+            remaining="Gercek satici adapteri (HBYS REST/DB), erisim/kimlik bilgileri ve canli takvimle uctan uca prova.",
             priority=10,
         ),
         PhaseGate(
@@ -223,12 +231,14 @@ def build_project_readiness() -> dict:
     technical = build_readiness()
     distillation = build_distillation_report()
     onboarding = build_onboarding_report()
+    hbys = build_hbys_report()
     gates = [
         gate.to_dict()
         for gate in _base_gates(
             bool(technical["overall_pass"]),
             bool(distillation["overall_pass"]),
             bool(onboarding["overall_pass"]),
+            bool(hbys["overall_pass"]),
         )
     ]
     counts = {

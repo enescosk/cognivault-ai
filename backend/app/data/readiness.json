@@ -73,12 +73,21 @@
       "source": "app.onboarding.provision.build_report",
       "status": "ok",
       "title": "Tek komut klinik onboarding provizyonu"
+    },
+    {
+      "gates_passed": 5,
+      "gates_total": 5,
+      "ip": "İP-5.2",
+      "overall_pass": true,
+      "source": "app.integrations.hbys.build_report",
+      "status": "ok",
+      "title": "HBYS/takvim adapteri dayanıklılık sözleşmesi"
     }
   ],
   "summary": {
-    "gates_passed": 69,
-    "gates_total": 69,
-    "panels": 8,
-    "panels_passed": 8
+    "gates_passed": 74,
+    "gates_total": 74,
+    "panels": 9,
+    "panels_passed": 9
   }
 }

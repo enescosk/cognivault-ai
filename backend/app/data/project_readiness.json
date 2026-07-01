@@ -1,9 +1,9 @@
 {
   "counts": {
     "blocked": 8,
-    "partial": 3,
+    "partial": 4,
     "passed": 1,
-    "pending": 2,
+    "pending": 1,
     "total": 14
   },
   "current_phase": "İP-5.2 pilot hazirlik + İP-3.6/3.7 saha teknik tamamlama",
@@ -123,14 +123,14 @@
       "title": "Tek komut tenant provizyonu + <1 gun onboarding"
     },
     {
-      "evidence": "Ic randevu modeli, cakisma kontrolu ve procedure planlama mevcut.",
+      "evidence": "Adapter arayuzu + dayaniklilik sozlesmesi (idempotency/conflict/retry/saga-rollback) testli.",
       "id": "hbys_calendar_adapter",
       "kind": "engineering",
       "pass": false,
       "phase": "İP-5.2",
       "priority": 10,
-      "remaining": "Adapter arayuzu, idempotency, rollback, conflict ve retry testleri.",
-      "status": "pending",
+      "remaining": "Gercek satici adapteri (HBYS REST/DB), erisim/kimlik bilgileri ve canli takvimle uctan uca prova.",
+      "status": "partial",
       "title": "Gercek HBYS/takvim adapteri"
     },
     {
@@ -228,9 +228,9 @@
   "recommended_label": "production-oriented pilot",
   "technical_overall_pass": true,
   "technical_summary": {
-    "gates_passed": 69,
-    "gates_total": 69,
-    "panels": 8,
-    "panels_passed": 8
+    "gates_passed": 74,
+    "gates_total": 74,
+    "panels": 9,
+    "panels_passed": 9
   }
 }

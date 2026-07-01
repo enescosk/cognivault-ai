@@ -1,0 +1,56 @@
+{
+  "gates": {
+    "happy_path": {
+      "external_ref": "HBYS-000001",
+      "found": true,
+      "pass": true,
+      "procedures_written": [
+        "Muayene",
+        "Temizlik"
+      ],
+      "target": "başarılı yol: randevu + tüm işlemler yazılır, bulunabilir"
+    },
+    "idempotency": {
+      "active_bookings": 1,
+      "first_ref": "HBYS-000001",
+      "pass": true,
+      "second_deduplicated": true,
+      "second_ref": "HBYS-000001",
+      "target": "aynı idempotency_key tek kayıt üretir"
+    },
+    "retry_semantics": {
+      "final_status": "confirmed",
+      "pass": true,
+      "permanent_create_calls": 1,
+      "target": "geçici hata toparlanır (retry); kalıcı hata retry edilmez",
+      "transient_attempts": 2
+    },
+    "saga_rollback": {
+      "active_bookings": 0,
+      "cancel_calls": 1,
+      "pass": true,
+      "procedures_written_before_failure": [
+        "Muayene",
+        "Röntgen"
+      ],
+      "rolled_back": true,
+      "target": "çok adımlı işlemde kısmi hata randevuyu geri alır (yetim kayıt yok)"
+    },
+    "slot_conflict": {
+      "active_bookings": 2,
+      "other_doctor_ok": true,
+      "overlap_blocked": true,
+      "pass": true,
+      "target": "çakışan hekim/zaman ikinci kez rezerve edilemez; farklı hekim serbest"
+    }
+  },
+  "name": "ip5_2_hbys_calendar_adapter",
+  "overall_pass": true,
+  "purpose": "external_hbys_calendar_sync_resilience_contract",
+  "remaining": [
+    "Gerçek satıcı adapteri (HBYS REST/DB) — saha erişimi ve kimlik bilgileri gerekir.",
+    "Canlı idempotency anahtarının ClinicalAppointment.external_ref ile eşlenmesi.",
+    "Satıcıya özgü hata haritalama (hangi HTTP kodu geçici/kalıcı).",
+    "Gerçek çakışma kaynağı (HBYS takvimi) ile uçtan uca prova."
+  ]
+}

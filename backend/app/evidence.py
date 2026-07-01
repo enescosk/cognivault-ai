@@ -32,6 +32,7 @@ PANELS: list[tuple[str, str, str, str]] = [
     ("Resepsiyon", "API öncesi karşılama + kötü-girdi koruması", "app.reception.greeting", "build_report"),
     ("İP-3.6", "Damıtma veri paketi (PII-temiz SFT + baseline protokolü)", "app.clinical.distillation", "build_report"),
     ("İP-6.2", "Tek komut klinik onboarding provizyonu", "app.onboarding.provision", "build_report"),
+    ("İP-5.2", "HBYS/takvim adapteri dayanıklılık sözleşmesi", "app.integrations.hbys", "build_report"),
 ]
 
 
