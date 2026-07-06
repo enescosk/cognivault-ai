@@ -28,6 +28,12 @@ TRAIN_FRACTION = 0.8
 MIN_TRAIN_EXAMPLES = 400
 MIN_VALIDATION_SPECIALTY_BASELINE = 0.90
 EVAL_SPLITS = ("validation", "test")
+EMERGENCY_URGENCY = "emergency"
+# İP-1.7 deterministik motor acil-korpusta %100 recall kanıtladı (76/76, kaçan acil 0).
+# Herhangi bir fine-tune edilmiş modelin bu sıfır-tolerans çıtasının altına düşmesi
+# (bkz. 2026-07-06 naif fine-tune regresyonu: %26,7 recall) yaşam-güvenliği ihlalidir —
+# bu yüzden emergency recall, genel exact-match'ten AYRI ve YUMUŞATILAMAZ bir kapıdır.
+EMERGENCY_RECALL_MIN = 1.0
 
 
 @dataclass(frozen=True)
@@ -199,6 +205,26 @@ def _inference_record_contract_ok(examples: list[DistillationExample]) -> bool:
     return True
 
 
+def _urgency_recall(
+    truth_examples: list[DistillationExample],
+    predicted_by_id: dict[str, str],
+    urgency_value: str = EMERGENCY_URGENCY,
+) -> float | None:
+    """Belirli bir aciliyet sinifinin recall'u: gercekte `urgency_value` olan orneklerin
+    kacinin dogru tahmin edildigi. Sinifin hic ornegi yoksa None (recall tanimsiz).
+
+    Bu, genel `urgency_accuracy`den KASITLI olarak ayridir: azinlik sinif (acil vakalar
+    korpusun ~%7-17'si) genel dogrulukta bogulabilir — tam da 2026-07-06 naif fine-tune
+    regresyonunda oldugu gibi (genel metrikler makul gorunse de acil recall %26,7'ye
+    dustu). Guvenlik-kritik siniflar kendi basina olculmeli.
+    """
+    truth_positive = [ex for ex in truth_examples if ex.output_json["urgency"] == urgency_value]
+    if not truth_positive:
+        return None
+    correct = sum(1 for ex in truth_positive if predicted_by_id.get(ex.id) == urgency_value)
+    return correct / len(truth_positive)
+
+
 def _baseline_metrics(examples: list[DistillationExample]) -> dict:
     """Mevcut deterministic triyaj motorunu fine-tune karsilastirma baseline'i yapar."""
     by_split: dict[str, dict] = {}
@@ -209,6 +235,7 @@ def _baseline_metrics(examples: list[DistillationExample]) -> dict:
         urgency_correct = 0
         channel_correct = 0
         exact_correct = 0
+        predicted_urgency_by_id: dict[str, str] = {}
         for ex in split_examples:
             pred = triage(ex.input_text)
             predicted = {
@@ -216,6 +243,7 @@ def _baseline_metrics(examples: list[DistillationExample]) -> dict:
                 "urgency": pred.urgency.value,
                 "channel": ex.output_json["channel"],  # kanal metinden degil, runtime metadata'dan gelir.
             }
+            predicted_urgency_by_id[ex.id] = predicted["urgency"]
             specialty_ok = predicted["specialty_code"] == ex.output_json["specialty_code"]
             urgency_ok = predicted["urgency"] == ex.output_json["urgency"]
             channel_ok = predicted["channel"] == ex.output_json["channel"]
@@ -229,6 +257,7 @@ def _baseline_metrics(examples: list[DistillationExample]) -> dict:
             "urgency_accuracy": urgency_correct / total if total else 0.0,
             "channel_accuracy": channel_correct / total if total else 0.0,
             "exact_label_accuracy": exact_correct / total if total else 0.0,
+            "emergency_recall": _urgency_recall(split_examples, predicted_urgency_by_id),
         }
     return by_split
 
@@ -309,6 +338,7 @@ def score_predictions(predictions: dict[str, dict], examples: list[DistillationE
         scored = [ex for ex in split_examples if ex.id in predictions and ex.id not in invalid_ids]
         total = len(split_examples)
         specialty_correct = urgency_correct = channel_correct = exact_correct = 0
+        predicted_urgency_by_id: dict[str, str] = {}
         for ex in scored:
             output = predictions[ex.id]
             specialty_ok = output.get("specialty_code") == ex.output_json["specialty_code"]
@@ -318,6 +348,12 @@ def score_predictions(predictions: dict[str, dict], examples: list[DistillationE
             urgency_correct += int(urgency_ok)
             channel_correct += int(channel_ok)
             exact_correct += int(specialty_ok and urgency_ok and channel_ok)
+            predicted_urgency_by_id[ex.id] = output.get("urgency")
+        # Recall paydasi TUM split_examples uzerinden hesaplanir (yalniz `scored` degil):
+        # skorlanmamis (missing/invalid) bir acil-vaka kimligi `predicted_urgency_by_id`de
+        # hic yer almaz -> `.get(ex.id)` None doner -> "emergency" ile eslesmez -> otomatik
+        # "kacirilmis" sayilir. Yani eksik/gecersiz tahmin acil recall'u sessizce sise-mez.
+        emergency_recall = _urgency_recall(split_examples, predicted_urgency_by_id)
         by_split[split] = {
             "total": total,
             "scored": len(scored),
@@ -333,6 +369,11 @@ def score_predictions(predictions: dict[str, dict], examples: list[DistillationE
                 if scored
                 else False
             ),
+            "emergency_recall": emergency_recall,
+            "baseline_emergency_recall": baseline[split]["emergency_recall"],
+            "emergency_recall_pass": (
+                emergency_recall is None or emergency_recall >= EMERGENCY_RECALL_MIN
+            ),
         }
     return {
         "name": "ip3_6_distillation_prediction_score",
@@ -345,6 +386,7 @@ def score_predictions(predictions: dict[str, dict], examples: list[DistillationE
             and not missing_ids
             and not invalid_ids
             and all(by_split[split]["beats_baseline"] for split in EVAL_SPLITS)
+            and all(by_split[split]["emergency_recall_pass"] for split in EVAL_SPLITS)
         ),
     }
 

@@ -118,6 +118,57 @@ def test_score_predictions_fails_when_missing_or_not_better():
     assert empty_score["missing_ids"]
 
 
+def test_baseline_deterministic_engine_has_perfect_emergency_recall():
+    """İP-1.7 acil-recall garantisinin bu veri setindeki karşılığı: deterministik motor
+    validation/test'teki HER acil vakayı yakalar. Bu, fine-tune karşılaştırma çıtasıdır.
+    """
+    report = build_report()
+
+    assert report["baseline"]["validation"]["emergency_recall"] == 1.0
+    assert report["baseline"]["test"]["emergency_recall"] == 1.0
+
+
+def test_score_predictions_catches_emergency_recall_regression_even_if_exact_match_improves():
+    """Regresyon testi — 2026-07-06 naif fine-tune bulgusu: bir model genel exact-match'te
+    deterministik motoru rahatça geçebilir (azınlık acil sınıfı genel skoru boğmaz) ama
+    TÜM acil vakaları "routine"e düşürebilir. `beats_baseline` tek başına bunu yakalamaz;
+    `emergency_recall_pass` yakalamalı ve `overall_pass`'i False'a çekmeli.
+    """
+    examples = build_examples()
+    eval_examples = [ex for ex in examples if ex.split in {"validation", "test"}]
+    naive_predictions = {}
+    for ex in eval_examples:
+        output = dict(ex.output_json)
+        if output["urgency"] == "emergency":
+            output["urgency"] = "routine"
+        naive_predictions[ex.id] = output
+
+    score = score_predictions(naive_predictions, examples)
+
+    for split in ("validation", "test"):
+        assert score["splits"][split]["beats_baseline"] is True, "test öncülü: genel metrik hâlâ baseline'ı geçmeli"
+        assert score["splits"][split]["emergency_recall"] == 0.0
+        assert score["splits"][split]["emergency_recall_pass"] is False
+    assert score["overall_pass"] is False
+
+
+def test_score_predictions_missing_emergency_prediction_counts_as_miss():
+    """Bir acil vaka tahmin dosyasında hiç yoksa (missing_ids), recall'a sessizce
+    'yok say' değil, 'kaçırılmış' olarak yansımalı."""
+    examples = build_examples()
+    eval_examples = [ex for ex in examples if ex.split in {"validation", "test"}]
+    predictions = {ex.id: dict(ex.output_json) for ex in eval_examples}
+    emergency_id = next(ex.id for ex in eval_examples if ex.output_json["urgency"] == "emergency")
+    del predictions[emergency_id]
+
+    score = score_predictions(predictions, examples)
+
+    target_split = next(ex.split for ex in eval_examples if ex.id == emergency_id)
+    assert score["splits"][target_split]["emergency_recall"] < 1.0
+    assert score["splits"][target_split]["emergency_recall_pass"] is False
+    assert score["overall_pass"] is False
+
+
 def test_prediction_loader_accepts_output_json(tmp_path):
     examples = [ex for ex in build_examples() if ex.split in {"validation", "test"}][:2]
     path = tmp_path / "predictions.jsonl"

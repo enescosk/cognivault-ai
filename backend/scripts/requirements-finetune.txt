@@ -1,0 +1,18 @@
+# İP-3.6 QLoRA yeniden-eğitim ortamı — yalnızca eğitim makinesinde kurulur
+# (RTX 2060 Super, 8GB VRAM, Turing/sm75 → bf16 YOK, fp16 hesap + nf4 4-bit ağırlık).
+#
+# Kurulum (eğitim makinesinde, backend/ sanal ortamından AYRI bir venv önerilir):
+#   python3 -m venv .venv-finetune && source .venv-finetune/bin/activate
+#   pip install -r backend/scripts/requirements-finetune.txt
+#
+# CUDA 11.8/12.1 uyumlu torch tekerleği donanıma göre değişebilir; sorun olursa
+# https://pytorch.org/get-started/locally/ adresinden doğru komutla kurun.
+
+torch==2.4.1
+transformers==4.46.3
+peft==0.13.2
+bitsandbytes==0.44.1
+accelerate==1.0.1
+datasets==3.0.2
+sentencepiece==0.2.0
+protobuf==5.28.3
