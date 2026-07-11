@@ -41,6 +41,7 @@ export function PatientConsentModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [includeCrossBorder, setIncludeCrossBorder] = useState(false);
+  const [includeVoiceProcessing, setIncludeVoiceProcessing] = useState(false);
 
   const disclosureQuery = useQuery({
     queryKey: ["public-disclosure", clinic.slug],
@@ -62,6 +63,7 @@ export function PatientConsentModal({
         disclosure_version: disclosure.version,
         disclosure_hash: disclosure.body_hash,
         accepted_cross_border: includeCrossBorder,
+        accepted_voice_processing: includeVoiceProcessing,
       });
       onAccepted(res.consent_token, disclosure.version);
     } catch (err) {
@@ -75,7 +77,7 @@ export function PatientConsentModal({
     <div className="patient-card patient-consent">
       <header className="patient-consent-header">
         <h2>{t("patient.consent.title")}</h2>
-        <span className="patient-badge">v{clinic.disclosure.version}</span>
+        <span className="patient-badge">{clinic.disclosure.version}</span>
       </header>
 
       <ul className="patient-consent-bullets">
@@ -90,9 +92,24 @@ export function PatientConsentModal({
         <input
           type="checkbox"
           checked={includeCrossBorder}
-          onChange={(e) => setIncludeCrossBorder(e.target.checked)}
+          onChange={(e) => {
+            setIncludeCrossBorder(e.target.checked);
+            if (!e.target.checked) setIncludeVoiceProcessing(false);
+          }}
         />
         <span>{t("patient.consent.cross_border")}</span>
+      </label>
+
+      <label className="patient-consent-checkbox">
+        <input
+          type="checkbox"
+          checked={includeVoiceProcessing}
+          onChange={(e) => {
+            setIncludeVoiceProcessing(e.target.checked);
+            if (e.target.checked) setIncludeCrossBorder(true);
+          }}
+        />
+        <span>{t("patient.consent.voice_processing")}</span>
       </label>
 
       <button

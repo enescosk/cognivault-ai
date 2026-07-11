@@ -25,14 +25,32 @@ function gradeLabel(value?: string) {
   return "İyileştiriliyor";
 }
 
+function boolSignal(value: unknown): boolean {
+  return value === true;
+}
+
+function voiceDiagnosis(capabilities: AICapabilities | null, quality: QualityReport | null) {
+  const voice = capabilities?.voice ?? quality?.voice;
+  const stt = voice?.stt;
+  const tts = voice?.tts;
+  const sttProvider = stt?.active_provider ?? "Bekleniyor";
+  const ttsProvider = tts?.active_provider ?? "Bekleniyor";
+  const ready = sttProvider !== "unconfigured" && ttsProvider !== "unconfigured";
+  const offlineReady = boolSignal(stt?.offline_capable) && boolSignal(tts?.offline_capable);
+  const cloudReady = boolSignal(stt?.openai_configured) || boolSignal(tts?.openai_configured);
+  let status = "Hazir";
+  if (!ready) status = offlineReady ? "Yerel hazir" : cloudReady ? "Bulut anahtari var" : "Kurulum eksik";
+  return {
+    provider: `${sttProvider} / ${ttsProvider}`,
+    ready,
+    status,
+  };
+}
+
 export function SystemHealthPanel({ capabilities, quality, view }: Props) {
   const recommendation = quality?.recommendations?.[0];
   const llmProvider = capabilities?.llm.active_provider ?? quality?.llm.active_provider;
-  const voiceProvider = capabilities
-    ? `${capabilities.voice.stt.active_provider} / ${capabilities.voice.tts.active_provider}`
-    : quality
-      ? `${quality.voice.stt.active_provider} / ${quality.voice.tts.active_provider}`
-      : "Bekleniyor";
+  const voice = voiceDiagnosis(capabilities, quality);
 
   return (
     <section className="system-health-strip" aria-label="AI sistem durumu">
@@ -49,9 +67,10 @@ export function SystemHealthPanel({ capabilities, quality, view }: Props) {
           <span>LLM</span>
           <strong>{providerLabel(llmProvider)}</strong>
         </div>
-        <div className="system-health-pill">
+        <div className={`system-health-pill ${voice.ready ? "system-health-pill--ok" : "system-health-pill--risk"}`}>
           <span>Ses</span>
-          <strong>{providerLabel(voiceProvider)}</strong>
+          <strong>{providerLabel(voice.provider)}</strong>
+          <small>{voice.status}</small>
         </div>
         <div className="system-health-pill">
           <span>Senaryo</span>

@@ -42,6 +42,7 @@ from app.core.observability import (
     render_metrics,
 )
 from app.core.rate_limit import limiter
+from app.ai.voice_factory import warm_up_local_voice_stack
 from app.db.bootstrap import initialize_database
 from fastapi import Response
 from sqlalchemy.orm import Session
@@ -139,6 +140,9 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database(settings)
+    # Lokal STT/TTS modellerini arka planda ısıt — ilk sesli turda
+    # model-yükleme takılması yaşanmasın (hata yükseltmez, thread'de koşar).
+    warm_up_local_voice_stack()
     yield
 
 

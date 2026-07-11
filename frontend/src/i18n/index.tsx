@@ -32,6 +32,12 @@ export function fill(template: string, vars: Record<string, string | number>): s
 function readInitialLocale(): Locale {
   const stored = typeof window !== "undefined" ? window.localStorage.getItem(LOCALE_KEY) : null;
   if (stored && (stored === "tr" || stored === "en")) return stored;
+  // Hasta yüzeyi (/c/:slug) Türk kliniğinin hastalarına açılır: tarayıcı dili
+  // İngilizce olsa bile ilk izlenim Türkçe olmalı (EN'e tek dokunuşla geçilir).
+  // Personel panelleri için tarayıcı dili sinyal olarak kullanılmaya devam eder.
+  const isPatientSurface =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/c/");
+  if (isPatientSurface) return "tr";
   const navLang = typeof navigator !== "undefined" ? navigator.language?.slice(0, 2) : "tr";
   return navLang === "en" ? "en" : "tr";
 }

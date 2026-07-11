@@ -88,14 +88,14 @@ export const DICT = {
     "patient.invalid_link": "Geçersiz klinik bağlantısı.",
     "patient.clinic_not_found_title": "Klinik bulunamadı",
     "patient.clinic_not_found_body": "Bağlantınız yanlış olabilir veya klinik artık aktif değildir.",
-    "patient.footer.disclosure": "KVKK aydınlatma v{version}",
+    "patient.footer.disclosure": "KVKK aydınlatma {version}",
 
     "patient.landing.services": "Hizmetlerimiz",
     "patient.landing.branches": "Şube ve çalışma saatleri",
     "patient.landing.cta": "AI ile randevu al →",
     "patient.landing.call": "☎ Telefonla {phone}",
     "patient.landing.hint":
-      "AI ile sohbet etmek için KVKK aydınlatma metnini okuyup onaylamanız gerekir. Aydınlatma metni v{version} — saklama süresi, haklarınız ve veri işleme amacımız açıkça yazılıdır.",
+      "AI ile sohbet etmek için KVKK aydınlatma metnini okuyup onaylamanız gerekir. Aydınlatma metni {version} — saklama süresi, haklarınız ve veri işleme amacımız açıkça yazılıdır.",
 
     "patient.consent.title": "KVKK aydınlatma onayı",
     "patient.consent.bullet1": "Ad-soyad, telefon ve sağlık şikayetiniz işlenir.",
@@ -105,6 +105,8 @@ export const DICT = {
     "patient.consent.bullet5": "KVKK m.11 kapsamındaki tüm haklarınız saklıdır.",
     "patient.consent.cross_border":
       "WhatsApp, Twilio gibi yurt dışı transit aracılarının kullanımına da onay veriyorum. (Opsiyonel — verilmezse alternatif iletişim kanalı önerilir.)",
+    "patient.consent.voice_processing":
+      "Daha doğal sesli görüşme için sesimin/metnin güvenli harici ses işleyicilerde işlenmesine onay veriyorum. (Opsiyonel — verilmezse yerel ses kullanılır.)",
     "patient.consent.show_full": "▾ Tam aydınlatma metnini oku",
     "patient.consent.hide_full": "▴ Tam metni gizle",
     "patient.consent.load_failed": "Aydınlatma metni yüklenemedi.",
@@ -258,14 +260,14 @@ export const DICT = {
     "patient.invalid_link": "Invalid clinic link.",
     "patient.clinic_not_found_title": "Clinic not found",
     "patient.clinic_not_found_body": "Your link may be incorrect, or the clinic is no longer active.",
-    "patient.footer.disclosure": "KVKK disclosure v{version}",
+    "patient.footer.disclosure": "KVKK disclosure {version}",
 
     "patient.landing.services": "Our services",
     "patient.landing.branches": "Branches & working hours",
     "patient.landing.cta": "Book with AI →",
     "patient.landing.call": "☎ Call {phone}",
     "patient.landing.hint":
-      "To chat with the AI you need to read and accept the KVKK disclosure. Disclosure v{version} clearly states the retention period, your rights and our data-processing purpose.",
+      "To chat with the AI you need to read and accept the KVKK disclosure. Disclosure {version} clearly states the retention period, your rights and our data-processing purpose.",
 
     "patient.consent.title": "KVKK disclosure consent",
     "patient.consent.bullet1": "Your name, phone and health complaint are processed.",
@@ -275,6 +277,8 @@ export const DICT = {
     "patient.consent.bullet5": "All your rights under KVKK art. 11 are reserved.",
     "patient.consent.cross_border":
       "I also consent to the use of cross-border transit intermediaries such as WhatsApp and Twilio. (Optional — if withheld, an alternative contact channel is offered.)",
+    "patient.consent.voice_processing":
+      "I consent to secure external voice processing for a more natural voice call. (Optional — if withheld, local voice is used.)",
     "patient.consent.show_full": "▾ Read the full disclosure text",
     "patient.consent.hide_full": "▴ Hide full text",
     "patient.consent.load_failed": "Could not load the disclosure text.",

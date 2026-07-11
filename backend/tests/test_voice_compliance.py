@@ -54,8 +54,17 @@ def test_stt_uses_openai_only_with_full_consent(monkeypatch):
     monkeypatch.setattr(settings, "voice_stt_provider", "openai")
     monkeypatch.setattr(settings, "voice_external_enabled", True)
     monkeypatch.setattr(settings, "openai_api_key", "sk-test")
-    provider = voice_factory.get_stt_provider(external_transfer_allowed=True)
+    provider = voice_factory.get_stt_provider(external_transfer_allowed=True, consent_granted=True)
     assert isinstance(provider, voice_factory.OpenAIWhisperSTT)
+
+
+def test_stt_stays_local_when_voice_consent_missing(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "voice_stt_provider", "openai")
+    monkeypatch.setattr(settings, "voice_external_enabled", True)
+    monkeypatch.setattr(settings, "openai_api_key", "sk-test")
+    provider = voice_factory.get_stt_provider(external_transfer_allowed=True, consent_granted=False)
+    assert isinstance(provider, voice_factory.LocalWhisperSTT)
 
 
 def test_tts_defaults_to_local_without_clinic_consent(monkeypatch):
@@ -72,8 +81,17 @@ def test_tts_uses_openai_only_with_full_consent(monkeypatch):
     monkeypatch.setattr(settings, "voice_tts_provider", "openai")
     monkeypatch.setattr(settings, "voice_external_enabled", True)
     monkeypatch.setattr(settings, "openai_api_key", "sk-test")
-    provider = voice_factory.get_tts_provider(external_transfer_allowed=True)
+    provider = voice_factory.get_tts_provider(external_transfer_allowed=True, consent_granted=True)
     assert isinstance(provider, voice_factory.OpenAITTS)
+
+
+def test_tts_stays_local_when_voice_consent_missing(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "voice_tts_provider", "openai")
+    monkeypatch.setattr(settings, "voice_external_enabled", True)
+    monkeypatch.setattr(settings, "openai_api_key", "sk-test")
+    provider = voice_factory.get_tts_provider(external_transfer_allowed=True, consent_granted=False)
+    assert not isinstance(provider, voice_factory.OpenAITTS)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

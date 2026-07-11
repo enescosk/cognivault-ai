@@ -34,10 +34,16 @@ def _build_alembic_config(database_url: str) -> Config:
     return cfg
 
 
-def test_alembic_head_creates_all_orm_tables():
-    """`alembic upgrade head` temiz bir SQLite DB'de bütün ORM tablolarını yaratmalı.
+def test_alembic_head_creates_all_orm_tables_and_columns():
+    """`alembic upgrade head` temiz bir SQLite DB'de bütün ORM tablolarını
+    VE her tablonun bütün kolonlarını yaratmalı.
 
-    Eksik tablo → assertion fail → deploy bloklanır.
+    Eksik tablo veya eksik kolon → assertion fail → deploy bloklanır.
+
+    İkinci incident (2026-07-08): clinical_appointments.doctor_id/slot_id
+    ORM'e eklendi ama migration yazılmadı; bu test o sırada yalnız tablo
+    ADLARINI karşılaştırdığı için yakalamadı ve mevcut kurulumlar açılışta
+    OperationalError ile çöktü. Artık kolon düzeyinde karşılaştırıyoruz.
     """
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         db_path = tmp.name
@@ -51,7 +57,6 @@ def test_alembic_head_creates_all_orm_tables():
         migration_tables = set(inspector.get_table_names())
         # Alembic kendi versiyon tablosunu yazar; karşılaştırmadan çıkar.
         migration_tables.discard("alembic_version")
-        engine.dispose()
 
         orm_tables = set(Base.metadata.tables.keys())
         missing = orm_tables - migration_tables
@@ -61,6 +66,21 @@ def test_alembic_head_creates_all_orm_tables():
             f"ORM has {len(missing)} table(s) that `alembic upgrade head` does NOT "
             f"create: {sorted(missing)}. Add them to a new migration before deploy."
         )
+
+        column_drift: dict[str, list[str]] = {}
+        for table_name, table in Base.metadata.tables.items():
+            migration_columns = {c["name"] for c in inspector.get_columns(table_name)}
+            missing_columns = {c.name for c in table.columns} - migration_columns
+            if missing_columns:
+                column_drift[table_name] = sorted(missing_columns)
+        engine.dispose()
+
+        assert not column_drift, (
+            f"ORM has columns that `alembic upgrade head` does NOT create: "
+            f"{column_drift}. Add them to a new migration before deploy — "
+            f"existing installs will crash on first query otherwise."
+        )
+
         # Orphan tablolar daha az kritik (silinmiş model olabilir), warning seviyesinde
         # bırakıyoruz — strict fail yapmıyoruz çünkü tarihsel migration'lar bırakılır.
         if orphan:

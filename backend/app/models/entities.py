@@ -197,6 +197,37 @@ class Clinic(Base):
     doctors: Mapped[list["Doctor"]] = relationship(back_populates="clinic", cascade="all, delete-orphan")
     services: Mapped[list["ClinicService"]] = relationship(back_populates="clinic", cascade="all, delete-orphan")
     disclosures: Mapped[list["KVKKDisclosureVersion"]] = relationship(back_populates="clinic", cascade="all, delete-orphan")
+    voice_qa_runs: Mapped[list["ClinicalVoiceQARun"]] = relationship(back_populates="clinic", cascade="all, delete-orphan")
+
+
+class ClinicalVoiceQARun(Base):
+    """Real-device voice QA evidence captured before and during clinic pilots."""
+
+    __tablename__ = "clinical_voice_qa_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    tester: Mapped[str] = mapped_column(String(120), nullable=False)
+    device: Mapped[str] = mapped_column(String(80), nullable=False)
+    browser: Mapped[str] = mapped_column(String(80), nullable=False)
+    audio_condition: Mapped[str] = mapped_column(String(120), nullable=False)
+    voice_mode: Mapped[str] = mapped_column(String(40), nullable=False)
+    scenario: Mapped[str] = mapped_column(String(80), default="core", nullable=False)
+    mic_permission_seconds: Mapped[float | None] = mapped_column(Float)
+    first_assistant_audio_seconds: Mapped[float | None] = mapped_column(Float)
+    transcript_correct: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    transcript_shown: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completed_under_60s: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    appointment_created: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    operator_intervention: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    emergency_guidance_shown: Mapped[bool | None] = mapped_column(Boolean)
+    severity: Mapped[str] = mapped_column(String(20), default="pass", nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    clinic: Mapped["Clinic"] = relationship(back_populates="voice_qa_runs")
 
 
 class ClinicBranch(Base):

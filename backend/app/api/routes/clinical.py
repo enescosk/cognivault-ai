@@ -17,7 +17,7 @@ from app.core.webhook_security import (
     verify_meta_signature,
     verify_twilio_signature,
 )
-from app.models import ClinicBranch, ClinicChannel, ClinicConversation, ClinicDoctor, ClinicDoctorSlot, ClinicPatient, ClinicalAppointment, RoleName, ShadowReview, ShadowReviewStatus, User
+from app.models import ClinicBranch, ClinicChannel, ClinicConversation, ClinicDoctor, ClinicDoctorSlot, ClinicPatient, ClinicalAppointment, ClinicalVoiceQARun, RoleName, ShadowReview, ShadowReviewStatus, User
 from app.schemas.clinical import (
     ClinicalAppointmentCreateRequest,
     ClinicalAppointmentDetailsUpdate,
@@ -33,6 +33,12 @@ from app.schemas.clinical import (
     ClinicalMessageResponse,
     ClinicalMetricsResponse,
     ClinicalOverviewResponse,
+    ClinicalPilotMetricsResponse,
+    ClinicalPilotWeeklyReportResponse,
+    ClinicalPilotLaunchChecklistResponse,
+    ClinicalVoiceQARunCreateRequest,
+    ClinicalVoiceQARunResponse,
+    ClinicalVoiceQAReportResponse,
     ClinicalViewerResponse,
     ClinicalPatentDossierResponse,
     ClinicalPatientResponse,
@@ -84,6 +90,11 @@ from app.services.clinical_pre_intake_service import (
     update_pre_intake,
 )
 from app.services.clinical_persona_service import list_personas
+from app.services.pilot_metrics_service import (
+    build_pilot_launch_checklist,
+    build_pilot_metrics,
+    build_pilot_weekly_report,
+)
 
 
 router = APIRouter(tags=["clinical"])
@@ -135,6 +146,7 @@ def conversation_summary_payload(conversation: ClinicConversation) -> ClinicalCo
         doctor_summary=metadata.get("doctor_summary"),
         possible_conditions=metadata.get("possible_conditions") or [],
         appointment_draft=metadata.get("appointment_draft"),
+        metadata_json=metadata,
         doctor_inbox=conversation.status.value in {"waiting_human", "appointment_pending"},
         last_message_preview=last_preview,
         created_at=conversation.created_at,
@@ -212,6 +224,53 @@ def appointment_payload(appointment: ClinicalAppointment) -> ClinicalAppointment
     )
 
 
+def voice_qa_run_payload(run: ClinicalVoiceQARun) -> ClinicalVoiceQARunResponse:
+    return ClinicalVoiceQARunResponse(
+        id=run.id,
+        clinic_id=run.clinic_id,
+        tester=run.tester,
+        device=run.device,
+        browser=run.browser,
+        audio_condition=run.audio_condition,
+        voice_mode=run.voice_mode,
+        scenario=run.scenario,
+        mic_permission_seconds=run.mic_permission_seconds,
+        first_assistant_audio_seconds=run.first_assistant_audio_seconds,
+        transcript_correct=run.transcript_correct,
+        transcript_shown=run.transcript_shown,
+        retry_count=run.retry_count,
+        completed_under_60s=run.completed_under_60s,
+        appointment_created=run.appointment_created,
+        operator_intervention=run.operator_intervention,
+        emergency_guidance_shown=run.emergency_guidance_shown,
+        severity=run.severity,
+        notes=run.notes,
+        metadata_json=run.metadata_json or {},
+        created_at=run.created_at,
+    )
+
+
+def voice_qa_summary(runs: list[ClinicalVoiceQARun]) -> dict:
+    total = len(runs)
+    blocking = sum(1 for run in runs if run.severity == "blocking")
+    major = sum(1 for run in runs if run.severity == "major")
+    completed = sum(1 for run in runs if run.appointment_created)
+    under_60 = sum(1 for run in runs if run.completed_under_60s)
+    transcript_correct = sum(1 for run in runs if run.transcript_correct)
+    retry_total = sum(run.retry_count for run in runs)
+    return {
+        "total_runs": total,
+        "required_runs": 12,
+        "blocking_failures": blocking,
+        "major_failures": major,
+        "appointment_success_rate": round((completed / total) * 100, 2) if total else 0.0,
+        "under_60_rate": round((under_60 / total) * 100, 2) if total else 0.0,
+        "transcript_correct_rate": round((transcript_correct / total) * 100, 2) if total else 0.0,
+        "avg_retry_count": round(retry_total / total, 2) if total else 0.0,
+        "ready_for_pilot": total >= 12 and blocking == 0 and major == 0,
+    }
+
+
 def ingestion_payload(result) -> WebhookIngestionResponse:
     # Triage çıktıları playground UI'da görünür. Mevcut konuşma ve son
     # AgentDecisionLog'tan çekiyoruz — IngestionResult zaten metadata taşır.
@@ -261,6 +320,72 @@ def get_clinical_overview(
         doctor_inbox=[conversation_summary_payload(item) for item in doctor_items],
         shadow_reviews=[shadow_review_payload(item) for item in reviews],
     )
+
+
+@router.get("/clinical/pilot-metrics", response_model=ClinicalPilotMetricsResponse)
+def get_clinical_pilot_metrics(
+    days: int = Query(default=7, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalPilotMetricsResponse:
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    return ClinicalPilotMetricsResponse(**build_pilot_metrics(db, clinic, days=days))
+
+
+@router.get("/clinical/pilot-weekly-report", response_model=ClinicalPilotWeeklyReportResponse)
+def get_clinical_pilot_weekly_report(
+    days: int = Query(default=7, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalPilotWeeklyReportResponse:
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    return ClinicalPilotWeeklyReportResponse(**build_pilot_weekly_report(db, clinic, days=days))
+
+
+@router.get("/clinical/pilot-launch-checklist", response_model=ClinicalPilotLaunchChecklistResponse)
+def get_clinical_pilot_launch_checklist(
+    days: int = Query(default=7, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalPilotLaunchChecklistResponse:
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    return ClinicalPilotLaunchChecklistResponse(**build_pilot_launch_checklist(db, clinic, days=days))
+
+
+@router.get("/clinical/voice-qa-runs", response_model=ClinicalVoiceQAReportResponse)
+def get_clinical_voice_qa_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalVoiceQAReportResponse:
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    runs = db.scalars(
+        select(ClinicalVoiceQARun)
+        .where(ClinicalVoiceQARun.clinic_id == clinic.id)
+        .order_by(ClinicalVoiceQARun.created_at.desc(), ClinicalVoiceQARun.id.desc())
+        .limit(limit)
+    ).all()
+    return ClinicalVoiceQAReportResponse(
+        summary=voice_qa_summary(list(runs)),
+        runs=[voice_qa_run_payload(run) for run in runs],
+    )
+
+
+@router.post("/clinical/voice-qa-runs", response_model=ClinicalVoiceQARunResponse)
+def create_clinical_voice_qa_run(
+    payload: ClinicalVoiceQARunCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClinicalVoiceQARunResponse:
+    clinic = ensure_clinic_access(db, current_user, allow_clinician=True)
+    run = ClinicalVoiceQARun(
+        clinic_id=clinic.id,
+        **payload.model_dump(),
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return voice_qa_run_payload(run)
 
 
 @router.get("/clinical/personas", response_model=list[ClinicalPersonaResponse])

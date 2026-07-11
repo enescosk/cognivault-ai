@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 
 from app.api.dependencies import get_current_user, get_db
+from app.ai.voice_factory import get_stt_provider, get_tts_provider, resolve_piper_voice_path
+from app.core.config import get_settings
 from app.models import Clinic, Doctor, ClinicService, KVKKDisclosureVersion, User, RoleName
 from app.services.clinical_service import ensure_clinic_access
 
@@ -85,6 +87,76 @@ class DisclosureResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class VoiceSettingsSchema(BaseModel):
+    stt_provider: str = "local"
+    tts_provider: str = "local"
+    external_enabled: bool = False
+    allow_cross_border_processors: bool = False
+    tts_voice: str | None = None
+
+
+class VoiceDiagnosticsSchema(BaseModel):
+    settings: VoiceSettingsSchema
+    credentials: dict[str, bool]
+    local: dict[str, bool | str | None]
+    simulated_full_consent: dict[str, Any]
+
+
+def _voice_settings_from_clinic(clinic: Clinic) -> VoiceSettingsSchema:
+    raw_settings = clinic.settings_json or {}
+    voice = raw_settings.get("voice") or {}
+    return VoiceSettingsSchema(
+        stt_provider=voice.get("stt_provider") or "local",
+        tts_provider=voice.get("tts_provider") or "local",
+        external_enabled=bool(voice.get("external_enabled", False)),
+        allow_cross_border_processors=bool(raw_settings.get("allow_cross_border_processors", False)),
+        tts_voice=voice.get("tts_voice"),
+    )
+
+
+def _voice_diagnostics(clinic: Clinic) -> VoiceDiagnosticsSchema:
+    s = get_settings()
+    voice = _voice_settings_from_clinic(clinic)
+    external_transfer_allowed = voice.allow_cross_border_processors
+    consent_granted = True
+    stt_provider = get_stt_provider(
+        external_transfer_allowed,
+        consent_granted=consent_granted,
+        provider_name=voice.stt_provider,
+        external_enabled=voice.external_enabled,
+    )
+    tts_provider = get_tts_provider(
+        external_transfer_allowed,
+        consent_granted=consent_granted,
+        provider_name=voice.tts_provider,
+        external_enabled=voice.external_enabled,
+    )
+    piper_path = resolve_piper_voice_path()
+    return VoiceDiagnosticsSchema(
+        settings=voice,
+        credentials={
+            "openai_api_key": bool(s.openai_api_key),
+            "elevenlabs_api_key": bool(s.elevenlabs_api_key),
+            "elevenlabs_voice_id": bool(s.elevenlabs_voice_id),
+            "global_voice_external_enabled": bool(s.voice_external_enabled),
+        },
+        local={
+            "piper_voice_available": piper_path is not None,
+            "piper_voice_path": piper_path,
+        },
+        simulated_full_consent={
+            "stt_provider_class": stt_provider.__class__.__name__,
+            "tts_provider_class": tts_provider.__class__.__name__,
+            "external_transfer_allowed": external_transfer_allowed,
+            "patient_voice_consent_assumed": consent_granted,
+            "cloud_route_ready": (
+                stt_provider.__class__.__name__ in {"OpenAIWhisperSTT", "ElevenLabsScribeSTT"}
+                or tts_provider.__class__.__name__ in {"OpenAITTS", "ElevenLabsTTS"}
+            ),
+        },
+    )
+
+
 @router.get("/branding")
 def get_branding(
     db: Session = Depends(get_db),
@@ -115,6 +187,51 @@ def patch_branding(
     db.commit()
     db.refresh(clinic)
     return {"branding": branding}
+
+
+@router.get("/voice-settings", response_model=VoiceDiagnosticsSchema)
+def get_voice_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_admin_access),
+) -> VoiceDiagnosticsSchema:
+    clinic = ensure_clinic_access(db, current_user)
+    return _voice_diagnostics(clinic)
+
+
+@router.patch("/voice-settings", response_model=VoiceDiagnosticsSchema)
+def patch_voice_settings(
+    payload: VoiceSettingsSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_admin_access),
+) -> VoiceDiagnosticsSchema:
+    if payload.stt_provider not in {"local", "openai", "elevenlabs"}:
+        raise HTTPException(status_code=422, detail="unsupported_stt_provider")
+    if payload.tts_provider not in {"local", "openai", "elevenlabs"}:
+        raise HTTPException(status_code=422, detail="unsupported_tts_provider")
+
+    clinic = ensure_clinic_access(db, current_user)
+    settings = dict(clinic.settings_json or {})
+    settings["allow_cross_border_processors"] = bool(payload.allow_cross_border_processors)
+    settings["voice"] = {
+        "stt_provider": payload.stt_provider,
+        "tts_provider": payload.tts_provider,
+        "external_enabled": bool(payload.external_enabled),
+        "tts_voice": payload.tts_voice,
+    }
+    clinic.settings_json = settings
+    db.add(clinic)
+    db.commit()
+    db.refresh(clinic)
+    return _voice_diagnostics(clinic)
+
+
+@router.post("/voice-settings/test", response_model=VoiceDiagnosticsSchema)
+def test_voice_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(check_admin_access),
+) -> VoiceDiagnosticsSchema:
+    clinic = ensure_clinic_access(db, current_user)
+    return _voice_diagnostics(clinic)
 
 
 @router.get("/doctors", response_model=list[DoctorResponseSchema])

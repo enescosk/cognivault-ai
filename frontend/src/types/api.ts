@@ -147,6 +147,75 @@ export type QualityReport = {
   };
   [key: string]: unknown;
 };
+
+export type ClinicalPilotMetric = {
+  id: string;
+  label: string;
+  value: number;
+  target?: number | null;
+  unit: string;
+  passed?: boolean | null;
+};
+
+export type ClinicalPilotMetrics = {
+  window_days: number;
+  totals: Record<string, number>;
+  metrics: ClinicalPilotMetric[];
+  ready_for_pilot: boolean;
+};
+
+export type ClinicalPilotWeeklyReport = {
+  window_days: number;
+  generated_at: string;
+  summary: Record<string, unknown>;
+  markdown: string;
+};
+
+export type ClinicalPilotLaunchChecklist = {
+  window_days: number;
+  ready_for_launch: boolean;
+  checklist: Array<{
+    id: string;
+    label: string;
+    status: "pass" | "risk" | "manual" | "no_data" | string;
+    detail: string;
+  }>;
+  rollback_plan: string[];
+  incident_response: string[];
+};
+
+export type ClinicalVoiceQARunInput = {
+  tester: string;
+  device: string;
+  browser: string;
+  audio_condition: string;
+  voice_mode: string;
+  scenario: string;
+  mic_permission_seconds?: number | null;
+  first_assistant_audio_seconds?: number | null;
+  transcript_correct: boolean;
+  transcript_shown: boolean;
+  retry_count: number;
+  completed_under_60s: boolean;
+  appointment_created: boolean;
+  operator_intervention: boolean;
+  emergency_guidance_shown?: boolean | null;
+  severity: "pass" | "minor" | "major" | "blocking";
+  notes?: string | null;
+  metadata_json?: Record<string, unknown>;
+};
+
+export type ClinicalVoiceQARun = ClinicalVoiceQARunInput & {
+  id: number;
+  clinic_id: number;
+  created_at: string;
+};
+
+export type ClinicalVoiceQAReport = {
+  summary: Record<string, number | boolean>;
+  runs: ClinicalVoiceQARun[];
+};
+
 export type Appointment = {
   id: number;
   confirmation_code: string;
@@ -304,6 +373,7 @@ export type ClinicalConversationSummary = {
   doctor_summary?: string | null;
   possible_conditions?: Array<Record<string, unknown>>;
   appointment_draft?: Record<string, unknown> | null;
+  metadata_json?: Record<string, unknown> | null;
   doctor_inbox: boolean;
   last_message_preview?: string | null;
   created_at: string;

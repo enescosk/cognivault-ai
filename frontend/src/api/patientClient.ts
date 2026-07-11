@@ -47,6 +47,7 @@ export type ConsentRequestBody = {
   disclosure_version: string;
   disclosure_hash: string;
   accepted_cross_border: boolean;
+  accepted_voice_processing?: boolean;
 };
 
 export type ConsentResponse = {
@@ -100,6 +101,37 @@ export type PublicMessageResponse = {
   detected_intent?: string | null;
   specialty?: string | null;
   emergency?: boolean;
+};
+
+export type PublicVoiceMetadata = {
+  provider?: string;
+  language?: string;
+  audio_bytes?: number;
+  confidence?: number | null;
+  duration_seconds?: number | null;
+  processing_ms?: number | null;
+  source?: "voice_call" | "voice_input";
+  retry_count?: number;
+};
+
+export type PublicTranscriptionResult = PublicVoiceMetadata & {
+  text: string;
+  provider: string;
+  language: string;
+  audio_bytes: number;
+  confidence: number | null;
+  duration_seconds: number | null;
+  processing_ms: number | null;
+};
+
+export type PublicVoiceEventInput = {
+  event_type: "no_result" | "retry_prompt" | "stt_failure" | "mic_denied" | "unsupported" | "recorder_error" | string;
+  reason?: string | null;
+  retry_count?: number | null;
+  step?: string | null;
+  phase?: string | null;
+  provider?: string | null;
+  metadata_json?: Record<string, unknown> | null;
 };
 
 export type AppointmentConfirmResponse = {
@@ -234,12 +266,13 @@ export function sendPatientMessage(
   conversationId: number,
   sessionToken: string,
   body: string,
+  options?: { voice_metadata?: PublicVoiceMetadata | null },
 ): Promise<PublicMessageResponse> {
   return jsonFetch<PublicMessageResponse>(
     `/public/clinics/${encodeURIComponent(slug)}/conversations/${conversationId}/messages`,
     {
       method: "POST",
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, voice_metadata: options?.voice_metadata ?? undefined }),
     },
     sessionToken,
   );
@@ -289,13 +322,17 @@ export function holdSlotOffer(
 export async function synthesizePublicSpeech(
   slug: string,
   text: string,
+  sessionToken?: string,
   voice = "nova",
 ): Promise<Blob> {
   const res = await fetch(
     `${API_URL}/public/clinics/${encodeURIComponent(slug)}/voice/synthesize`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+      },
       body: JSON.stringify({ text, voice }),
     },
   );
@@ -311,17 +348,52 @@ export async function synthesizePublicSpeech(
 export async function transcribePublicSpeech(
   slug: string,
   audio: Blob,
+  sessionToken?: string,
   language = "tr",
-): Promise<string> {
+): Promise<PublicTranscriptionResult> {
   const fd = new FormData();
   fd.append("file", audio, "speech.webm");
   const res = await fetch(
     `${API_URL}/public/clinics/${encodeURIComponent(slug)}/voice/transcribe?language=${encodeURIComponent(language)}`,
-    { method: "POST", body: fd },
+    {
+      method: "POST",
+      headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined,
+      body: fd,
+    },
   );
   if (!res.ok) throw new Error("stt_failed");
-  const data = (await res.json()) as { text?: string };
-  return data.text ?? "";
+  const data = (await res.json()) as PublicTranscriptionResult;
+  return {
+    ...data,
+    text: data.text ?? "",
+    provider: data.provider ?? "unknown",
+    language: data.language ?? language,
+    audio_bytes: data.audio_bytes ?? audio.size,
+    confidence: data.confidence ?? null,
+    duration_seconds: data.duration_seconds ?? null,
+    processing_ms: data.processing_ms ?? null,
+  };
+}
+
+export async function recordPublicVoiceEvent(
+  slug: string,
+  conversationId: number,
+  sessionToken: string,
+  payload: PublicVoiceEventInput,
+): Promise<{ ok: boolean; counters: Record<string, number> }> {
+  const res = await fetch(
+    `${API_URL}/public/clinics/${encodeURIComponent(slug)}/conversations/${conversationId}/voice-events`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) throw new Error("voice_event_failed");
+  return res.json() as Promise<{ ok: boolean; counters: Record<string, number> }>;
 }
 
 // ─── Local session helpers ─────────────────────────────────────────────────

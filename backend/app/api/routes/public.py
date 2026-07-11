@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, UploadFile, status
@@ -27,7 +28,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.ai.voice_factory import get_stt_provider, get_tts_provider
+from app.ai.voice_factory import TranscriptionResult, get_stt_provider, get_tts_provider
 from app.core.config import get_settings
 
 from app.api.dependencies import get_db
@@ -53,6 +54,7 @@ from app.services.clinical_service import (
 )
 from app.services.clinical_appointment_service import resolve_appointment_doctor
 from app.services.clinical_slot_service import (
+    ISTANBUL as CLINIC_TZ,
     build_public_slot_offers,
     consume_held_slot_offer,
     hold_slot_offer,
@@ -103,6 +105,10 @@ class ConsentRequest(BaseModel):
         default=False,
         description="WhatsApp / Twilio gibi yurt dışı işleyiciler için ayrı m.9 onayı.",
     )
+    accepted_voice_processing: bool = Field(
+        default=False,
+        description="Doğal ses/STT için harici ses işleyicilerine açık rıza.",
+    )
 
 
 class ConsentResponse(BaseModel):
@@ -123,6 +129,22 @@ class StartConversationResponse(BaseModel):
 
 class PublicMessageRequest(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
+    voice_metadata: dict | None = None
+
+
+class PublicVoiceEventRequest(BaseModel):
+    event_type: str = Field(min_length=2, max_length=60)
+    reason: str | None = Field(default=None, max_length=120)
+    retry_count: int | None = Field(default=None, ge=0, le=20)
+    step: str | None = Field(default=None, max_length=60)
+    phase: str | None = Field(default=None, max_length=60)
+    provider: str | None = Field(default=None, max_length=120)
+    metadata_json: dict | None = None
+
+
+class PublicVoiceEventResponse(BaseModel):
+    ok: bool
+    counters: dict
 
 
 class PublicMessageView(BaseModel):
@@ -176,6 +198,16 @@ class PublicAppointmentConfirmResponse(BaseModel):
     starts_at: datetime | None
     department: str
     summary: str
+
+
+class PublicTranscribeResponse(BaseModel):
+    text: str
+    provider: str
+    language: str
+    audio_bytes: int
+    confidence: float | None = None
+    duration_seconds: float | None = None
+    processing_ms: int | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -365,6 +397,23 @@ def submit_patient_consent(
         )
         db.add(cross_border)
         consent_records.append(cross_border)
+
+    # Premium doğal ses/STT sağlayıcıları için ayrı VOICE_RECORDING rızası.
+    # Bu tek başına bulut seçtirmez; route tarafında cross-border rızasıyla
+    # birlikte değerlendirilir.
+    if payload.accepted_voice_processing:
+        voice_processing = ConsentRecord(
+            clinic_id=clinic.id,
+            patient_id=None,
+            conversation_id=None,
+            consent_type=ConsentType.VOICE_RECORDING,
+            granted=True,
+            channel=ClinicChannel.WEB_CHAT,
+            ip_or_device_hint=_ip_or_device_hint(request),
+            consent_text_version=disclosure["version"],
+        )
+        db.add(voice_processing)
+        consent_records.append(voice_processing)
 
     db.flush()
     consent_record_ids = [row.id for row in consent_records]
@@ -588,18 +637,30 @@ def _message_view(m: ClinicMessage) -> PublicMessageView:
     )
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    """SQLite naive-UTC datetime'ı timezone-aware yapar.
+
+    Aware olmayan datetime JSON'a 'Z'siz yazılır; tarayıcı onu YEREL saat sanır
+    ve hasta 10:20 İstanbul randevusunu 07:20 olarak görür. Bu yüzden public
+    API'dan çıkan her datetime aware olmak zorunda.
+    """
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
 def _slot_offer_view(offer: ClinicalSlotOffer) -> PublicSlotOfferView:
-    starts_at = offer.starts_at if offer.starts_at.tzinfo else offer.starts_at.replace(tzinfo=timezone.utc)
-    local_label = starts_at.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M")
+    starts_at = _as_utc(offer.starts_at)
+    local_label = starts_at.astimezone(CLINIC_TZ).strftime("%d.%m.%Y %H:%M")
     doctor = f" · {offer.physician_name}" if offer.physician_name else ""
     return PublicSlotOfferView(
         id=offer.id,
         department=offer.department,
         physician_name=offer.physician_name,
-        starts_at=offer.starts_at,
-        ends_at=offer.ends_at,
+        starts_at=starts_at,
+        ends_at=_as_utc(offer.ends_at),
         status=offer.status.value if hasattr(offer.status, "value") else str(offer.status),
-        expires_at=offer.expires_at,
+        expires_at=_as_utc(offer.expires_at),
         label=f"{local_label}{doctor}",
         metadata_json=offer.metadata_json,
     )
@@ -639,6 +700,37 @@ def _get_scoped_patient_and_conversation(
     return clinic, session, patient, conversation
 
 
+def _record_voice_event(conversation: ClinicConversation, payload: PublicVoiceEventRequest) -> dict:
+    metadata = dict(conversation.metadata_json or {})
+    counters = dict(metadata.get("voice_event_counters") or {})
+    event_type = payload.event_type.strip().lower()
+    reason = payload.reason.strip().lower() if payload.reason else None
+    counters[event_type] = int(counters.get(event_type, 0) or 0) + 1
+    if reason:
+        key = f"{event_type}:{reason}"
+        counters[key] = int(counters.get(key, 0) or 0) + 1
+    if payload.retry_count is not None:
+        counters["max_retry_count"] = max(int(counters.get("max_retry_count", 0) or 0), payload.retry_count)
+
+    event = {
+        "event_type": event_type,
+        "reason": reason,
+        "retry_count": payload.retry_count,
+        "step": payload.step,
+        "phase": payload.phase,
+        "provider": payload.provider,
+        "metadata_json": payload.metadata_json or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    events = list(metadata.get("voice_events") or [])
+    events.append(event)
+    metadata["voice_events"] = events[-20:]
+    metadata["voice_event_counters"] = counters
+    metadata["last_voice_event"] = event
+    conversation.metadata_json = metadata
+    return counters
+
+
 @router.post(
     "/clinics/{slug}/conversations/{conversation_id}/messages",
     response_model=PublicMessageResponse,
@@ -674,6 +766,34 @@ def send_patient_message(
     last_assistant = next(
         (m for m in reversed(msgs) if m.sender == ClinicMessageSender.ASSISTANT), None
     )
+    if last_patient is not None and payload.voice_metadata:
+        sanitized_voice_meta = {
+            key: payload.voice_metadata.get(key)
+            for key in (
+                "provider",
+                "language",
+                "audio_bytes",
+                "confidence",
+                "duration_seconds",
+                "processing_ms",
+                "source",
+                "retry_count",
+            )
+            if key in payload.voice_metadata
+        }
+        sanitized_voice_meta["transcript"] = payload.body[:500]
+        last_patient.metadata_json = {
+            **(last_patient.metadata_json or {}),
+            "voice_transcript": sanitized_voice_meta,
+        }
+        result.conversation.metadata_json = {
+            **(result.conversation.metadata_json or {}),
+            "last_voice_transcript": sanitized_voice_meta,
+        }
+        db.add(last_patient)
+        db.add(result.conversation)
+        db.commit()
+        db.refresh(last_patient)
     slot_offers: list[ClinicalSlotOffer] = []
     assistant_intent = (
         getattr(last_assistant.intent, "value", str(last_assistant.intent))
@@ -733,6 +853,31 @@ def send_patient_message(
         specialty=specialty,
         emergency=emergency,
     )
+
+
+@router.post(
+    "/clinics/{slug}/conversations/{conversation_id}/voice-events",
+    response_model=PublicVoiceEventResponse,
+)
+def record_public_voice_event(
+    slug: str,
+    conversation_id: int,
+    payload: PublicVoiceEventRequest,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+) -> PublicVoiceEventResponse:
+    """Record voice-call operational events that do not create patient text.
+
+    Examples: no speech detected, STT failure, microphone denied. These are
+    conversation-scoped pilot telemetry, not medical content.
+    """
+    _clinic, _session, _patient, conversation = _get_scoped_patient_and_conversation(
+        db, slug=slug, conversation_id=conversation_id, authorization=authorization
+    )
+    counters = _record_voice_event(conversation, payload)
+    db.add(conversation)
+    db.commit()
+    return PublicVoiceEventResponse(ok=True, counters=counters)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -889,18 +1034,19 @@ def confirm_patient_appointment(
         patient_complaint_summary=complaint_summary,
     )
 
+    starts_at_utc = _as_utc(appointment.starts_at)
     return PublicAppointmentConfirmResponse(
         appointment_id=appointment.id,
         status=appointment.status.value
         if hasattr(appointment.status, "value")
         else str(appointment.status),
-        starts_at=appointment.starts_at,
+        starts_at=starts_at_utc,
         department=appointment.department,
         summary=(
-            f"{offer.department} randevunuz {appointment.starts_at.strftime('%d.%m.%Y %H:%M')} "
+            f"{offer.department} randevunuz {starts_at_utc.astimezone(CLINIC_TZ).strftime('%d.%m.%Y %H:%M')} "
             "için oluşturuldu. Onay SMS'i gönderildi; klinik personeli de bilgilendirildi."
         )
-        if appointment.starts_at
+        if starts_at_utc
         else f"{offer.department} randevu talebiniz oluşturuldu, klinik ekibimiz en kısa sürede sizinle iletişime geçecek.",
     )
 
@@ -997,8 +1143,89 @@ class PublicSynthesizeRequest(BaseModel):
     voice: str = "nova"
 
 
+def _has_active_consent(
+    db: Session,
+    *,
+    clinic_id: int,
+    patient_id: int,
+    conversation_id: int,
+    consent_type: ConsentType,
+) -> bool:
+    row = db.scalars(
+        select(ConsentRecord)
+        .where(
+            ConsentRecord.clinic_id == clinic_id,
+            ConsentRecord.patient_id == patient_id,
+            ConsentRecord.conversation_id == conversation_id,
+            ConsentRecord.consent_type == consent_type,
+            ConsentRecord.granted.is_(True),
+            ConsentRecord.withdrawn_at.is_(None),
+        )
+        .order_by(ConsentRecord.granted_at.desc(), ConsentRecord.id.desc())
+    ).first()
+    return row is not None
+
+
+def _voice_consent_scope(
+    db: Session,
+    *,
+    slug: str,
+    authorization: str | None,
+) -> tuple[Clinic, bool, bool]:
+    """Public ses için klinik + hasta rıza kapılarını döndürür.
+
+    Authorization yoksa anonim/local-only çalışır. Token varsa aynı klinikteki
+    session'ın CROSS_BORDER_TRANSFER ve VOICE_RECORDING rızaları okunur.
+    """
+    clinic = db.scalars(select(Clinic).where(Clinic.slug == slug)).first()
+    if clinic is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="clinic_not_found")
+
+    if not authorization:
+        return clinic, False, False
+
+    token = _extract_bearer(authorization)
+    session = patient_session.decode_session_token(token)
+    if session.clinic_slug != slug or session.clinic_id != clinic.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="session_scope_mismatch")
+
+    clinic_allows_external = bool(
+        (clinic.settings_json or {}).get("allow_cross_border_processors", False)
+    )
+    external_transfer_allowed = clinic_allows_external and _has_active_consent(
+        db,
+        clinic_id=clinic.id,
+        patient_id=session.patient_id,
+        conversation_id=session.conversation_id,
+        consent_type=ConsentType.CROSS_BORDER_TRANSFER,
+    )
+    voice_processing_consented = _has_active_consent(
+        db,
+        clinic_id=clinic.id,
+        patient_id=session.patient_id,
+        conversation_id=session.conversation_id,
+        consent_type=ConsentType.VOICE_RECORDING,
+    )
+    return clinic, external_transfer_allowed, voice_processing_consented
+
+
+def _clinic_voice_settings(clinic: Clinic) -> dict:
+    settings = clinic.settings_json or {}
+    voice = settings.get("voice") or {}
+    return {
+        "stt_provider": voice.get("stt_provider") or "local",
+        "tts_provider": voice.get("tts_provider") or "local",
+        "external_enabled": bool(voice.get("external_enabled", False)),
+    }
+
+
 @router.post("/clinics/{slug}/voice/synthesize")
-def public_synthesize_speech(slug: str, body: PublicSynthesizeRequest, db: Session = Depends(get_db)) -> StreamingResponse:
+def public_synthesize_speech(
+    slug: str,
+    body: PublicSynthesizeRequest,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+) -> StreamingResponse:
     """Hasta sayfası için metni doğal sese çevirir (varsayılan lokal Piper tr_TR).
 
     Auth gerekmez (anonim hasta akışı). Ses yurt içinde üretilir; klinik veri
@@ -1007,12 +1234,17 @@ def public_synthesize_speech(slug: str, body: PublicSynthesizeRequest, db: Sessi
     text = body.text.strip()[:1200]
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Metin boş.")
-    clinic = db.scalars(select(Clinic).where(Clinic.slug == slug)).first()
-    if clinic is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="clinic_not_found")
-    external_transfer_allowed = bool((clinic.settings_json or {}).get("allow_cross_border_processors", False))
+    clinic, external_transfer_allowed, voice_processing_consented = _voice_consent_scope(
+        db, slug=slug, authorization=authorization
+    )
+    voice_settings = _clinic_voice_settings(clinic)
     try:
-        audio_bytes, mime = get_tts_provider(external_transfer_allowed).synthesize(text, voice=body.voice)
+        audio_bytes, mime = get_tts_provider(
+            external_transfer_allowed,
+            consent_granted=voice_processing_consented,
+            provider_name=voice_settings["tts_provider"],
+            external_enabled=voice_settings["external_enabled"],
+        ).synthesize(text, voice=body.voice)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Ses sentezi hatası: {exc}") from exc
 
@@ -1030,23 +1262,43 @@ async def public_transcribe_speech(
     file: UploadFile,
     language: str = "tr",
     db: Session = Depends(get_db),
-) -> dict[str, str]:
+    authorization: str | None = Header(default=None),
+) -> PublicTranscribeResponse:
     """Hasta sayfası sesli görüşmesi için konuşmayı metne çevirir.
 
     Varsayılan lokal faster-whisper ile yurt içinde çözülür; ses verisi dışarı
     çıkmaz. Anonim (klinik slug doğrulanır).
     """
-    clinic = db.scalars(select(Clinic).where(Clinic.slug == slug)).first()
-    if clinic is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="clinic_not_found")
+    clinic, external_transfer_allowed, voice_processing_consented = _voice_consent_scope(
+        db, slug=slug, authorization=authorization
+    )
+    voice_settings = _clinic_voice_settings(clinic)
     audio_bytes = await file.read()
     if not audio_bytes:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Ses dosyası boş.")
     if len(audio_bytes) > 8 * 1024 * 1024:  # 8 MB üst sınır — kötüye kullanım koruması
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Ses dosyası çok büyük.")
-    external_transfer_allowed = bool((clinic.settings_json or {}).get("allow_cross_border_processors", False))
     try:
-        text = get_stt_provider(external_transfer_allowed).transcribe(audio_bytes, language=language)
+        started = time.perf_counter()
+        provider = get_stt_provider(
+            external_transfer_allowed,
+            consent_granted=voice_processing_consented,
+            provider_name=voice_settings["stt_provider"],
+            external_enabled=voice_settings["external_enabled"],
+        )
+        if hasattr(provider, "transcribe_detailed"):
+            result = provider.transcribe_detailed(audio_bytes, language=language)
+        else:
+            result = TranscriptionResult(text=provider.transcribe(audio_bytes, language=language))
+        processing_ms = max(0, round((time.perf_counter() - started) * 1000))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Ses tanıma hatası: {exc}") from exc
-    return {"text": text}
+    return PublicTranscribeResponse(
+        text=result.text,
+        provider=provider.__class__.__name__,
+        language=language,
+        audio_bytes=len(audio_bytes),
+        confidence=result.confidence,
+        duration_seconds=result.duration_seconds,
+        processing_ms=processing_ms,
+    )

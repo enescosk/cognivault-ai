@@ -28,6 +28,106 @@ def test_branding_endpoints(client, admin_token, operator_token):
     assert res.status_code == 403
 
 
+def test_voice_settings_endpoints_are_admin_only_and_diagnostic(client, admin_token, operator_token):
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    initial = client.get("/api/clinic/admin/voice-settings", headers=headers)
+    assert initial.status_code == 200, initial.text
+    assert initial.json()["settings"]["stt_provider"] == "local"
+    assert "credentials" in initial.json()
+
+    updated = client.patch(
+        "/api/clinic/admin/voice-settings",
+        headers=headers,
+        json={
+            "stt_provider": "elevenlabs",
+            "tts_provider": "elevenlabs",
+            "external_enabled": True,
+            "allow_cross_border_processors": True,
+            "tts_voice": "voice-1",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    payload = updated.json()
+    assert payload["settings"]["stt_provider"] == "elevenlabs"
+    assert payload["settings"]["allow_cross_border_processors"] is True
+    assert payload["simulated_full_consent"]["external_transfer_allowed"] is True
+
+    diagnostic = client.post("/api/clinic/admin/voice-settings/test", headers=headers)
+    assert diagnostic.status_code == 200
+    assert diagnostic.json()["settings"]["tts_provider"] == "elevenlabs"
+
+    op_headers = {"Authorization": f"Bearer {operator_token}"}
+    forbidden = client.get("/api/clinic/admin/voice-settings", headers=op_headers)
+    assert forbidden.status_code == 403
+
+
+def test_public_voice_uses_clinic_voice_provider_override(client, db_session, admin_token, monkeypatch):
+    from app.api.routes import public as public_routes
+    from app.services.clinical_service import ensure_default_clinic
+
+    clinic = ensure_default_clinic(db_session)
+    clinic.settings_json = {
+        **(clinic.settings_json or {}),
+        "allow_cross_border_processors": True,
+        "voice": {
+            "stt_provider": "elevenlabs",
+            "tts_provider": "elevenlabs",
+            "external_enabled": True,
+        },
+    }
+    db_session.add(clinic)
+    db_session.commit()
+
+    disclosure = client.get(f"/api/public/clinics/{clinic.slug}/disclosure").json()
+    consent = client.post(
+        f"/api/public/clinics/{clinic.slug}/consent",
+        json={
+            "disclosure_version": disclosure["version"],
+            "disclosure_hash": disclosure["body_hash"],
+            "accepted_cross_border": True,
+            "accepted_voice_processing": True,
+        },
+    ).json()
+    session = client.post(
+        f"/api/public/clinics/{clinic.slug}/conversations",
+        headers={"Authorization": f"Bearer {consent['consent_token']}"},
+        json={"full_name": "Voice Test", "phone": "+90 555 111 44 55"},
+    ).json()
+
+    captured: list[dict] = []
+
+    class _FakeTTS:
+        def synthesize(self, text: str, voice: str | None = None) -> tuple[bytes, str]:
+            return b"RIFFfake-wave", "audio/wav"
+
+    def fake_get_tts_provider(external_transfer_allowed=False, *, consent_granted=False, **kwargs):
+        captured.append(
+            {
+                "external_transfer_allowed": external_transfer_allowed,
+                "consent_granted": consent_granted,
+                **kwargs,
+            }
+        )
+        return _FakeTTS()
+
+    monkeypatch.setattr(public_routes, "get_tts_provider", fake_get_tts_provider)
+    res = client.post(
+        f"/api/public/clinics/{clinic.slug}/voice/synthesize",
+        headers={"Authorization": f"Bearer {session['session_token']}"},
+        json={"text": "Merhaba", "voice": "nova"},
+    )
+    assert res.status_code == 200, res.text
+    assert captured == [
+        {
+            "external_transfer_allowed": True,
+            "consent_granted": True,
+            "provider_name": "elevenlabs",
+            "external_enabled": True,
+        }
+    ]
+
+
 def test_doctors_crud_endpoints(client, admin_token):
     headers = {"Authorization": f"Bearer {admin_token}"}
 

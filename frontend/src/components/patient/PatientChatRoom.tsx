@@ -3,12 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   confirmAppointment,
   holdSlotOffer,
+  recordPublicVoiceEvent,
   sendPatientMessage,
   synthesizePublicSpeech,
   transcribePublicSpeech,
   updatePatientIdentity,
   type PublicClinicView,
   type PublicSlotOfferView,
+  type PublicVoiceMetadata,
 } from "../../api/patientClient";
 
 type Lang = "tr" | "en";
@@ -18,13 +20,40 @@ type Lang = "tr" | "en";
  * için TR/EN metni otomatik doğru telaffuz eder. Başarısız olursa tarayıcı Web
  * Speech'e düşer.
  */
-function useVoice(slug: string, langRef: React.MutableRefObject<Lang>) {
+/**
+ * Uzun yanıtı cümle sınırlarından parçalara böler — TTS ilk parçayı
+ * sentezler sentezlemez ses çalmaya başlar, kalan parçalar o sırada arka
+ * planda üretilir (turlar arası "ölü hava"yı saniyelerden ~yarım saniyeye
+ * indirir). Çok kısa cümleler bir sonrakiyle birleştirilir ki parça başına
+ * HTTP maliyeti sesin akıcılığını bozmasın.
+ */
+export function splitSpeechChunks(text: string, minChunkChars = 60): string[] {
+  const sentences = text.replace(/\s+/g, " ").trim().match(/[^.!?…]+[.!?…]*/g) ?? [];
+  const chunks: string[] = [];
+  let current = "";
+  for (const s of sentences) {
+    current = current ? `${current} ${s.trim()}` : s.trim();
+    if (current.length >= minChunkChars) {
+      chunks.push(current);
+      current = "";
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.length ? chunks : text.trim() ? [text.trim()] : [];
+}
+
+function useVoice(slug: string, sessionToken: string, langRef: React.MutableRefObject<Lang>) {
   const [enabled, setEnabled] = useState(true);
   const enabledRef = useRef(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlCacheRef = useRef<Map<string, string>>(new Map());
+  // Her speak()/stop() çağrısında artar; asenkron parça zinciri kendi
+  // jenerasyonunu kontrol eder — eski zincir sessizce durur (yarış yok).
+  const generationRef = useRef(0);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
 
   const stop = useCallback(() => {
+    generationRef.current += 1;
     if (audioRef.current) {
       try { audioRef.current.pause(); } catch { /* ignore */ }
       audioRef.current = null;
@@ -46,28 +75,72 @@ function useVoice(slug: string, langRef: React.MutableRefObject<Lang>) {
     window.speechSynthesis.speak(u);
   }, [langRef]);
 
+  /** Parçanın ses URL'ini getirir (cache'li). Hata → null (çağıran fallback yapar). */
+  const fetchChunkUrl = useCallback(async (chunk: string): Promise<string | null> => {
+    const cacheKey = `${langRef.current}:${chunk}`;
+    const cached = audioUrlCacheRef.current.get(cacheKey);
+    if (cached) return cached;
+    try {
+      const blob = await synthesizePublicSpeech(slug, chunk, sessionToken);
+      const url = URL.createObjectURL(blob);
+      audioUrlCacheRef.current.set(cacheKey, url);
+      return url;
+    } catch {
+      return null;
+    }
+  }, [langRef, sessionToken, slug]);
+
+  const playUrl = useCallback((url: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const audio = new Audio(url);
+      audio.preload = "auto";
+      audioRef.current = audio;
+      audio.onended = () => resolve();
+      audio.onerror = () => reject(new Error("audio_playback_failed"));
+      audio.play().catch(reject);
+    });
+  }, []);
+
   const speak = useCallback(
     async (text: string, onEnd?: () => void) => {
       if (!enabledRef.current || !text || !text.trim()) { onEnd?.(); return; }
       stop();
-      try {
-        const blob = await synthesizePublicSpeech(slug, text);
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        audio.onended = () => { URL.revokeObjectURL(url); onEnd?.(); };
-        audio.onerror = () => { URL.revokeObjectURL(url); onEnd?.(); };
-        await audio.play();
-      } catch {
-        speakBrowser(text, onEnd);
+      const generation = generationRef.current;
+      const alive = () => generationRef.current === generation && enabledRef.current;
+
+      const chunks = splitSpeechChunks(text);
+      // Boru hattı: i çalarken i+1 önden getirilir.
+      let nextFetch: Promise<string | null> = fetchChunkUrl(chunks[0]);
+      for (let i = 0; i < chunks.length; i++) {
+        const url = await nextFetch;
+        if (!alive()) return;
+        if (i + 1 < chunks.length) nextFetch = fetchChunkUrl(chunks[i + 1]);
+        if (url === null) {
+          // Backend sentezi başarısız — kalan metni tarayıcı TTS'iyle bitir.
+          speakBrowser(chunks.slice(i).join(" "), onEnd);
+          return;
+        }
+        try {
+          await playUrl(url);
+        } catch {
+          if (!alive()) return;
+          speakBrowser(chunks.slice(i).join(" "), onEnd);
+          return;
+        }
+        if (!alive()) return;
       }
+      onEnd?.();
     },
-    [slug, stop, speakBrowser],
+    [fetchChunkUrl, playUrl, speakBrowser, stop],
   );
 
   const toggle = useCallback(() => { setEnabled((cur) => { if (cur) stop(); return !cur; }); }, [stop]);
   const enable = useCallback(() => setEnabled(true), []);
-  useEffect(() => () => stop(), [stop]);
+  useEffect(() => () => {
+    stop();
+    audioUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
+    audioUrlCacheRef.current.clear();
+  }, [stop]);
   return { enabled, toggle, enable, speak, stop };
 }
 
@@ -76,7 +149,17 @@ function useVoice(slug: string, langRef: React.MutableRefObject<Lang>) {
  * algılayınca durur ve sesi backend'deki lokal faster-whisper'a gönderir
  * (ses yurt dışına ÇIKMAZ; tarayıcının bulut SpeechRecognition'ı kullanılmaz).
  */
-function useMicRecorder(slug: string) {
+type HeardTranscript = PublicVoiceMetadata & { text: string };
+type NoResultReason =
+  | "unsupported"
+  | "mic_denied"
+  | "no_speech"
+  | "too_short"
+  | "empty_transcript"
+  | "stt_failed"
+  | "recorder_start_failed";
+
+function useMicRecorder(slug: string, sessionToken: string) {
   const supported =
     typeof navigator !== "undefined" &&
     !!navigator.mediaDevices?.getUserMedia &&
@@ -90,14 +173,21 @@ function useMicRecorder(slug: string) {
   }, []);
 
   const start = useCallback(
-    async (onResult: (t: string) => void, onNoResult: () => void, language = "tr") => {
-      if (!supported) { onNoResult(); return; }
+    async (onResult: (result: HeardTranscript) => void, onNoResult: (reason: NoResultReason) => void, language = "tr") => {
+      if (!supported) { onNoResult("unsupported"); return; }
       cancelledRef.current = false;
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
       } catch {
-        onNoResult();
+        onNoResult("mic_denied");
         return;
       }
       const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -115,16 +205,23 @@ function useMicRecorder(slug: string) {
       try { await ac.resume(); } catch { /* ignore */ }
       const srcNode = ac.createMediaStreamSource(stream);
       const analyser = ac.createAnalyser();
-      analyser.fftSize = 512;
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.08;
       srcNode.connect(analyser);
       const buf = new Uint8Array(analyser.fftSize);
       let speaking = false;
+      let speechRunMs = 0;
       let silenceStart = 0;
       let raf = 0;
       const startedAt = Date.now();
-      const SILENCE_MS = 1200; // konuşma sonrası bu kadar sessizlik → bitir
-      const MAX_MS = 15000;
-      const THRESHOLD = 0.018;
+      let noiseSamples = 0;
+      let noiseSum = 0;
+      const CALIBRATION_MS = 450;
+      const INITIAL_SILENCE_MS = 6500;
+      const MIN_SPEECH_MS = 220;
+      const SILENCE_MS = 700; // konuşma sonrası bu kadar sessizlik → bitir (tur hızı ↔ cümle ortası kesme dengesi)
+      const MAX_MS = 14000;
+      const BASE_THRESHOLD = 0.018;
 
       const cleanup = () => {
         cancelAnimationFrame(raf);
@@ -143,12 +240,27 @@ function useMicRecorder(slug: string) {
         for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
         const rms = Math.sqrt(sum / buf.length);
         const now = Date.now();
-        if (rms > THRESHOLD) { speaking = true; silenceStart = 0; }
-        else if (speaking) {
+        const elapsed = now - startedAt;
+        if (!speaking && elapsed < CALIBRATION_MS) {
+          noiseSamples += 1;
+          noiseSum += rms;
+          raf = requestAnimationFrame(tick);
+          return;
+        }
+        const noiseFloor = noiseSamples ? noiseSum / noiseSamples : 0;
+        const threshold = Math.max(BASE_THRESHOLD, noiseFloor * 3.2);
+        if (rms > threshold) {
+          speechRunMs += 16;
+          if (speechRunMs >= MIN_SPEECH_MS) speaking = true;
+          silenceStart = 0;
+        } else if (speaking) {
           if (!silenceStart) silenceStart = now;
           else if (now - silenceStart > SILENCE_MS) { finish(); return; }
+        } else {
+          speechRunMs = 0;
         }
-        if (now - startedAt > MAX_MS) { finish(); return; }
+        if (!speaking && elapsed > INITIAL_SILENCE_MS) { finish(); return; }
+        if (elapsed > MAX_MS) { finish(); return; }
         raf = requestAnimationFrame(tick);
       };
 
@@ -156,12 +268,25 @@ function useMicRecorder(slug: string) {
         cleanup();
         if (cancelledRef.current) return;
         const blob = new Blob(chunks, { type: mime || "audio/webm" });
-        if (blob.size < 1500) { onNoResult(); return; } // çok kısa / sessiz
+        if (!speaking) { onNoResult("no_speech"); return; }
+        if (blob.size < 1500) { onNoResult("too_short"); return; } // çok kısa / sessiz
         try {
-          const text = await transcribePublicSpeech(slug, blob, language);
-          if (text && text.trim()) onResult(text.trim());
-          else onNoResult();
-        } catch { onNoResult(); }
+          const result = await transcribePublicSpeech(slug, blob, sessionToken, language);
+          const text = result.text.trim();
+          if (text) {
+            onResult({
+              text,
+              provider: result.provider,
+              language: result.language,
+              audio_bytes: result.audio_bytes,
+              confidence: result.confidence,
+              duration_seconds: result.duration_seconds,
+              processing_ms: result.processing_ms,
+              source: "voice_call",
+            });
+          }
+          else onNoResult("empty_transcript");
+        } catch { onNoResult("stt_failed"); }
       };
 
       try {
@@ -169,10 +294,10 @@ function useMicRecorder(slug: string) {
         raf = requestAnimationFrame(tick);
       } catch {
         cleanup();
-        onNoResult();
+        onNoResult("recorder_start_failed");
       }
     },
-    [slug, supported],
+    [sessionToken, slug, supported],
   );
 
   useEffect(() => () => { try { stopFnRef.current?.(); } catch { /* ignore */ } }, []);
@@ -199,6 +324,9 @@ const L = {
     acks: ["Tabii", "Elbette", "Tamamdır", "Peki", "Memnuniyetle", "Anladım"],
     callStatus: { listening: "Dinliyorum… konuşabilirsiniz", thinking: "Düşünüyorum…", speaking: "Yanıtlıyor…", idle: "Bağlanıyor…" },
     callHint: "Sesli görüşme · mikrofon açık",
+    heardPrefix: "Duyduğum",
+    correctHeard: "Düzelt",
+    lowVoiceConfidence: "emin değil",
     inputPlaceholder: "Yazın ya da 📞 Sesli görüşme'ye basın…",
     lockedPlaceholder: "Görüşme tamamlandı",
     locale: "tr-TR",
@@ -222,6 +350,9 @@ const L = {
     acks: ["Sure", "Of course", "Certainly", "Alright", "Gladly", "Got it"],
     callStatus: { listening: "Listening… please speak", thinking: "Thinking…", speaking: "Responding…", idle: "Connecting…" },
     callHint: "Voice call · microphone on",
+    heardPrefix: "Heard",
+    correctHeard: "Correct",
+    lowVoiceConfidence: "uncertain",
     inputPlaceholder: "Type, or tap 📞 Voice call…",
     lockedPlaceholder: "Conversation completed",
     locale: "en-US",
@@ -240,6 +371,11 @@ const ORDINALS: Array<[RegExp, number]> = [
 
 function pick(arr: readonly string[]): string {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function voiceConfidenceLabel(confidence: number | null | undefined): string | null {
+  if (confidence === null || confidence === undefined || !Number.isFinite(confidence)) return null;
+  return `%${Math.round(confidence * 100)}`;
 }
 
 function normalizePhone(raw: string): string | null {
@@ -326,6 +462,7 @@ export function PatientChatRoom({
   const [emergency, setEmergency] = useState(false);
   const [step, setStep] = useState<Step>("language");
   const [slots, setSlots] = useState<PublicSlotOfferView[]>([]);
+  const [lastHeard, setLastHeard] = useState<HeardTranscript | null>(null);
   const [, setLangState] = useState<Lang>("tr");
 
   const [callActive, setCallActive] = useState(false);
@@ -339,8 +476,8 @@ export function PatientChatRoom({
   const stepRef = useRef<Step>("language");
   useEffect(() => { stepRef.current = step; }, [step]);
 
-  const voice = useVoice(clinic.slug, langRef);
-  const rec = useMicRecorder(clinic.slug);
+  const voice = useVoice(clinic.slug, sessionToken, langRef);
+  const rec = useMicRecorder(clinic.slug, sessionToken);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const noResultRef = useRef(0);
 
@@ -364,27 +501,54 @@ export function PatientChatRoom({
     [addBubble, voice],
   );
 
+  const recordVoiceEvent = useCallback(
+    (event_type: string, reason: string | null, retry_count: number) => {
+      void recordPublicVoiceEvent(clinic.slug, conversationId, sessionToken, {
+        event_type,
+        reason,
+        retry_count,
+        step: stepRef.current,
+        phase: callPhase,
+        metadata_json: { call_active: callActiveRef.current },
+      }).catch(() => {
+        // Telemetry must never interrupt the patient call.
+      });
+    },
+    [callPhase, clinic.slug, conversationId, sessionToken],
+  );
+
   const listen = useCallback(() => {
     if (!callActiveRef.current) return;
     setCallPhase("listening");
     rec.start(
-      (transcript) => {
+      (heard) => {
         if (!callActiveRef.current) return;
+        const retryCount = noResultRef.current;
         noResultRef.current = 0;
+        const heardWithRetry = { ...heard, retry_count: retryCount };
+        setLastHeard(heardWithRetry);
         setCallPhase("thinking");
-        void handleAnswer(transcript);
+        void handleAnswerWithMetadata(heard.text, heardWithRetry);
       },
-      () => {
+      (reason) => {
         // Duyamadı: birkaç kez nazikçe tekrar iste; çok denerse sustur (call açık kalır).
         if (!callActiveRef.current) return;
         noResultRef.current += 1;
-        if (noResultRef.current >= 3) { noResultRef.current = 0; setCallPhase("idle"); return; }
+        const retryCount = noResultRef.current;
+        recordVoiceEvent(reason === "stt_failed" ? "stt_failure" : "no_result", reason, retryCount);
+        if (retryCount >= 3) {
+          recordVoiceEvent("no_result_limit", reason, retryCount);
+          noResultRef.current = 0;
+          setCallPhase("idle");
+          return;
+        }
+        recordVoiceEvent("retry_prompt", "no_result", retryCount);
         void say(t().didntCatch).then(() => { if (callActiveRef.current) listen(); });
       },
       langRef.current,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rec, say]);
+  }, [rec, recordVoiceEvent, say]);
 
   function slotShort(offer: PublicSlotOfferView): string {
     const d = new Date(offer.starts_at);
@@ -489,6 +653,10 @@ export function PatientChatRoom({
 
   // ── Yönlendirici ────────────────────────────────────────────────────────────
   async function handleAnswer(raw: string) {
+    return handleAnswerWithMetadata(raw, null);
+  }
+
+  async function handleAnswerWithMetadata(raw: string, voiceMetadata: PublicVoiceMetadata | null) {
     const text = raw.trim();
     if (!text || busy) return;
     addBubble("patient", text);
@@ -510,7 +678,11 @@ export function PatientChatRoom({
       } else if (current === "complaint") {
         dataRef.current.complaint = text;
         const res = await sendPatientMessage(
-          clinic.slug, conversationId, sessionToken, `${text} için randevu almak istiyorum`,
+          clinic.slug,
+          conversationId,
+          sessionToken,
+          `${text} için randevu almak istiyorum`,
+          { voice_metadata: voiceMetadata },
         );
         if (res.emergency || res.detected_intent === "medical_emergency") { handleEmergency(); return; }
         dataRef.current.department = res.specialty ?? (langRef.current === "en" ? "General Dentistry" : "Genel Diş Hekimliği");
@@ -565,6 +737,11 @@ export function PatientChatRoom({
     setLangState(l);
     addBubble("patient", l === "en" ? "English" : "Türkçe");
     void askComplaint();
+  }
+
+  function correctLastHeard() {
+    if (!lastHeard?.text || locked || busy) return;
+    setInput(lastHeard.text);
   }
 
   function startCall() {
@@ -645,6 +822,23 @@ export function PatientChatRoom({
           <span className="patient-call-pulse" aria-hidden />
           <span className="patient-call-status-text">{tr.callStatus[callPhase]}</span>
           <span className="patient-call-hint">{tr.callHint}</span>
+        </div>
+      ) : null}
+
+      {lastHeard ? (
+        <div className="patient-heard-line" aria-live="polite">
+          <span className="patient-heard-label">{tr.heardPrefix}:</span>
+          <span className="patient-heard-text">"{lastHeard.text}"</span>
+          <span className="patient-heard-provider">{lastHeard.provider}</span>
+          {voiceConfidenceLabel(lastHeard.confidence) ? (
+            <span className={`patient-heard-provider ${lastHeard.confidence !== null && lastHeard.confidence !== undefined && lastHeard.confidence < 0.7 ? "is-low" : ""}`}>
+              {voiceConfidenceLabel(lastHeard.confidence)}
+              {lastHeard.confidence !== null && lastHeard.confidence !== undefined && lastHeard.confidence < 0.7 ? ` · ${tr.lowVoiceConfidence}` : ""}
+            </span>
+          ) : null}
+          <button type="button" onClick={correctLastHeard} disabled={locked || busy}>
+            {tr.correctHeard}
+          </button>
         </div>
       ) : null}
 

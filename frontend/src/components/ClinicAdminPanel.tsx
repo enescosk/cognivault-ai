@@ -3,12 +3,13 @@ import { AdminIdentityPage } from "./admin/AdminIdentityPage";
 import { AdminDoctorsPage } from "./admin/AdminDoctorsPage";
 import { AdminServicesPage } from "./admin/AdminServicesPage";
 import { AdminDisclosurePage } from "./admin/AdminDisclosurePage";
+import { AdminVoicePage } from "./admin/AdminVoicePage";
 
 interface Props {
   token: string;
 }
 
-type TabType = "identity" | "doctors" | "services" | "disclosure";
+type TabType = "identity" | "voice" | "doctors" | "services" | "disclosure";
 
 export function ClinicAdminPanel({ token }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("identity");
@@ -27,7 +28,7 @@ export function ClinicAdminPanel({ token }: Props) {
       </section>
 
       {/* Tabs Navigation */}
-      <div className="clinical-segmented" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", maxWidth: "800px" }}>
+      <div className="clinical-segmented" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))", maxWidth: "980px" }}>
         <button
           type="button"
           className={activeTab === "identity" ? "active" : ""}
@@ -35,6 +36,14 @@ export function ClinicAdminPanel({ token }: Props) {
           style={{ padding: "10px", fontSize: "0.85rem", fontWeight: "bold" }}
         >
           Tasarım & Kimlik
+        </button>
+        <button
+          type="button"
+          className={activeTab === "voice" ? "active" : ""}
+          onClick={() => setActiveTab("voice")}
+          style={{ padding: "10px", fontSize: "0.85rem", fontWeight: "bold" }}
+        >
+          Ses Provider
         </button>
         <button
           type="button"
@@ -65,6 +74,7 @@ export function ClinicAdminPanel({ token }: Props) {
       {/* Active Tab View */}
       <section style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         {activeTab === "identity" && <AdminIdentityPage token={token} />}
+        {activeTab === "voice" && <AdminVoicePage token={token} />}
         {activeTab === "doctors" && <AdminDoctorsPage token={token} />}
         {activeTab === "services" && <AdminServicesPage token={token} />}
         {activeTab === "disclosure" && <AdminDisclosurePage token={token} />}

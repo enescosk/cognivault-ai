@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import logging
 import smtplib
-from datetime import datetime
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from zoneinfo import ZoneInfo
+
+ISTANBUL = ZoneInfo("Europe/Istanbul")
 
 from app.core.config import get_settings
 
@@ -131,7 +134,14 @@ Cognivault — Enterprise Workflow Platform
 
 
 def _format_dt_tr(dt: datetime) -> str:
-    """TR zaman formatı: '28 Mayıs Çarşamba, 14:30'."""
+    """TR zaman formatı: '28 Mayıs Çarşamba, 14:30' — daima İstanbul saatiyle.
+
+    DB'den gelen naive datetime UTC'dir; SMS'e olduğu gibi yazılırsa hasta
+    randevusunu 3 saat erken görür. Naive → UTC varsay, sonra İstanbul'a çevir.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(ISTANBUL)
     months = {
         1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan", 5: "Mayıs", 6: "Haziran",
         7: "Temmuz", 8: "Ağustos", 9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık",

@@ -69,7 +69,7 @@ def test_stt_stays_local_without_consent(monkeypatch):
     from app.ai import voice_factory
 
     monkeypatch.setattr(voice_factory, "get_settings", lambda: _FakeSettings())
-    provider = voice_factory.get_stt_provider(consent_granted=False)
+    provider = voice_factory.get_stt_provider(external_transfer_allowed=True, consent_granted=False)
     assert provider.__class__.__name__ == "LocalWhisperSTT"
 
 
@@ -77,7 +77,7 @@ def test_stt_routes_to_elevenlabs_with_full_gate(monkeypatch):
     from app.ai import voice_factory
 
     monkeypatch.setattr(voice_factory, "get_settings", lambda: _FakeSettings())
-    provider = voice_factory.get_stt_provider(consent_granted=True)
+    provider = voice_factory.get_stt_provider(external_transfer_allowed=True, consent_granted=True)
     assert provider.__class__.__name__ == "ElevenLabsScribeSTT"
 
 
@@ -85,7 +85,7 @@ def test_tts_stays_local_without_consent(monkeypatch):
     from app.ai import voice_factory
 
     monkeypatch.setattr(voice_factory, "get_settings", lambda: _FakeSettings())
-    provider = voice_factory.get_tts_provider(consent_granted=False)
+    provider = voice_factory.get_tts_provider(external_transfer_allowed=True, consent_granted=False)
     assert provider.__class__.__name__ in {"LocalPiperTTS", "MacSayTTS"}
 
 
@@ -93,7 +93,7 @@ def test_tts_routes_to_elevenlabs_with_full_gate(monkeypatch):
     from app.ai import voice_factory
 
     monkeypatch.setattr(voice_factory, "get_settings", lambda: _FakeSettings())
-    provider = voice_factory.get_tts_provider(consent_granted=True)
+    provider = voice_factory.get_tts_provider(external_transfer_allowed=True, consent_granted=True)
     assert provider.__class__.__name__ == "ElevenLabsTTS"
 
 
@@ -104,7 +104,7 @@ def test_tts_without_voice_id_stays_local(monkeypatch):
         elevenlabs_voice_id = ""
 
     monkeypatch.setattr(voice_factory, "get_settings", lambda: NoVoiceId())
-    provider = voice_factory.get_tts_provider(consent_granted=True)
+    provider = voice_factory.get_tts_provider(external_transfer_allowed=True, consent_granted=True)
     assert provider.__class__.__name__ in {"LocalPiperTTS", "MacSayTTS"}
 
 

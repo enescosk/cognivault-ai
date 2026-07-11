@@ -11,7 +11,13 @@ import type {
   ClinicalConversationDetail,
   ClinicalOverview,
   ClinicalPatentDossier,
+  ClinicalPilotLaunchChecklist,
+  ClinicalPilotMetrics,
+  ClinicalPilotWeeklyReport,
   ClinicalSlotBoard,
+  ClinicalVoiceQAReport,
+  ClinicalVoiceQARun,
+  ClinicalVoiceQARunInput,
   ClinicDoctor,
   ClinicDoctorSlot,
   ClinicalPersona,
@@ -130,6 +136,34 @@ export function getAICapabilities(token: string): Promise<AICapabilities> {
 
 export function getQualityReport(token: string): Promise<QualityReport> {
   return request<QualityReport>("/quality/report", { method: "GET" }, token);
+}
+
+export function getClinicalPilotMetrics(token: string, days = 7): Promise<ClinicalPilotMetrics> {
+  const params = new URLSearchParams({ days: String(days) });
+  return request<ClinicalPilotMetrics>(`/clinical/pilot-metrics?${params.toString()}`, { method: "GET" }, token);
+}
+
+export function getClinicalPilotWeeklyReport(token: string, days = 7): Promise<ClinicalPilotWeeklyReport> {
+  const params = new URLSearchParams({ days: String(days) });
+  return request<ClinicalPilotWeeklyReport>(`/clinical/pilot-weekly-report?${params.toString()}`, { method: "GET" }, token);
+}
+
+export function getClinicalPilotLaunchChecklist(token: string, days = 7): Promise<ClinicalPilotLaunchChecklist> {
+  const params = new URLSearchParams({ days: String(days) });
+  return request<ClinicalPilotLaunchChecklist>(`/clinical/pilot-launch-checklist?${params.toString()}`, { method: "GET" }, token);
+}
+
+export function getClinicalVoiceQAReport(token: string, limit = 20): Promise<ClinicalVoiceQAReport> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return request<ClinicalVoiceQAReport>(`/clinical/voice-qa-runs?${params.toString()}`, { method: "GET" }, token);
+}
+
+export function createClinicalVoiceQARun(token: string, payload: ClinicalVoiceQARunInput): Promise<ClinicalVoiceQARun> {
+  return request<ClinicalVoiceQARun>(
+    "/clinical/voice-qa-runs",
+    { method: "POST", body: JSON.stringify(payload) },
+    token,
+  );
 }
 
 export function getAppointments(token: string): Promise<Appointment[]> {
@@ -652,6 +686,21 @@ export interface KVKKDisclosure {
   created_at: string;
 }
 
+export interface VoiceSettings {
+  stt_provider: string;
+  tts_provider: string;
+  external_enabled: boolean;
+  allow_cross_border_processors: boolean;
+  tts_voice?: string | null;
+}
+
+export interface VoiceDiagnostics {
+  settings: VoiceSettings;
+  credentials: Record<string, boolean>;
+  local: Record<string, boolean | string | null>;
+  simulated_full_consent: Record<string, unknown>;
+}
+
 export function getBranding(token: string): Promise<{ branding: Record<string, any> }> {
   return request<{ branding: Record<string, any> }>("/clinic/admin/branding", {}, token);
 }
@@ -661,6 +710,21 @@ export function updateBranding(token: string, payload: Record<string, any>): Pro
     method: "PATCH",
     body: JSON.stringify(payload)
   }, token);
+}
+
+export function getVoiceSettings(token: string): Promise<VoiceDiagnostics> {
+  return request<VoiceDiagnostics>("/clinic/admin/voice-settings", {}, token);
+}
+
+export function updateVoiceSettings(token: string, payload: VoiceSettings): Promise<VoiceDiagnostics> {
+  return request<VoiceDiagnostics>("/clinic/admin/voice-settings", {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  }, token);
+}
+
+export function testVoiceSettings(token: string): Promise<VoiceDiagnostics> {
+  return request<VoiceDiagnostics>("/clinic/admin/voice-settings/test", { method: "POST" }, token);
 }
 
 export function getDoctors(token: string): Promise<Doctor[]> {

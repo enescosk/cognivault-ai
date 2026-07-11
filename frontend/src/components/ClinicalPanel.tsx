@@ -6,8 +6,13 @@ import {
   getClinicalComplianceProfile,
   getClinicalOverview,
   getClinicalPatentDossier,
+  getClinicalPilotLaunchChecklist,
+  getClinicalPilotMetrics,
+  getClinicalPilotWeeklyReport,
   getClinicalSlotBoard,
+  getClinicalVoiceQAReport,
   listClinicalAppointments,
+  createClinicalVoiceQARun,
   createManualClinicalAppointment,
   simulateVoiceCall,
   simulateWhatsAppMessage,
@@ -20,8 +25,12 @@ import type {
   ClinicalAppointmentRow,
   ClinicalConversationDetail,
   ClinicalConversationSummary,
+  ClinicalPilotLaunchChecklist,
+  ClinicalPilotMetrics,
   ClinicalSlotBoard,
   ClinicalSlotItem,
+  ClinicalVoiceQAReport,
+  ClinicalVoiceQARunInput,
   ShadowReview,
 } from "../types/api";
 import { ShadowReviewCard } from "./clinical/ShadowReviewCard";
@@ -45,6 +54,7 @@ type ClinicalPanelProps = {
 
 type PersonaId = "selin" | "arzu" | "can";
 type ChannelMode = "phone" | "whatsapp";
+type QASeverity = ClinicalVoiceQARunInput["severity"];
 
 const personaCards: Array<{
   id: PersonaId;
@@ -112,6 +122,220 @@ const integrationCards = [
   { title: "Ses kalitesi", text: "Arka plan gürültüsü, aksan, yarım cümle ve yaşlı hasta konuşmaları için tekrar-sorma stratejisi." },
 ];
 
+function PilotMetricsCard({
+  report,
+  loading,
+  onCopyReport,
+  copyingReport,
+}: {
+  report: ClinicalPilotMetrics | null;
+  loading: boolean;
+  onCopyReport: () => void;
+  copyingReport: boolean;
+}) {
+  const metrics = report?.metrics ?? [];
+  const metricById = Object.fromEntries(metrics.map((item) => [item.id, item]));
+  const primary = [
+    metricById.booking_success_rate,
+    metricById.under_60_second_booking_rate,
+    metricById.voice_transcript_coverage,
+    metricById.voice_stt_confidence,
+    metricById.voice_no_result_rate,
+    metricById.voice_retry_prompt_rate,
+    metricById.voice_stt_failures,
+    metricById.real_device_qa_runs,
+    metricById.operator_intervention_rate,
+  ].filter(Boolean);
+
+  return (
+    <section className="clinic-card pilot-kpi-card">
+      <div className="clinical-card-top clinical-card-top--spaced">
+        <div>
+          <span>Pilot KPI</span>
+          <h3>7 günlük gerçek hasta akışı</h3>
+        </div>
+        <strong className={`clinical-status ${report?.ready_for_pilot ? "" : "danger"}`}>
+          {loading ? "ölçülüyor" : report?.ready_for_pilot ? "pilot hazır" : "risk var"}
+        </strong>
+      </div>
+      <button
+        type="button"
+        className="pilot-report-copy"
+        onClick={onCopyReport}
+        disabled={copyingReport}
+      >
+        {copyingReport ? "rapor hazırlanıyor" : "haftalık raporu kopyala"}
+      </button>
+
+      <div className="pilot-kpi-grid">
+        {primary.map((metric) => (
+          <div
+            key={metric.id}
+            className={`pilot-kpi-item ${metric.passed === false ? "pilot-kpi-item--risk" : ""}`}
+          >
+            <span>{metric.label}</span>
+            <strong>{formatPilotMetric(metric.value, metric.unit)}</strong>
+            {metric.target !== null && metric.target !== undefined ? (
+              <small>hedef {formatPilotMetric(metric.target, metric.unit)}</small>
+            ) : null}
+          </div>
+        ))}
+        {!loading && primary.length === 0 ? (
+          <div className="clinical-empty">Pilot metriği için henüz veri yok.</div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function VoiceQACard({
+  report,
+  loading,
+  form,
+  onChange,
+  onSubmit,
+  busy,
+}: {
+  report: ClinicalVoiceQAReport | null;
+  loading: boolean;
+  form: ClinicalVoiceQARunInput;
+  onChange: (patch: Partial<ClinicalVoiceQARunInput>) => void;
+  onSubmit: () => void;
+  busy: boolean;
+}) {
+  const summary = report?.summary ?? {};
+  const totalRuns = Number(summary.total_runs ?? 0);
+  const ready = Boolean(summary.ready_for_pilot);
+  const recentRuns = report?.runs.slice(0, 4) ?? [];
+
+  return (
+    <section className="clinic-card voice-qa-card">
+      <div className="clinical-card-top clinical-card-top--spaced">
+        <div>
+          <span>Gerçek cihaz QA</span>
+          <h3>Sesli pilot kapısı</h3>
+        </div>
+        <strong className={`clinical-status ${ready ? "" : "danger"}`}>
+          {loading ? "yükleniyor" : ready ? "geçti" : `${totalRuns}/12`}
+        </strong>
+      </div>
+
+      <div className="voice-qa-summary">
+        <span>Blocking {Number(summary.blocking_failures ?? 0)}</span>
+        <span>Major {Number(summary.major_failures ?? 0)}</span>
+        <span>STT doğru %{Math.round(Number(summary.transcript_correct_rate ?? 0))}</span>
+        <span>Retry {Number(summary.avg_retry_count ?? 0).toFixed(1)}</span>
+      </div>
+
+      <div className="voice-qa-form">
+        <input value={form.tester} onChange={(event) => onChange({ tester: event.target.value })} placeholder="Tester" />
+        <input value={form.device} onChange={(event) => onChange({ device: event.target.value })} placeholder="Cihaz" />
+        <input value={form.browser} onChange={(event) => onChange({ browser: event.target.value })} placeholder="Tarayıcı" />
+        <input value={form.audio_condition} onChange={(event) => onChange({ audio_condition: event.target.value })} placeholder="Ses ortamı" />
+        <select value={form.voice_mode} onChange={(event) => onChange({ voice_mode: event.target.value })}>
+          <option value="local">Local</option>
+          <option value="elevenlabs">ElevenLabs</option>
+          <option value="openai">OpenAI</option>
+          <option value="premium">Premium</option>
+        </select>
+        <select value={form.scenario} onChange={(event) => onChange({ scenario: event.target.value })}>
+          <option value="core">Core</option>
+          <option value="edge">Edge</option>
+          <option value="emergency">Emergency</option>
+        </select>
+        <input
+          type="number"
+          min="0"
+          max="120"
+          step="0.1"
+          value={form.first_assistant_audio_seconds ?? ""}
+          onChange={(event) => onChange({ first_assistant_audio_seconds: event.target.value ? Number(event.target.value) : null })}
+          placeholder="İlk ses sn"
+        />
+        <input
+          type="number"
+          min="0"
+          max="20"
+          value={form.retry_count}
+          onChange={(event) => onChange({ retry_count: Number(event.target.value) })}
+          placeholder="Retry"
+        />
+        <select value={form.severity} onChange={(event) => onChange({ severity: event.target.value as QASeverity })}>
+          <option value="pass">Pass</option>
+          <option value="minor">Minor</option>
+          <option value="major">Major</option>
+          <option value="blocking">Blocking</option>
+        </select>
+        <div className="voice-qa-checks">
+          <label><input type="checkbox" checked={form.transcript_correct} onChange={(event) => onChange({ transcript_correct: event.target.checked })} /> STT doğru</label>
+          <label><input type="checkbox" checked={form.transcript_shown} onChange={(event) => onChange({ transcript_shown: event.target.checked })} /> Transcript var</label>
+          <label><input type="checkbox" checked={form.completed_under_60s} onChange={(event) => onChange({ completed_under_60s: event.target.checked })} /> 60 sn altı</label>
+          <label><input type="checkbox" checked={form.appointment_created} onChange={(event) => onChange({ appointment_created: event.target.checked })} /> Randevu oluştu</label>
+          <label><input type="checkbox" checked={form.operator_intervention} onChange={(event) => onChange({ operator_intervention: event.target.checked })} /> Operatör girdi</label>
+        </div>
+        <textarea value={form.notes ?? ""} onChange={(event) => onChange({ notes: event.target.value })} placeholder="Notlar" />
+        <button type="button" onClick={onSubmit} disabled={busy || !form.tester.trim() || !form.device.trim() || !form.browser.trim()}>
+          QA run kaydet
+        </button>
+      </div>
+
+      <div className="voice-qa-list">
+        {recentRuns.length ? recentRuns.map((run) => (
+          <div key={run.id} className={`voice-qa-row voice-qa-row--${run.severity}`}>
+            <strong>{run.device} · {run.browser}</strong>
+            <span>{run.audio_condition} · {run.voice_mode} · {run.scenario}</span>
+            <small>{trDateTime.format(new Date(run.created_at))} · retry {run.retry_count}</small>
+          </div>
+        )) : <div className="clinical-empty">Henüz gerçek cihaz QA kaydı yok.</div>}
+      </div>
+    </section>
+  );
+}
+
+function PilotLaunchCard({ checklist, loading }: { checklist: ClinicalPilotLaunchChecklist | null; loading: boolean }) {
+  const items = checklist?.checklist ?? [];
+  return (
+    <section className="clinic-card pilot-launch-card">
+      <div className="clinical-card-top clinical-card-top--spaced">
+        <div>
+          <span>Pilot launch</span>
+          <h3>Checklist, rollback ve incident path</h3>
+        </div>
+        <strong className={`clinical-status ${checklist?.ready_for_launch ? "" : "danger"}`}>
+          {loading ? "kontrol" : checklist?.ready_for_launch ? "launch hazır" : "bekle"}
+        </strong>
+      </div>
+
+      <div className="pilot-launch-list">
+        {items.map((item) => (
+          <div key={item.id} className={`pilot-launch-item pilot-launch-item--${item.status}`}>
+            <strong>{item.label}</strong>
+            <span>{item.detail}</span>
+          </div>
+        ))}
+        {!loading && items.length === 0 ? <div className="clinical-empty">Launch checklist verisi yok.</div> : null}
+      </div>
+
+      <div className="pilot-launch-columns">
+        <div>
+          <span>Rollback</span>
+          {(checklist?.rollback_plan ?? []).map((item) => <p key={item}>{item}</p>)}
+        </div>
+        <div>
+          <span>Incident response</span>
+          {(checklist?.incident_response ?? []).map((item) => <p key={item}>{item}</p>)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function formatPilotMetric(value: number, unit: string): string {
+  if (unit === "percent") return `%${Math.round(value)}`;
+  if (unit === "count") return String(Math.round(value));
+  return String(value);
+}
+
 export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const queryClient = useQueryClient();
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
@@ -126,6 +350,27 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
   const [tab, setTab] = useState<"ops" | "appointments" | "pitch">("ops");
   const [activeSlot, setActiveSlot] = useState<ClinicalSlotItem | null>(null);
   const [detailAppointment, setDetailAppointment] = useState<ClinicalAppointmentRow | null>(null);
+  const [copyingPilotReport, setCopyingPilotReport] = useState(false);
+  const [voiceQAForm, setVoiceQAForm] = useState<ClinicalVoiceQARunInput>({
+    tester: "Pilot QA",
+    device: "iPhone",
+    browser: "Safari",
+    audio_condition: "Quiet room",
+    voice_mode: "local",
+    scenario: "core",
+    mic_permission_seconds: null,
+    first_assistant_audio_seconds: null,
+    transcript_correct: true,
+    transcript_shown: true,
+    retry_count: 0,
+    completed_under_60s: true,
+    appointment_created: true,
+    operator_intervention: false,
+    emergency_guidance_shown: null,
+    severity: "pass",
+    notes: "",
+    metadata_json: {},
+  });
   const overviewQuery = useQuery({
     queryKey: clinicalKeys.overview(token),
     queryFn: () => getClinicalOverview(token),
@@ -147,12 +392,30 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
     queryKey: clinicalKeys.appointments(token),
     queryFn: () => listClinicalAppointments(token),
   });
+  const pilotMetricsQuery = useQuery({
+    queryKey: ["clinical", "pilot-metrics", token],
+    queryFn: () => getClinicalPilotMetrics(token, 7),
+    refetchInterval: 30_000,
+  });
+  const pilotLaunchQuery = useQuery({
+    queryKey: ["clinical", "pilot-launch-checklist", token],
+    queryFn: () => getClinicalPilotLaunchChecklist(token, 7),
+    refetchInterval: 30_000,
+  });
+  const voiceQAQuery = useQuery({
+    queryKey: ["clinical", "voice-qa", token],
+    queryFn: () => getClinicalVoiceQAReport(token, 20),
+    refetchInterval: 30_000,
+  });
 
   const overview = overviewQuery.data ?? null;
   const complianceProfile = complianceQuery.data ?? null;
   const patentDossier = patentQuery.data ?? null;
   const slotBoard = slotsQuery.data ?? null;
   const appointments = appointmentsQuery.data ?? [];
+  const pilotMetrics = pilotMetricsQuery.data ?? null;
+  const pilotLaunchChecklist = pilotLaunchQuery.data ?? null;
+  const voiceQAReport = voiceQAQuery.data ?? null;
   const resolvedConversationId = selectedConversationId
     ?? overview?.doctor_inbox[0]?.id
     ?? overview?.conversations[0]?.id
@@ -176,6 +439,9 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
       queryClient.invalidateQueries({ queryKey: clinicalKeys.overview(token) }),
       queryClient.invalidateQueries({ queryKey: clinicalKeys.appointments(token) }),
       queryClient.invalidateQueries({ queryKey: clinicalKeys.slots(token) }),
+      queryClient.invalidateQueries({ queryKey: ["clinical", "pilot-metrics", token] }),
+      queryClient.invalidateQueries({ queryKey: ["clinical", "pilot-launch-checklist", token] }),
+      queryClient.invalidateQueries({ queryKey: ["clinical", "voice-qa", token] }),
     ];
     if (resolvedConversationId !== null) {
       invalidations.push(queryClient.invalidateQueries({ queryKey: clinicalKeys.conversation(token, resolvedConversationId) }));
@@ -241,6 +507,17 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         rows.map((row) => (row.id === updated.id ? updated : row)),
       );
       void queryClient.invalidateQueries({ queryKey: clinicalKeys.overview(token) });
+    },
+  });
+
+  const voiceQAMutation = useMutation({
+    mutationFn: (payload: ClinicalVoiceQARunInput) => createClinicalVoiceQARun(token, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["clinical", "voice-qa", token] }),
+        queryClient.invalidateQueries({ queryKey: ["clinical", "pilot-metrics", token] }),
+        queryClient.invalidateQueries({ queryKey: ["clinical", "pilot-launch-checklist", token] }),
+      ]);
     },
   });
 
@@ -314,16 +591,49 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
     }
   }
 
+  async function handleVoiceQASubmit() {
+    setActionError(null);
+    try {
+      await voiceQAMutation.mutateAsync({
+        ...voiceQAForm,
+        tester: voiceQAForm.tester.trim(),
+        device: voiceQAForm.device.trim(),
+        browser: voiceQAForm.browser.trim(),
+        audio_condition: voiceQAForm.audio_condition.trim(),
+        notes: voiceQAForm.notes?.trim() || null,
+      });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "QA kaydı oluşturulamadı");
+    }
+  }
+
+  async function handleCopyPilotReport() {
+    setActionError(null);
+    setCopyingPilotReport(true);
+    try {
+      const report = await getClinicalPilotWeeklyReport(token, 7);
+      await navigator.clipboard.writeText(report.markdown);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Pilot raporu kopyalanamadı");
+    } finally {
+      setCopyingPilotReport(false);
+    }
+  }
+
   const busy = simulateMutation.isPending
     || reviewMutation.isPending
     || manualBookingMutation.isPending
-    || appointmentStatusMutation.isPending;
+    || appointmentStatusMutation.isPending
+    || voiceQAMutation.isPending;
   const queryError = [
     overviewQuery.error,
     complianceQuery.error,
     patentQuery.error,
     slotsQuery.error,
     appointmentsQuery.error,
+    pilotMetricsQuery.error,
+    voiceQAQuery.error,
+    pilotLaunchQuery.error,
     selectedConversationQuery.error,
     detailConversationQuery.error,
   ].find(Boolean);
@@ -388,6 +698,22 @@ export function ClinicalPanel({ token }: ClinicalPanelProps) {
         <ClinicalMetric label="Yaklaşan uyarı" value={metrics?.reminders_due ?? 0} tone="success" />
         <ClinicalMetric label="Doktor onayı" value={metrics?.pending_shadow_reviews ?? 0} tone="danger" />
       </section>
+
+      <PilotMetricsCard
+        report={pilotMetrics}
+        loading={pilotMetricsQuery.isLoading}
+        onCopyReport={handleCopyPilotReport}
+        copyingReport={copyingPilotReport}
+      />
+      <PilotLaunchCard checklist={pilotLaunchChecklist} loading={pilotLaunchQuery.isLoading} />
+      <VoiceQACard
+        report={voiceQAReport}
+        loading={voiceQAQuery.isLoading}
+        form={voiceQAForm}
+        onChange={(patch) => setVoiceQAForm((current) => ({ ...current, ...patch }))}
+        onSubmit={handleVoiceQASubmit}
+        busy={busy}
+      />
 
       <section className="clinic-lab-grid clinic-lab-grid--single">
         <TestLab

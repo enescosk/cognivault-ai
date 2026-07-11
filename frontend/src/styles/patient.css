@@ -718,3 +718,55 @@
   70%  { box-shadow: 0 0 0 10px transparent; opacity: 0.75; }
   100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
 }
+
+.patient-heard-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -2px 0 6px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--patient-primary) 16%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--patient-primary) 5%, transparent);
+  color: var(--patient-text-2);
+  font-size: 0.78rem;
+}
+.patient-heard-label {
+  font-weight: 700;
+  color: var(--patient-primary);
+}
+.patient-heard-text {
+  min-width: 0;
+  flex: 1 1 180px;
+  color: var(--patient-text-1);
+  overflow-wrap: anywhere;
+}
+.patient-heard-provider {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--patient-card-bg);
+  border: 1px solid var(--patient-border);
+  color: var(--patient-text-3);
+  font-size: 0.68rem;
+}
+.patient-heard-provider.is-low {
+  border-color: rgba(180, 83, 9, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  font-weight: 700;
+}
+.patient-heard-line button {
+  border: 0;
+  background: transparent;
+  color: var(--patient-primary);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 0.76rem;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.patient-heard-line button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

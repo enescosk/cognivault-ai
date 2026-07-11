@@ -14,16 +14,26 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 import os
 import subprocess
 import tempfile
 import threading
 import wave
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 from app.core.config import get_settings
 
 logger = logging.getLogger("cognivault.voice")
+
+
+@dataclass(frozen=True)
+class TranscriptionResult:
+    text: str
+    confidence: float | None = None
+    duration_seconds: float | None = None
+    segments: int | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,6 +63,14 @@ class STTProvider(ABC):
     def transcribe(self, audio: bytes, language: str = "tr") -> str:
         """Ses baytlarını (webm/opus/wav/mp3) metne çevirir."""
 
+    def transcribe_detailed(self, audio: bytes, language: str = "tr") -> TranscriptionResult:
+        """Geriye uyumlu detaylı çıktı.
+
+        Premium/provider SDK'ları farklı telemetry döndürür; temel sözleşme her
+        sağlayıcı için metni korur, sağlayıcı destekliyorsa confidence/süre ekler.
+        """
+        return TranscriptionResult(text=self.transcribe(audio, language=language))
+
 
 _whisper_model = None
 _whisper_lock = threading.Lock()
@@ -75,12 +93,72 @@ def _get_whisper():
 
 
 class LocalWhisperSTT(STTProvider):
-    """faster-whisper — ses sunucudan çıkmadan yurt içinde çözülür."""
+    """faster-whisper — ses sunucudan çıkmadan yurt içinde çözülür.
+
+    Decode ayarları canlı sesli görüşme için seçildi:
+    - `vad_filter`: baştaki/sondaki sessizliği atar → hem hız hem doğruluk.
+    - `temperature=0` + `beam_size=5`: deterministik, en olası çözüm.
+    - `condition_on_previous_text=False`: kısa tek-tur söylemlerde halüsinasyon
+      sürüklenmesini engeller (önceki segment yanlışsa devamını zehirlemesin).
+    - `initial_prompt`: diş kliniği alan sözlüğü — "ağrıyor→ağırıyor" gibi
+      yakın-ses hatalarını azaltır.
+    """
 
     def transcribe(self, audio: bytes, language: str = "tr") -> str:
+        return self.transcribe_detailed(audio, language=language).text
+
+    def transcribe_detailed(self, audio: bytes, language: str = "tr") -> TranscriptionResult:
+        s = get_settings()
         model = _get_whisper()
-        segments, _info = model.transcribe(io.BytesIO(audio), language=language or None)
-        return "".join(seg.text for seg in segments).strip()
+        segments, _info = model.transcribe(
+            io.BytesIO(audio),
+            language=language or s.local_whisper_language or None,
+            beam_size=5,
+            temperature=0.0,
+            vad_filter=True,
+            condition_on_previous_text=False,
+            initial_prompt=s.local_whisper_initial_prompt or None,
+        )
+        segment_list = list(segments)
+        text = "".join(seg.text for seg in segment_list).strip()
+        return TranscriptionResult(
+            text=text,
+            confidence=_estimate_whisper_confidence(segment_list) if text else 0.0,
+            duration_seconds=_whisper_duration_seconds(segment_list, _info),
+            segments=len(segment_list),
+        )
+
+
+def _estimate_whisper_confidence(segments: list[object]) -> float | None:
+    if not segments:
+        return None
+    weighted = 0.0
+    total_weight = 0.0
+    for seg in segments:
+        start = float(getattr(seg, "start", 0.0) or 0.0)
+        end = float(getattr(seg, "end", start) or start)
+        weight = max(0.05, end - start)
+        avg_logprob = getattr(seg, "avg_logprob", None)
+        no_speech_prob = getattr(seg, "no_speech_prob", None)
+        if avg_logprob is None:
+            continue
+        acoustic = math.exp(min(0.0, float(avg_logprob)))
+        speech = 1.0 - max(0.0, min(1.0, float(no_speech_prob or 0.0)))
+        weighted += max(0.0, min(1.0, acoustic * speech)) * weight
+        total_weight += weight
+    if total_weight <= 0:
+        return None
+    return round(weighted / total_weight, 3)
+
+
+def _whisper_duration_seconds(segments: list[object], info: object) -> float | None:
+    duration = getattr(info, "duration", None)
+    if isinstance(duration, (int, float)) and duration > 0:
+        return round(float(duration), 3)
+    ends = [float(getattr(seg, "end", 0.0) or 0.0) for seg in segments]
+    if not ends:
+        return None
+    return round(max(ends), 3)
 
 
 class OpenAIWhisperSTT(STTProvider):
@@ -125,28 +203,42 @@ class ElevenLabsScribeSTT(STTProvider):
         return str(payload.get("text", "")).strip()
 
 
-def get_stt_provider(external_transfer_allowed: bool = False, *, consent_granted: bool = False) -> STTProvider:
+def get_stt_provider(
+    external_transfer_allowed: bool = False,
+    *,
+    consent_granted: bool = False,
+    provider_name: str | None = None,
+    external_enabled: bool | None = None,
+) -> STTProvider:
     """Local-first: buluta yalnızca sağlayıcıya özel rıza kapısı geçilirse gidilir.
 
-    - "elevenlabs": `external_voice_permitted()` — app-seviyesi `voice_external_enabled`
-      ∧ hasta VOICE_RECORDING rızası (`consent_granted`) ∧ API anahtarı.
-    - "openai": app-seviyesi `voice_external_enabled` ∧ arayanın doğruladığı
-      klinik-seviyesi sınır-ötesi rıza (`external_transfer_allowed`,
-      `allow_cross_border_processors`) ∧ API anahtarı. Klinik rızası iletilmezse
-      (varsayılan False) hasta sesi hep yerelde kalır — bkz.
-      `build_compliance_profile`'daki "external_voice_stt_tts" işlemcisi
-      ("clinical_default": "blocked").
+    Her bulut sağlayıcı için üç kapı gerekir: app-seviyesi dış işleme izni,
+    hasta VOICE_RECORDING rızası ve sağlayıcı kimlik bilgisi. OpenAI yolunda
+    ayrıca klinik-seviyesi sınır-ötesi rıza (`external_transfer_allowed`,
+    `allow_cross_border_processors`) da gerekir.
 
     Her iki kapı de sağlanmazsa her zaman yerel Whisper.
     """
     s = get_settings()
-    if s.voice_stt_provider == "elevenlabs" and external_voice_permitted(
-        external_enabled=s.voice_external_enabled,
+    selected_provider = provider_name or s.voice_stt_provider
+    effective_external_enabled = s.voice_external_enabled and (
+        s.voice_external_enabled if external_enabled is None else external_enabled
+    )
+    if selected_provider == "elevenlabs" and external_voice_permitted(
+        external_enabled=effective_external_enabled,
         consent_granted=consent_granted,
         has_credentials=bool(s.elevenlabs_api_key),
-    ):
+    ) and external_transfer_allowed:
         return ElevenLabsScribeSTT()
-    if s.voice_stt_provider == "openai" and s.voice_external_enabled and external_transfer_allowed and s.openai_api_key:
+    if (
+        selected_provider == "openai"
+        and external_voice_permitted(
+            external_enabled=effective_external_enabled,
+            consent_granted=consent_granted,
+            has_credentials=bool(s.openai_api_key),
+        )
+        and external_transfer_allowed
+    ):
         return OpenAIWhisperSTT()
     return LocalWhisperSTT()
 
@@ -164,6 +256,22 @@ _piper_voice = None
 _piper_lock = threading.Lock()
 
 
+def resolve_piper_voice_path() -> str | None:
+    """Kullanılacak Piper ses dosyasını belirler.
+
+    Öncelik: yapılandırılan `piper_voice_path` → `piper_voice_fallbacks` sırası.
+    Hiçbiri diskte yoksa None (çağıran MacSay'e düşer). Böylece daha doğal bir
+    ses indirildiğinde otomatik kullanılır, indirilmemiş kurulum eski sesle
+    çalışmaya devam eder.
+    """
+    s = get_settings()
+    fallback_paths = getattr(s, "piper_voice_fallbacks", []) or []
+    for candidate in [s.piper_voice_path, *fallback_paths]:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
+
+
 def _get_piper():
     global _piper_voice
     if _piper_voice is None:
@@ -171,10 +279,26 @@ def _get_piper():
             if _piper_voice is None:
                 from piper import PiperVoice
 
-                s = get_settings()
-                logger.info("Loading local Piper voice: %s", s.piper_voice_path)
-                _piper_voice = PiperVoice.load(s.piper_voice_path)
+                path = resolve_piper_voice_path()
+                if path is None:
+                    raise FileNotFoundError("Piper ses dosyası bulunamadı")
+                logger.info("Loading local Piper voice: %s", path)
+                _piper_voice = PiperVoice.load(path)
     return _piper_voice
+
+
+def _piper_synthesis_config():
+    """Settings'teki prosodi ayarlarından SynthesisConfig üretir (hepsi None → None)."""
+    s = get_settings()
+    if s.piper_length_scale is None and s.piper_noise_scale is None and s.piper_noise_w_scale is None:
+        return None
+    from piper.config import SynthesisConfig
+
+    return SynthesisConfig(
+        length_scale=s.piper_length_scale,
+        noise_scale=s.piper_noise_scale,
+        noise_w_scale=s.piper_noise_w_scale,
+    )
 
 
 class LocalPiperTTS(TTSProvider):
@@ -186,7 +310,7 @@ class LocalPiperTTS(TTSProvider):
             v = _get_piper()
             buf = io.BytesIO()
             with wave.open(buf, "wb") as wf:
-                v.synthesize_wav(text, wf)
+                v.synthesize_wav(text, wf, syn_config=_piper_synthesis_config())
             return buf.getvalue(), "audio/wav"
         except Exception as e:  # noqa: BLE001
             logger.warning("Piper sentez hatası, macOS say fallback: %s", e)
@@ -248,26 +372,75 @@ class ElevenLabsTTS(TTSProvider):
         return resp.content, "audio/mpeg"
 
 
-def get_tts_provider(external_transfer_allowed: bool = False, *, consent_granted: bool = False) -> TTSProvider:
+def get_tts_provider(
+    external_transfer_allowed: bool = False,
+    *,
+    consent_granted: bool = False,
+    provider_name: str | None = None,
+    external_enabled: bool | None = None,
+) -> TTSProvider:
     """Local-first: bulut TTS yalnızca sağlayıcıya özel rıza kapısı geçilirse.
 
-    - "elevenlabs": `external_voice_permitted()` — app-seviyesi dış izin ∧ hasta
-      VOICE_RECORDING rızası (`consent_granted`) ∧ API anahtarı (+ voice_id).
-    - "openai": app-seviyesi dış izin ∧ klinik-seviyesi sınır-ötesi rıza
-      (`external_transfer_allowed`) ∧ API anahtarı.
+    Her bulut sağlayıcı için app-seviyesi dış izin, hasta VOICE_RECORDING
+    rızası ve kimlik bilgisi gerekir. OpenAI için klinik-seviyesi sınır-ötesi
+    rıza da zorunludur.
 
     Aksi halde önce Piper, yoksa macOS `say` — ses yurt içinde kalır."""
     s = get_settings()
-    if s.voice_tts_provider == "elevenlabs" and external_voice_permitted(
-        external_enabled=s.voice_external_enabled,
+    selected_provider = provider_name or s.voice_tts_provider
+    effective_external_enabled = s.voice_external_enabled and (
+        s.voice_external_enabled if external_enabled is None else external_enabled
+    )
+    if selected_provider == "elevenlabs" and external_voice_permitted(
+        external_enabled=effective_external_enabled,
         consent_granted=consent_granted,
         has_credentials=bool(s.elevenlabs_api_key and s.elevenlabs_voice_id),
-    ):
+    ) and external_transfer_allowed:
         return ElevenLabsTTS()
-    if s.voice_tts_provider == "openai" and s.voice_external_enabled and external_transfer_allowed and s.openai_api_key:
+    if (
+        selected_provider == "openai"
+        and external_voice_permitted(
+            external_enabled=effective_external_enabled,
+            consent_granted=consent_granted,
+            has_credentials=bool(s.openai_api_key),
+        )
+        and external_transfer_allowed
+    ):
         return OpenAITTS()
     # Lokal: Piper varsa onu kullan (model lazy yüklenir, hata olursa say'e düşer),
     # hiç yoksa doğrudan macOS say. Her durumda ses yurt içinde kalır.
-    if os.path.exists(s.piper_voice_path):
+    if resolve_piper_voice_path() is not None:
         return LocalPiperTTS()
     return MacSayTTS()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Warm-up — ilk sesli turdaki model-yükleme takılmasını yok eder
+# ─────────────────────────────────────────────────────────────────────────────
+def warm_up_local_voice_stack() -> None:
+    """Lokal STT/TTS modellerini arka plan thread'inde önceden yükler.
+
+    Whisper-small yüklemesi ~2 sn, Piper ~1 sn; lazy bırakılırsa bu maliyet
+    ilk hastanın ilk sesli turuna biner. Uygulama açılışında (lifespan) çağrılır;
+    hata asla yükseltilmez — ses bağımlılıkları kurulu olmayan ortamlarda
+    uygulama normal açılır, ilgili çağrı yolu zaten kendi fallback'ini uygular.
+    """
+    s = get_settings()
+    if not s.voice_warmup_enabled:
+        return
+
+    def _load() -> None:
+        if s.voice_stt_provider == "local":
+            try:
+                _get_whisper()
+                logger.info("voice_warmup whisper=ready")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("voice_warmup whisper failed: %s", e)
+        if s.voice_tts_provider == "local" and resolve_piper_voice_path() is not None:
+            try:
+                _get_piper()
+                logger.info("voice_warmup piper=ready")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("voice_warmup piper failed: %s", e)
+
+    threading.Thread(target=_load, name="voice-warmup", daemon=True).start()

@@ -46,6 +46,7 @@ class ClinicalConversationSummary(BaseModel):
     doctor_summary: str | None = None
     possible_conditions: list[dict] = Field(default_factory=list)
     appointment_draft: dict | None = None
+    metadata_json: dict | None = None
     doctor_inbox: bool = False
     last_message_preview: str | None = None
     created_at: datetime
@@ -97,6 +98,69 @@ class ClinicalMetricsResponse(BaseModel):
     appointments_pending: int
     reminders_due: int
     frustration_events: int
+
+
+class ClinicalPilotMetricResponse(BaseModel):
+    id: str
+    label: str
+    value: float
+    target: float | None = None
+    unit: str
+    passed: bool | None = None
+
+
+class ClinicalPilotMetricsResponse(BaseModel):
+    window_days: int
+    totals: dict
+    metrics: list[ClinicalPilotMetricResponse]
+    ready_for_pilot: bool
+
+
+class ClinicalPilotWeeklyReportResponse(BaseModel):
+    window_days: int
+    generated_at: datetime
+    summary: dict
+    markdown: str
+
+
+class ClinicalPilotLaunchChecklistResponse(BaseModel):
+    window_days: int
+    ready_for_launch: bool
+    checklist: list[dict]
+    rollback_plan: list[str]
+    incident_response: list[str]
+
+
+class ClinicalVoiceQARunCreateRequest(BaseModel):
+    tester: str = Field(min_length=2, max_length=120)
+    device: str = Field(min_length=2, max_length=80)
+    browser: str = Field(min_length=2, max_length=80)
+    audio_condition: str = Field(min_length=2, max_length=120)
+    voice_mode: Literal["local", "premium", "openai", "elevenlabs"] | str = Field(max_length=40)
+    scenario: Literal["core", "edge", "emergency"] | str = Field(default="core", max_length=80)
+    mic_permission_seconds: float | None = Field(default=None, ge=0, le=120)
+    first_assistant_audio_seconds: float | None = Field(default=None, ge=0, le=120)
+    transcript_correct: bool = False
+    transcript_shown: bool = False
+    retry_count: int = Field(default=0, ge=0, le=20)
+    completed_under_60s: bool = False
+    appointment_created: bool = False
+    operator_intervention: bool = False
+    emergency_guidance_shown: bool | None = None
+    severity: Literal["pass", "minor", "major", "blocking"] = "pass"
+    notes: str | None = Field(default=None, max_length=2000)
+    metadata_json: dict = Field(default_factory=dict)
+
+
+class ClinicalVoiceQARunResponse(ClinicalVoiceQARunCreateRequest):
+    id: int
+    clinic_id: int
+    created_at: datetime
+
+
+class ClinicalVoiceQAReportResponse(BaseModel):
+    summary: dict
+    runs: list[ClinicalVoiceQARunResponse]
 
 
 class ClinicalViewerResponse(BaseModel):

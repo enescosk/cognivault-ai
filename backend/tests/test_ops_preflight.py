@@ -31,7 +31,7 @@ def _prod(**overrides):
 def test_migration_graph_has_single_head():
     graph = parse_migration_graph()
     assert len(graph["heads"]) == 1, graph["heads"]
-    assert graph["heads"][0] == "0009_merge_heads"
+    assert graph["heads"][0] == "0011_clinical_voice_qa_runs"
 
 
 def test_migration_graph_has_single_base():
@@ -41,8 +41,8 @@ def test_migration_graph_has_single_base():
 
 def test_migration_graph_parses_all_files():
     graph = parse_migration_graph()
-    # 10 revizyon dosyası → 10 revizyon.
-    assert len(graph["revisions"]) == 10
+    # 12 revizyon dosyası → 12 revizyon.
+    assert len(graph["revisions"]) == 12
 
 
 # ── Guard doğrulama (kabul + red yolları) ────────────────────────────────────

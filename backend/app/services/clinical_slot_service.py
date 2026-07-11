@@ -320,11 +320,13 @@ def build_public_slot_offers(
     if not candidates:
         candidates = [slot for slot in DEMO_SLOTS if slot.status != "full"]
 
+    # Adaylar anlatı sırasında gelir (eşleşen slot önce); hastaya sunum ise
+    # kronolojik olmalı — "en kısa zamanda" diyen hastaya önce en erken saat.
+    dated = [(slot, _parse_next_available(slot.next_available)) for slot in candidates if slot is not None]
+    dated.sort(key=lambda pair: pair[1])
+
     concrete: list[ClinicalSlotOffer] = []
-    for slot in candidates[: max(limit * 2, 1)]:
-        if slot is None:
-            continue
-        starts_at = _parse_next_available(slot.next_available)
+    for slot, starts_at in dated[: max(limit * 2, 1)]:
         if any(offer.starts_at == starts_at and offer.department == slot.department for offer in concrete):
             continue
         concrete.append(

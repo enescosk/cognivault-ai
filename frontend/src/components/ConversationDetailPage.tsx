@@ -184,6 +184,10 @@ export function ConversationDetailPage() {
               {data ? <PatientPanel data={data} /> : <SkeletonBlock count={3} />}
             </ErrorBoundary>
 
+            <ErrorBoundary scope="Voice event counters">
+              {data ? <VoiceEventPanel data={data} /> : null}
+            </ErrorBoundary>
+
             <ErrorBoundary scope="Conversation decisions">
               <div className="conv-detail-card">
                 <div className="conv-detail-card-title">
@@ -227,6 +231,40 @@ export function ConversationDetailPage() {
           </aside>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+function VoiceEventPanel({ data }: { data: ClinicalConversationDetail }) {
+  const counters = readVoiceEventCounters(data.metadata_json ?? undefined);
+  const lastEvent = readLastVoiceEvent(data.metadata_json ?? undefined);
+  if (!counters && !lastEvent) return null;
+
+  return (
+    <div className="conv-detail-card">
+      <div className="conv-detail-card-title">Voice events</div>
+      <div className="conv-voice-event-grid">
+        <VoiceEventCell label="No-result" value={counters?.noResult ?? 0} />
+        <VoiceEventCell label="Retry prompt" value={counters?.retryPrompt ?? 0} />
+        <VoiceEventCell label="STT failure" value={counters?.sttFailure ?? 0} tone={counters?.sttFailure ? "risk" : undefined} />
+        <VoiceEventCell label="Max retry" value={counters?.maxRetry ?? 0} />
+      </div>
+      {lastEvent ? (
+        <div className="conv-voice-last-event">
+          Son event: <strong>{lastEvent.eventType}</strong>
+          {lastEvent.reason ? ` · ${lastEvent.reason}` : ""}
+          {lastEvent.createdAt ? ` · ${formatTimestamp(lastEvent.createdAt)}` : ""}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function VoiceEventCell({ label, value, tone }: { label: string; value: number; tone?: "risk" }) {
+  return (
+    <div className={`conv-voice-event-cell ${tone === "risk" ? "is-risk" : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -525,6 +563,7 @@ function MessageBubble({ message }: { message: ClinicalMessage }) {
 
   // Bölüm A6: acil — mesaj seviyesinde de işaretle
   const emergency = isEmergency(message.intent);
+  const voiceTranscript = readVoiceTranscript(message.metadata_json ?? undefined);
 
   const bubbleFlags = [
     belowThreshold ? "conv-bubble-low-conf" : "",
@@ -541,6 +580,29 @@ function MessageBubble({ message }: { message: ClinicalMessage }) {
         <span className="conv-bubble-time">{formatTimestamp(message.created_at)}</span>
       </header>
       <div className="conv-bubble-body">{message.content}</div>
+      {voiceTranscript ? (
+        <div className="conv-voice-transcript">
+          <span className="conv-voice-label">AI duydu:</span>
+          <span className="conv-voice-text">"{voiceTranscript.transcript}"</span>
+          {voiceTranscript.provider ? (
+            <span className="conv-voice-provider">{voiceTranscript.provider}</span>
+          ) : null}
+          {voiceTranscript.audioBytes ? (
+            <span className="conv-voice-provider">{formatBytes(voiceTranscript.audioBytes)}</span>
+          ) : null}
+          {voiceTranscript.confidence !== null ? (
+            <span className={`conv-voice-provider ${voiceTranscript.confidence < 0.7 ? "is-low" : ""}`}>
+              STT %{Math.round(voiceTranscript.confidence * 100)}
+            </span>
+          ) : null}
+          {voiceTranscript.durationSeconds !== null ? (
+            <span className="conv-voice-provider">{voiceTranscript.durationSeconds.toFixed(1)} sn</span>
+          ) : null}
+          {voiceTranscript.processingMs !== null ? (
+            <span className="conv-voice-provider">{voiceTranscript.processingMs} ms</span>
+          ) : null}
+        </div>
+      ) : null}
       {(message.intent || conf !== null || extraIntents.length > 0) && (
         <footer className="conv-bubble-foot">
           {message.intent ? <span>{message.intent}</span> : null}
@@ -561,6 +623,74 @@ function MessageBubble({ message }: { message: ClinicalMessage }) {
       )}
     </article>
   );
+}
+
+function readVoiceTranscript(meta: Record<string, unknown> | undefined): {
+  transcript: string;
+  provider: string | null;
+  audioBytes: number | null;
+  confidence: number | null;
+  durationSeconds: number | null;
+  processingMs: number | null;
+} | null {
+  const raw = meta?.voice_transcript;
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  const transcript = typeof obj.transcript === "string" ? obj.transcript.trim() : "";
+  if (!transcript) return null;
+  return {
+    transcript,
+    provider: typeof obj.provider === "string" ? obj.provider : null,
+    audioBytes: typeof obj.audio_bytes === "number" ? obj.audio_bytes : null,
+    confidence: typeof obj.confidence === "number" ? obj.confidence : null,
+    durationSeconds: typeof obj.duration_seconds === "number" ? obj.duration_seconds : null,
+    processingMs: typeof obj.processing_ms === "number" ? obj.processing_ms : null,
+  };
+}
+
+function readVoiceEventCounters(meta: Record<string, unknown> | undefined): {
+  noResult: number;
+  retryPrompt: number;
+  sttFailure: number;
+  maxRetry: number;
+} | null {
+  const raw = meta?.voice_event_counters;
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    noResult: numberFromUnknown(obj.no_result),
+    retryPrompt: numberFromUnknown(obj.retry_prompt),
+    sttFailure: numberFromUnknown(obj.stt_failure),
+    maxRetry: numberFromUnknown(obj.max_retry_count),
+  };
+}
+
+function readLastVoiceEvent(meta: Record<string, unknown> | undefined): {
+  eventType: string;
+  reason: string | null;
+  createdAt: string | null;
+} | null {
+  const raw = meta?.last_voice_event;
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  const eventType = typeof obj.event_type === "string" ? obj.event_type : "";
+  if (!eventType) return null;
+  return {
+    eventType,
+    reason: typeof obj.reason === "string" ? obj.reason : null,
+    createdAt: typeof obj.created_at === "string" ? obj.created_at : null,
+  };
+}
+
+function numberFromUnknown(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatTimestamp(iso: string): string {

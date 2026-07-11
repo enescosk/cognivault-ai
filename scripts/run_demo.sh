@@ -29,19 +29,22 @@ curl -s -m 60 http://localhost:11434/v1/chat/completions \
   >/dev/null 2>&1 && echo "   ✓ Model yüklü ve ısındı"
 
 # Lokal Türkçe TTS sesi (Piper) — yoksa indir (~63MB). Yoksa macOS 'say'e düşer.
+# Varsayılan ses: fahrettin (dfki'den belirgin daha doğal prosodi).
 PIPER_DIR="$ROOT_DIR/backend/data/piper"
-if [[ ! -f "$PIPER_DIR/tr_TR-dfki-medium.onnx" ]]; then
-  echo "   Lokal TTS sesi indiriliyor (Piper tr_TR, ~63MB)…"
+if [[ ! -f "$PIPER_DIR/tr_TR-fahrettin-medium.onnx" ]]; then
+  echo "   Lokal TTS sesi indiriliyor (Piper tr_TR fahrettin, ~63MB)…"
   mkdir -p "$PIPER_DIR"
-  PV="https://huggingface.co/rhasspy/piper-voices/resolve/main/tr/tr_TR/dfki/medium"
-  curl -sL -o "$PIPER_DIR/tr_TR-dfki-medium.onnx" "$PV/tr_TR-dfki-medium.onnx"
-  curl -sL -o "$PIPER_DIR/tr_TR-dfki-medium.onnx.json" "$PV/tr_TR-dfki-medium.onnx.json"
+  PV="https://huggingface.co/speaches-ai/piper-tr_TR-fahrettin-medium/resolve/main"
+  curl -sL -o "$PIPER_DIR/tr_TR-fahrettin-medium.onnx" "$PV/model.onnx"
+  curl -sL -o "$PIPER_DIR/tr_TR-fahrettin-medium.onnx.json" "$PV/config.json"
 fi
 
 echo "▶ 3/4  Backend başlatılıyor (http://localhost:8000)…"
 pkill -f "uvicorn app.main" 2>/dev/null; sleep 1
-if [[ -d "$ROOT_DIR/backend/venv" ]]; then source "$ROOT_DIR/backend/venv/bin/activate";
-elif [[ -d "$ROOT_DIR/backend/.venv" ]]; then source "$ROOT_DIR/backend/.venv/bin/activate"; fi
+# run_backend.sh ile AYNI sıra (.venv → venv): iki script farklı venv seçerse
+# ses bağımlılıkları girişe göre değişir ve TTS sessizce robotik say'e düşer.
+if [[ -d "$ROOT_DIR/backend/.venv" ]]; then source "$ROOT_DIR/backend/.venv/bin/activate";
+elif [[ -d "$ROOT_DIR/backend/venv" ]]; then source "$ROOT_DIR/backend/venv/bin/activate"; fi
 ( cd "$ROOT_DIR/backend" && nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 >/tmp/cognivault-backend.log 2>&1 & )
 for i in $(seq 1 20); do
   curl -s -m 2 http://localhost:8000/docs >/dev/null 2>&1 && break; sleep 1

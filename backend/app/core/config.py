@@ -81,7 +81,27 @@ class Settings(BaseSettings):
     local_whisper_model: str = "small"  # tiny|base|small|medium — small TR için iyi denge
     local_whisper_compute: str = "int8"
     local_whisper_language: str = "tr"
-    piper_voice_path: str = str(BACKEND_ROOT / "data" / "piper" / "tr_TR-dfki-medium.onnx")
+    # Alan sözlüğü ipucu: whisper decode'unu diş kliniği bağlamına yaklaştırır
+    # ("ağrıyor/dolgu/implant" gibi kelimeler ve TR telefon kalıpları daha az
+    # yanlış çözülür). Boş string → ipucu gönderilmez.
+    local_whisper_initial_prompt: str = (
+        "Diş kliniği randevu görüşmesi. Hasta adı, telefon numarası, diş ağrısı, "
+        "dolgu, kanal tedavisi, implant, ortodonti, diş eti, çekim, randevu saati."
+    )
+    # Piper prosodi ayarları — None → ses modelinin kendi varsayılanları.
+    # length_scale >1 yavaşlatır (telefonda anlaşılırlık), noise_* doğallık katar.
+    piper_length_scale: float | None = None
+    piper_noise_scale: float | None = None
+    piper_noise_w_scale: float | None = None
+    # Açılışta lokal STT/TTS modellerini arka planda önceden yükle —
+    # ilk sesli turdaki 3-10 sn'lik model-yükleme takılmasını yok eder.
+    voice_warmup_enabled: bool = True
+    piper_voice_path: str = str(BACKEND_ROOT / "data" / "piper" / "tr_TR-fahrettin-medium.onnx")
+    # Tercih edilen ses dosyası yoksa sırayla denenecek yedekler (indirilmemiş
+    # kurulumlar dfki ile çalışmaya devam eder; hiçbiri yoksa macOS say).
+    piper_voice_fallbacks: list[str] = [
+        str(BACKEND_ROOT / "data" / "piper" / "tr_TR-dfki-medium.onnx"),
+    ]
     clinical_default_clinic_slug: str = "demo-klinik"
     clinical_auto_reply_threshold: float = 0.90
     clinical_shadow_threshold: float = 0.75
