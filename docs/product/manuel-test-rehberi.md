@@ -114,7 +114,26 @@ Sözlü seçim varyantları: "birincisi/ikincisi", "yarın dokuz buçuk", "salı
 akışı keser ve 112 yönlendirmesi + doktor eskalasyonu döner — randevu akışı
 araya giremez. `VOICE_PHONE_NATIVE_TTS_ENABLED=false` ile alice'e dönülebilir.
 
-## 8. Otomatik kapılar (her değişiklikten sonra)
+## 8. Yedek / geri-dönüş provası
+
+"Yedeğimiz var" cümlesi ancak prova yeşilken kurulabilir:
+
+```bash
+./scripts/backup_drill.sh
+# Zincir: yedekle → bütünlük doğrula → GEÇİCİ hedefe geri yükle → satır
+# sayılarını karşılaştır. Kanıt: backend/data/backups/latest.json
+# ("overall_ok": true + "restore_verified": true görmelisin; kırıksa exit 1)
+```
+
+Tekil komutlar: `./scripts/backup_db.sh` (yalnız yedek),
+`./scripts/restore_db.sh <yedek.db> --target backend/data/cognivault.db --force`
+(gerçek geri dönüş — önce backend'i durdur; force'ta bile hedefin
+`.pre-restore-<ts>` kopyası alınır, bozuk yedek asla yazılmaz).
+SQLite yedeği sunucu ÇALIŞIRKEN alınabilir (online backup API — tutarlı kopya).
+PostgreSQL'de pg_dump/pg_restore kullanılır; drill yapı doğrulamasıyla sınırlıdır
+ve kanıtta dürüstçe `structure_listing_only` yazar.
+
+## 9. Otomatik kapılar (her değişiklikten sonra)
 
 ```bash
 cd backend && ./.venv/bin/python -m pytest -q      # tamamı yeşil olmalı
