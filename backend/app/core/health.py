@@ -42,6 +42,16 @@ def readiness_report(db: Session) -> dict:
         "offline_capable": voice["stt"]["offline_capable"] and voice["tts"]["offline_capable"],
     }
 
+    from app.services.sms_service import sms_capabilities
+
+    sms = sms_capabilities()
+    checks["sms"] = {
+        # mock bilinçli demo modu (warn); netgsm seçilip kimlik eksikse
+        # hasta mesaj alamıyor demektir — bu bir konfigürasyon hatasıdır (fail).
+        "status": "fail" if sms["misconfigured"] else ("ok" if sms["real_delivery"] else "warn"),
+        **sms,
+    }
+
     hard_fail = any(check["status"] == "fail" for check in checks.values())
     return {
         "status": "fail" if hard_fail else "ok",

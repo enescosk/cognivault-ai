@@ -180,13 +180,14 @@ def send_appointment_sms_to_patient(
         f"{when} olarak oluşturuldu.{code}{contact}"
     )
 
-    logger.info("📱 [SMS-PATIENT] → %s · %s", patient_phone, body)
-    print(f"\n{'='*60}")
-    print(f"📱 HASTA SMS BİLDİRİMİ (SİMÜLASYON)")
-    print(f"   Alıcı : {patient_phone}")
-    print(f"   Mesaj : {body}")
-    print(f"{'='*60}")
-    return True
+    from app.services.sms_service import get_sms_provider
+
+    result = get_sms_provider().send(to=patient_phone, body=body)
+    logger.info(
+        "📱 [SMS-PATIENT] → %s · provider=%s ok=%s · %s",
+        patient_phone, result.provider, result.ok, body,
+    )
+    return result.ok
 
 
 def send_appointment_sms_to_doctor(
@@ -222,10 +223,11 @@ def send_appointment_sms_to_doctor(
         f"{department}, {when}.{complaint}"
     )
 
-    logger.info("📱 [SMS-DOCTOR] → %s · %s", doctor_phone, body)
-    print(f"\n{'='*60}")
-    print(f"📱 DOKTOR SMS BİLDİRİMİ (SİMÜLASYON)")
-    print(f"   Alıcı : {doctor_phone}")
-    print(f"   Mesaj : {body}")
-    print(f"{'='*60}")
-    return True
+    from app.services.sms_service import get_sms_provider
+
+    result = get_sms_provider().send(to=doctor_phone, body=body)
+    logger.info(
+        "📱 [SMS-DOCTOR] → %s · provider=%s ok=%s · %s",
+        doctor_phone, result.provider, result.ok, body,
+    )
+    return result.ok

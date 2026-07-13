@@ -108,6 +108,14 @@ class Settings(BaseSettings):
     # kiracı pilot): eşleşmeyen numara/WABA kimliği REDDEDİLİR; yanlış kliniğe
     # hasta verisi yazmak KVKK ihlalidir, sessiz düşüş kabul edilemez.
     clinical_channel_binding_strict: bool = False
+    # ── SMS gönderimi ────────────────────────────────────────────────────────
+    # "mock" (varsayılan): konsol simülasyonu. "netgsm": gerçek gönderim —
+    # üç kimlik alanı da dolu olmalı, yoksa yüksek sesle loglanıp mock kullanılır.
+    sms_provider: str = "mock"  # mock | netgsm
+    netgsm_usercode: str = ""
+    netgsm_password: str = ""
+    netgsm_msgheader: str = ""  # operatör onaylı gönderici başlığı
+    sms_timeout: float = 10.0
     clinical_auto_reply_threshold: float = 0.90
     clinical_shadow_threshold: float = 0.75
     twilio_auth_token: str = ""
