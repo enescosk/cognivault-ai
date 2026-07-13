@@ -6502,6 +6502,109 @@ body:has(.dashboard-shell) {
   color: var(--text-1);
 }
 
+.system-health-strip {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin: 12px 24px 0;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.system-health-primary {
+  min-width: 180px;
+}
+
+.system-health-kicker {
+  color: var(--text-3);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.system-health-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.system-health-title span {
+  color: var(--text-2);
+  font-size: 0.74rem;
+}
+
+.system-health-title strong {
+  color: var(--text-1);
+  font-size: 0.86rem;
+}
+
+.system-health-metrics {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.system-health-pill {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  min-width: 110px;
+}
+
+.system-health-pill span {
+  display: block;
+  color: var(--text-3);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.system-health-pill strong {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-1);
+  font-size: 0.8rem;
+}
+
+.system-health-pill--ok {
+  border-color: rgba(52, 199, 138, 0.35);
+  background: rgba(52, 199, 138, 0.08);
+}
+
+.system-health-pill--risk {
+  border-color: rgba(191, 68, 68, 0.4);
+  background: rgba(191, 68, 68, 0.1);
+}
+
+.system-health-next {
+  min-width: 170px;
+  max-width: 260px;
+}
+
+.system-health-next span {
+  display: block;
+  color: var(--text-3);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.system-health-next strong {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-2);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .system-health-pill small {
   display: block;
   margin-top: 2px;

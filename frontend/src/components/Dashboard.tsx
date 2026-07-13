@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import {
   createSession,
   deleteSession,
+  getAICapabilities,
   getAppointments,
   getAuditLogs,
   getMetrics,
+  getQualityReport,
   getSession,
   listSessions,
   listUsers,
@@ -29,6 +31,7 @@ import { UsageCostCard } from "./UsageCostCard";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { MetricsBar } from "./MetricsBar";
 import { Sidebar } from "./Sidebar";
+import { SystemHealthPanel } from "./SystemHealthPanel";
 import { showToast } from "./ui/Toast";
 
 interface DashboardProps {
@@ -121,6 +124,23 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
     queryKey: dashboardKeys.users(token),
     enabled: Boolean(token && (isOperator || isAdmin)),
     queryFn: () => listUsers(token!),
+    retry: false,
+  });
+  // Operatör/admin sistem sağlık şeridi: LLM/ses/SMS sağlayıcı durumu.
+  // 60 sn'de bir tazelenir — Ollama kapanırsa panel "kural moduna düştü"yü
+  // sessiz kalmak yerine görünür kılar.
+  const capabilitiesQuery = useQuery({
+    queryKey: ["ai-capabilities", token],
+    enabled: Boolean(token && (isOperator || isAdmin)),
+    queryFn: () => getAICapabilities(token!),
+    refetchInterval: 60_000,
+    retry: false,
+  });
+  const qualityQuery = useQuery({
+    queryKey: ["quality-report", token],
+    enabled: Boolean(token && (isOperator || isAdmin)),
+    queryFn: () => getQualityReport(token!),
+    refetchInterval: 120_000,
     retry: false,
   });
 
@@ -289,6 +309,15 @@ export function Dashboard({ audience, defaultView }: DashboardProps = {}) {
         onLogout={logout}
       />
       <main className="main-panel">
+        {isOperator || isAdmin ? (
+          <ErrorBoundary scope="System health">
+            <SystemHealthPanel
+              capabilities={capabilitiesQuery.data ?? null}
+              quality={qualityQuery.data ?? null}
+              view={view === "clinic-admin" ? "dashboard" : view}
+            />
+          </ErrorBoundary>
+        ) : null}
         {!isClinicalView ? (
           <ErrorBoundary scope="Metrics"><MetricsBar metrics={metrics} appointments={appointments} role={role} locale={user.locale} /></ErrorBoundary>
         ) : null}

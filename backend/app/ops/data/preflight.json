@@ -26,10 +26,10 @@
     },
     "migration_single_head": {
       "heads": [
-        "0011_clinical_voice_qa_runs"
+        "0012_clinic_channel_bindings"
       ],
       "pass": true,
-      "revision_count": 12,
+      "revision_count": 13,
       "target": "tam olarak tek alembic head (çift-head yok)"
     },
     "sqlite_flagged_in_prod": {

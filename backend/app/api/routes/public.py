@@ -55,6 +55,7 @@ from app.services.clinical_service import (
 from app.services.clinical_appointment_service import resolve_appointment_doctor
 from app.services.clinical_slot_service import (
     ISTANBUL as CLINIC_TZ,
+    book_underlying_calendar_slot,
     build_public_slot_offers,
     consume_held_slot_offer,
     hold_slot_offer,
@@ -939,6 +940,9 @@ def confirm_patient_appointment(
             conversation_id=conversation_id,
             offer_id=payload.slot_offer_id,
         )
+        # Teklif gerçek takvimden geldiyse alttaki ClinicDoctorSlot'u kilitle;
+        # bu arada başka kanaldan dolduysa ValueError → 409 (çifte rezervasyon yok).
+        booked_slot = book_underlying_calendar_slot(db, offer)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -953,6 +957,8 @@ def confirm_patient_appointment(
         patient_id=session.patient_id,
         conversation_id=conversation_id,
         branch_id=offer.branch_id,
+        doctor_id=booked_slot.doctor_id if booked_slot else None,
+        slot_id=booked_slot.id if booked_slot else None,
         assigned_doctor_id=assigned_doctor.id if assigned_doctor else None,
         department=offer.department,
         starts_at=offer.starts_at,

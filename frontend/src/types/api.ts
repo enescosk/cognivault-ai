@@ -129,6 +129,12 @@ export type AICapabilities = {
     stt: ProviderCapability;
     tts: ProviderCapability;
   };
+  sms?: {
+    configured_provider: string;
+    active_provider: string;
+    real_delivery: boolean;
+    misconfigured: boolean;
+  };
   [key: string]: unknown;
 };
 export type QualityReport = {

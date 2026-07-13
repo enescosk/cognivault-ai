@@ -65,15 +65,20 @@ def test_netgsm_selected_with_credentials(settings):
     assert isinstance(get_sms_provider(), NetgsmSmsProvider)
 
 
-def test_netgsm_without_credentials_falls_back_to_mock_loudly(settings, caplog):
+def test_netgsm_without_credentials_falls_back_to_mock_loudly(settings, monkeypatch):
     settings.sms_provider = "netgsm"
     settings.netgsm_usercode = ""
     settings.netgsm_password = ""
     settings.netgsm_msgheader = ""
-    with caplog.at_level("ERROR"):
-        provider = get_sms_provider()
+    # caplog yerine logger spy: uygulamanın logging yapılandırması (propagate
+    # kapalı structured logging) tam suite'te caplog'a kayıt düşürmeyebilir.
+    errors: list[str] = []
+    monkeypatch.setattr(
+        sms_service.logger, "error", lambda msg, *args: errors.append(msg % args if args else msg)
+    )
+    provider = get_sms_provider()
     assert isinstance(provider, MockSmsProvider)
-    assert any("GERÇEK SMS" in r.message for r in caplog.records)
+    assert any("GERÇEK SMS" in message for message in errors)
 
 
 def test_capabilities_reports_misconfiguration(settings):

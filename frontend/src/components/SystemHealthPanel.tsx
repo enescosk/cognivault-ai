@@ -72,6 +72,27 @@ export function SystemHealthPanel({ capabilities, quality, view }: Props) {
           <strong>{providerLabel(voice.provider)}</strong>
           <small>{voice.status}</small>
         </div>
+        {capabilities?.sms ? (
+          <div
+            className={`system-health-pill ${
+              capabilities.sms.misconfigured
+                ? "system-health-pill--risk"
+                : capabilities.sms.real_delivery
+                  ? "system-health-pill--ok"
+                  : ""
+            }`}
+          >
+            <span>SMS</span>
+            <strong>{providerLabel(capabilities.sms.active_provider)}</strong>
+            <small>
+              {capabilities.sms.misconfigured
+                ? "Kimlik eksik — hasta SMS almıyor"
+                : capabilities.sms.real_delivery
+                  ? "Gerçek gönderim"
+                  : "Simülasyon"}
+            </small>
+          </div>
+        ) : null}
         <div className="system-health-pill">
           <span>Senaryo</span>
           <strong>{quality?.metrics.automated_scenarios ?? 0} otomatik</strong>

@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     # "mock" (varsayılan): konsol simülasyonu. "netgsm": gerçek gönderim —
     # üç kimlik alanı da dolu olmalı, yoksa yüksek sesle loglanıp mock kullanılır.
     sms_provider: str = "mock"  # mock | netgsm
+    # Gerçek takvim (ClinicDoctorSlot) boşken statik DEMO_SLOTS'a düşülsün mü?
+    # True (demo): boş takvimde bile teklif üretilir. False (pilot): yalnız
+    # gerçek takvim — boşsa hastaya "ekip sizinle iletişime geçecek" akışı.
+    clinical_demo_slots_enabled: bool = True
     netgsm_usercode: str = ""
     netgsm_password: str = ""
     netgsm_msgheader: str = ""  # operatör onaylı gönderici başlığı

@@ -277,6 +277,92 @@ def expire_stale_slot_offers(db: Session) -> int:
     return len(stale)
 
 
+def _specialty_matches(department: str, specialty: str) -> bool:
+    """Talep edilen bölüm ile hekim uzmanlığını esnek eşler.
+
+    'Genel Diş Hekimliği' ↔ 'Diş Hekimliği' gibi kapsama ilişkileri substring
+    ile yakalanır; birebir eşitlik de bu kuralın özel hâlidir.
+    """
+    d = department.strip().lower()
+    s = specialty.strip().lower()
+    return bool(d and s) and (s in d or d in s)
+
+
+def _real_calendar_offers(
+    db: Session,
+    *,
+    clinic: Clinic,
+    patient: ClinicPatient,
+    conversation: ClinicConversation,
+    department: str,
+    now: datetime,
+    limit: int,
+) -> list[ClinicalSlotOffer]:
+    """Gerçek ClinicDoctorSlot takviminden teklif üretir.
+
+    Uzmanlığı bölümle eşleşen hekimlerin slotları önceliklidir; hiç eşleşme
+    yoksa (resepsiyonist pratiği: 'önce genel hekim görsün') kliniğin diğer
+    boş slotlarına düşülür. Yalnız gelecekteki, rezerve/bloke edilmemiş
+    slotlar; kronolojik sıra.
+    """
+    from app.models import ClinicDoctor, ClinicDoctorSlot
+
+    lead_time = now + timedelta(minutes=30)  # hastanın yetişemeyeceği "5 dk sonra" slotu önerilmez
+    naive_cutoff = lead_time.replace(tzinfo=None)  # SQLite naive-UTC saklar
+    rows = list(
+        db.execute(
+            select(ClinicDoctorSlot, ClinicDoctor)
+            .join(ClinicDoctor, ClinicDoctorSlot.doctor_id == ClinicDoctor.id)
+            .where(
+                ClinicDoctorSlot.clinic_id == clinic.id,
+                ClinicDoctorSlot.is_booked.is_(False),
+                ClinicDoctorSlot.is_blocked.is_(False),
+                ClinicDoctorSlot.start_time >= naive_cutoff,
+                ClinicDoctor.is_active.is_(True),
+            )
+            .order_by(ClinicDoctorSlot.start_time.asc())
+        ).all()
+    )
+    if not rows:
+        return []
+
+    matching = [(slot, doc) for slot, doc in rows if _specialty_matches(department, doc.specialty)]
+    pool = matching or rows
+
+    offers: list[ClinicalSlotOffer] = []
+    seen_starts: set[datetime] = set()
+    for slot, doctor in pool:
+        if slot.start_time in seen_starts:
+            continue  # aynı saatte tek teklif — hastaya saat listesi sunuyoruz
+        seen_starts.add(slot.start_time)
+        starts_at = slot.start_time if slot.start_time.tzinfo else slot.start_time.replace(tzinfo=timezone.utc)
+        ends_at = slot.end_time if slot.end_time.tzinfo else slot.end_time.replace(tzinfo=timezone.utc)
+        offers.append(
+            ClinicalSlotOffer(
+                clinic_id=clinic.id,
+                patient_id=patient.id,
+                conversation_id=conversation.id,
+                branch_id=doctor.branch_id,
+                department=department,
+                physician_name=f"{doctor.title} {doctor.full_name}".strip(),
+                starts_at=starts_at,
+                ends_at=ends_at,
+                status=ClinicalSlotOfferStatus.OFFERED,
+                source="clinic_calendar",
+                expires_at=now + timedelta(minutes=OFFER_TTL_MINUTES),
+                metadata_json={
+                    "clinic_doctor_slot_id": slot.id,
+                    "doctor_id": doctor.id,
+                    "doctor_specialty": doctor.specialty,
+                    "specialty_matched": bool(matching),
+                },
+            )
+        )
+        if len(offers) >= limit:
+            break
+    return offers
+
+
 def build_public_slot_offers(
     db: Session,
     *,
@@ -291,7 +377,13 @@ def build_public_slot_offers(
     The model may identify department and urgency, but this function is the only
     place that turns that into a concrete appointment time. Existing unexpired
     offers are reused to keep refreshes and repeated sends stable.
+
+    Kaynak önceliği: gerçek klinik takvimi (ClinicDoctorSlot) → yalnız
+    `clinical_demo_slots_enabled=True` iken statik DEMO_SLOTS fallback'i.
+    Klinik kendi takvimini yönetiyorsa hastaya hayalî saat asla önerilmez.
     """
+    from app.core.config import get_settings
+
     expire_stale_slot_offers(db)
     now = _now_utc()
     existing = list(
@@ -313,6 +405,25 @@ def build_public_slot_offers(
 
     decision = slot_decision or {}
     department = decision.get("department") or "Genel Diş Hekimliği"
+
+    real_offers = _real_calendar_offers(
+        db,
+        clinic=clinic,
+        patient=patient,
+        conversation=conversation,
+        department=department,
+        now=now,
+        limit=limit,
+    )
+    if real_offers:
+        for offer in real_offers:
+            db.add(offer)
+        db.commit()
+        for offer in real_offers:
+            db.refresh(offer)
+        return real_offers
+    if not get_settings().clinical_demo_slots_enabled:
+        return []
     matched_slot_id = decision.get("matched_slot_id")
     primary = next((slot for slot in DEMO_SLOTS if slot.id == matched_slot_id), None)
     candidates = [primary] if primary else []
@@ -428,6 +539,29 @@ def consume_held_slot_offer(
     db.commit()
     db.refresh(offer)
     return offer
+
+
+def book_underlying_calendar_slot(db: Session, offer: ClinicalSlotOffer):
+    """Teklifin arkasındaki gerçek takvim slotunu rezerve eder (varsa).
+
+    Demo kaynaklı tekliflerde no-op (None). Gerçek slot bu arada başka bir
+    kanaldan dolduysa ValueError — çağıran 409'a çevirir; çifte rezervasyon
+    hastaya sessizce yazılmaz.
+    """
+    from app.models import ClinicDoctorSlot
+
+    slot_id = (offer.metadata_json or {}).get("clinic_doctor_slot_id")
+    if not slot_id:
+        return None
+    slot = db.get(ClinicDoctorSlot, slot_id)
+    if slot is None:
+        # Takvim satırı silinmiş — randevu yine oluşur; operatör çizelgede görür.
+        return None
+    if slot.is_booked or slot.is_blocked:
+        raise ValueError("slot_already_booked")
+    slot.is_booked = True
+    db.add(slot)
+    return slot
 
 
 def build_slot_board() -> dict:
