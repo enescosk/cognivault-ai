@@ -258,6 +258,9 @@ def seed_database(db: Session) -> None:
         ensure_demo_users(db)
         seed_enterprise_demo(db)
         seed_clinical_demo(db)
+        # Hekim + kayan pencere slot takvimi mevcut kurulumlarda da tamamlanır;
+        # yoksa teklif motoru gerçek takvim bulamayıp sürekli DEMO_SLOTS'a düşer.
+        seed_clinical_doctors(db)
         _backfill_tenant_scopes(db)
         return
 
@@ -984,10 +987,70 @@ DOCTOR_PROFILES = [
 ]
 
 
-def seed_clinical_doctors(db: Session) -> None:
-    """Idempotent: create demo doctors and 7-day time slots for the demo clinic."""
-    from datetime import date, time as dt_time
+def ensure_doctor_slot_window(db: Session, clinic, doctor, *, days: int = 7) -> int:
+    """Hekimin önümüzdeki `days` günü için mesai-içi slotları TAMAMLAR (kayan pencere).
 
+    Eski davranış slotları yalnızca hekim İLK yaratıldığında üretiyordu: mevcut
+    kurulumlarda takvim hiç oluşmuyor, taze kurulumda ise 7 gün sonra kalıcı
+    olarak kuruyordu. Bu fonksiyon her seed koşusunda eksik GÜNLERİ tamamlar —
+    gün bazında idempotent (o güne slot varsa dokunmaz), pazar günleri atlanır.
+
+    Saatler İstanbul mesaisidir (09:00–17:00, 12:30–13:30 öğle arası hariç,
+    30 dk); UTC'ye çevrilip naive saklanır — hastaya 12:00–20:00 gibi mesai
+    dışı saatler görünmesin diye UTC saat ızgarası bilinçli olarak terk edildi.
+    """
+    from datetime import date, time as dt_time
+    from zoneinfo import ZoneInfo
+
+    istanbul = ZoneInfo("Europe/Istanbul")
+    today = date.today()
+    created = 0
+    for day_offset in range(days):
+        current_date = today + timedelta(days=day_offset)
+        if current_date.weekday() == 6:  # Pazar kapalı
+            continue
+        day_start_utc = (
+            datetime.combine(current_date, dt_time(0, 0), tzinfo=istanbul)
+            .astimezone(timezone.utc)
+            .replace(tzinfo=None)
+        )
+        day_end_utc = day_start_utc + timedelta(days=1)
+        existing_count = db.scalars(
+            select(ClinicDoctorSlot.id)
+            .where(
+                ClinicDoctorSlot.doctor_id == doctor.id,
+                ClinicDoctorSlot.start_time >= day_start_utc,
+                ClinicDoctorSlot.start_time < day_end_utc,
+            )
+            .limit(1)
+        ).first()
+        if existing_count is not None:
+            continue
+
+        slot_hour, slot_minute = 9, 0
+        while slot_hour < 17:
+            # Öğle arası: 12:30 ve 13:00 başlangıçları atlanır
+            if not ((slot_hour == 12 and slot_minute == 30) or (slot_hour == 13 and slot_minute == 0)):
+                start_local = datetime.combine(
+                    current_date, dt_time(slot_hour, slot_minute), tzinfo=istanbul
+                )
+                start = start_local.astimezone(timezone.utc).replace(tzinfo=None)
+                db.add(ClinicDoctorSlot(
+                    doctor_id=doctor.id,
+                    clinic_id=clinic.id,
+                    start_time=start,
+                    end_time=start + timedelta(minutes=30),
+                ))
+                created += 1
+            slot_minute += 30
+            if slot_minute >= 60:
+                slot_hour += 1
+                slot_minute = 0
+    return created
+
+
+def seed_clinical_doctors(db: Session) -> None:
+    """Idempotent: create demo doctors and keep a rolling 7-day slot window."""
     clinic = ensure_default_clinic(db)
 
     # Get or create branch
@@ -996,63 +1059,27 @@ def seed_clinical_doctors(db: Session) -> None:
     ).first()
 
     for profile in DOCTOR_PROFILES:
-        existing = db.scalars(
+        doctor = db.scalars(
             select(ClinicDoctor).where(
                 ClinicDoctor.clinic_id == clinic.id,
                 ClinicDoctor.email == profile["email"],
             )
         ).first()
-        if existing is not None:
-            continue
+        if doctor is None:
+            doctor = ClinicDoctor(
+                clinic_id=clinic.id,
+                branch_id=branch.id if branch else None,
+                full_name=profile["full_name"],
+                email=profile["email"],
+                specialty=profile["specialty"],
+                title=profile["title"],
+                bio=profile["bio"],
+            )
+            db.add(doctor)
+            db.flush()
 
-        doctor = ClinicDoctor(
-            clinic_id=clinic.id,
-            branch_id=branch.id if branch else None,
-            full_name=profile["full_name"],
-            email=profile["email"],
-            specialty=profile["specialty"],
-            title=profile["title"],
-            bio=profile["bio"],
-        )
-        db.add(doctor)
-        db.flush()
-
-        # Generate 30-min slots for 7 days (09:00-17:00, skip 12:30-13:30 lunch)
-        today = date.today()
-        for day_offset in range(7):
-            current_date = today + timedelta(days=day_offset)
-            slot_hour = 9
-            slot_minute = 0
-            while True:
-                start = datetime.combine(
-                    current_date,
-                    dt_time(slot_hour, slot_minute),
-                    tzinfo=timezone.utc,
-                )
-                end = start + timedelta(minutes=30)
-
-                # Skip lunch break: 12:30 - 13:30
-                if (slot_hour == 12 and slot_minute == 30) or (slot_hour == 13 and slot_minute == 0):
-                    slot_minute += 30
-                    if slot_minute >= 60:
-                        slot_hour += 1
-                        slot_minute = 0
-                    continue
-
-                if slot_hour >= 17:
-                    break
-
-                db.add(ClinicDoctorSlot(
-                    doctor_id=doctor.id,
-                    clinic_id=clinic.id,
-                    start_time=start,
-                    end_time=end,
-                ))
-
-                slot_minute += 30
-                if slot_minute >= 60:
-                    slot_hour += 1
-                    slot_minute = 0
+        # Mevcut hekim de dahil: takvim penceresi her koşuda tamamlanır.
+        ensure_doctor_slot_window(db, clinic, doctor)
 
     db.commit()
 
