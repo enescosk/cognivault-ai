@@ -103,6 +103,11 @@ class Settings(BaseSettings):
         str(BACKEND_ROOT / "data" / "piper" / "tr_TR-dfki-medium.onnx"),
     ]
     clinical_default_clinic_slug: str = "demo-klinik"
+    # Kanal→klinik eşlemesi bulunamadığında davranış. False (demo): default
+    # kliniğe düş — tek klinikli kurulum bugünkü gibi çalışır. True (çoklu
+    # kiracı pilot): eşleşmeyen numara/WABA kimliği REDDEDİLİR; yanlış kliniğe
+    # hasta verisi yazmak KVKK ihlalidir, sessiz düşüş kabul edilemez.
+    clinical_channel_binding_strict: bool = False
     clinical_auto_reply_threshold: float = 0.90
     clinical_shadow_threshold: float = 0.75
     twilio_auth_token: str = ""

@@ -18,6 +18,7 @@ from app.models import (
     Clinic,
     ClinicBranch,
     ClinicChannel,
+    ClinicChannelBinding,
     ClinicConversation,
     ClinicConversationStatus,
     ClinicDoctor,
@@ -161,6 +162,43 @@ def parse_meta_payload(payload: dict) -> list[IncomingClinicalMessage]:
                     )
                 )
     return messages
+
+
+def resolve_webhook_clinic(
+    db: Session, *, channel: ClinicChannel, address: str | None
+) -> Clinic | None:
+    """Gelen webhook'un hangi kliniğe ait olduğunu çözer.
+
+    `address` = aranan numara (Twilio `To`, "whatsapp:" öneki normalize edilir)
+    veya Meta Cloud `phone_number_id`. Sıra:
+      1. Aktif `ClinicChannelBinding` eşleşmesi.
+      2. WhatsApp için `Clinic.whatsapp_phone_number_id` kolonu (tarihsel alan).
+      3. Eşleşme yoksa: strict modda None (çağıran reddeder — yanlış kliniğe
+         hasta verisi yazılamaz), değilse demo default kliniği.
+    """
+    settings = get_settings()
+    normalized = normalize_phone(address) if address else ""
+    if normalized:
+        binding = db.scalars(
+            select(ClinicChannelBinding).where(
+                ClinicChannelBinding.channel == channel,
+                ClinicChannelBinding.address == normalized,
+                ClinicChannelBinding.is_active.is_(True),
+            )
+        ).first()
+        if binding is not None:
+            clinic = db.get(Clinic, binding.clinic_id)
+            if clinic is not None:
+                return clinic
+        if channel == ClinicChannel.WHATSAPP:
+            clinic = db.scalars(
+                select(Clinic).where(Clinic.whatsapp_phone_number_id == normalized)
+            ).first()
+            if clinic is not None:
+                return clinic
+    if settings.clinical_channel_binding_strict:
+        return None
+    return ensure_default_clinic(db)
 
 
 def ensure_default_clinic(db: Session) -> Clinic:

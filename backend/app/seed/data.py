@@ -772,8 +772,31 @@ def seed_enterprise_demo(db: Session) -> None:
     db.commit()
 
 
+def _seed_channel_bindings(db: Session, clinic) -> None:
+    """Demo kliniğin iletişim numarasını telefon+WhatsApp kanallarına bağla.
+
+    Multi-tenant webhook yönlendirmesinin (resolve_webhook_clinic) demo'da da
+    gerçek yoldan çalışmasını sağlar; idempotent.
+    """
+    from app.models import ClinicChannel, ClinicChannelBinding
+
+    branding = (clinic.settings_json or {}).get("branding") or {}
+    demo_number = (branding.get("contact_phone") or "+90 212 000 00 00").replace(" ", "")
+    for channel in (ClinicChannel.PHONE, ClinicChannel.WHATSAPP):
+        exists = db.scalars(
+            select(ClinicChannelBinding).where(
+                ClinicChannelBinding.channel == channel,
+                ClinicChannelBinding.address == demo_number,
+            )
+        ).first()
+        if exists is None:
+            db.add(ClinicChannelBinding(clinic_id=clinic.id, channel=channel, address=demo_number))
+    db.commit()
+
+
 def seed_clinical_demo(db: Session) -> None:
     clinic = ensure_default_clinic(db)
+    _seed_channel_bindings(db, clinic)
     users = {u.email: u for u in db.scalars(select(User)).all()}
     linked_doctors: dict[str, Doctor] = {}
     primary_doctor: Doctor | None = None

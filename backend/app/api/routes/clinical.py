@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import datetime, timezone
 from html import escape
 from urllib.parse import parse_qs
@@ -18,6 +19,8 @@ from app.core.webhook_security import (
     verify_twilio_signature,
 )
 from app.models import ClinicBranch, ClinicChannel, ClinicConversation, ClinicDoctor, ClinicDoctorSlot, ClinicPatient, ClinicalAppointment, ClinicalVoiceQARun, RoleName, ShadowReview, ShadowReviewStatus, User
+
+logger = logging.getLogger(__name__)
 from app.schemas.clinical import (
     ClinicalAppointmentCreateRequest,
     ClinicalAppointmentDetailsUpdate,
@@ -60,7 +63,6 @@ from app.services.clinical_service import (
     IncomingClinicalMessage,
     clinical_metrics,
     ensure_clinic_access,
-    ensure_default_clinic,
     get_clinician_doctor,
     get_clinical_conversation,
     ingest_clinical_message,
@@ -71,6 +73,7 @@ from app.services.clinical_service import (
     list_shadow_reviews,
     parse_meta_payload,
     parse_twilio_form,
+    resolve_webhook_clinic,
 )
 from app.services.clinical_appointment_service import (
     create_clinical_appointment_from_conversation,
@@ -858,7 +861,16 @@ async def receive_voice_speech(request: Request, db: Session = Depends(get_db)) 
             media_type="application/xml",
         )
 
-    clinic = ensure_default_clinic(db)
+    clinic = resolve_webhook_clinic(db, channel=ClinicChannel.PHONE, address=parsed.get("To"))
+    if clinic is None:
+        # Strict mod: bu numara hiçbir kliniğe bağlı değil — hasta verisini
+        # yanlış kliniğe yazmak yerine kibarca kapat (Gather yok → çağrı biter).
+        logger.warning("voice_webhook_unbound_number to=%s call_sid=%s", parsed.get("To"), call_sid)
+        return PlainTextResponse(
+            """<?xml version="1.0" encoding="UTF-8"?>
+<Response><Say language="tr-TR" voice="alice">Bu numara şu anda hizmet dışıdır. Lütfen kliniğinizi doğrudan arayın.</Say></Response>""",
+            media_type="application/xml",
+        )
     # CallSid çağrı boyunca sabittir; tek başına idempotency anahtarı yapılırsa
     # ikinci hasta cümlesi yanlışlıkla duplicate sayılır. Aynı webhook retry'ı
     # yine aynı anahtarı üretirken farklı konuşma turları ayrı kaydolur.
@@ -944,11 +956,17 @@ def _webhook_request_url(request: Request) -> str:
     return str(request.url)
 
 
-@router.post("/webhooks/whatsapp", response_model=list[WebhookIngestionResponse] | WebhookIngestionResponse)
+def _unbound_channel_response(address: str | None) -> PlainTextResponse:
+    """Strict modda eşleşmeyen kanal adresi: veriyi yazmadan, retry fırtınası
+    yaratmadan kapat (202 → Twilio/Meta tekrar denemez)."""
+    logger.warning("whatsapp_webhook_unbound_address to=%s", address)
+    return PlainTextResponse("ignored_unbound_channel", status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.post("/webhooks/whatsapp", response_model=None)
 async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
     content_type = request.headers.get("content-type", "")
     settings = get_settings()
-    clinic = ensure_default_clinic(db)
 
     raw_body = await request.body()
 
@@ -972,6 +990,14 @@ async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_d
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid Twilio signature",
                 )
+        # Aranan WhatsApp numarası ("whatsapp:+90...") hangi kliniğe bağlıysa
+        # mesaj oraya yazılır; strict modda eşleşmeyen numara reddedilir.
+        from urllib.parse import parse_qs as _parse_qs
+
+        to_address = _parse_qs(raw_body.decode("utf-8")).get("To", [""])[0]
+        clinic = resolve_webhook_clinic(db, channel=ClinicChannel.WHATSAPP, address=to_address)
+        if clinic is None:
+            return _unbound_channel_response(to_address)
         incoming = parse_twilio_form(raw_body)
         return ingestion_payload(ingest_clinical_message(db, incoming, clinic=clinic))
 
@@ -990,6 +1016,21 @@ async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_d
     import json
 
     payload = json.loads(raw_body or b"{}")
+    # Meta Cloud: işletme numarası `metadata.phone_number_id` ile gelir; tüm
+    # change'lerde aynı WABA numarası olduğu varsayılır (Meta tek numaraya
+    # abone webhook gönderir). İlk metadata'dan çözümlenir.
+    phone_number_id = None
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            meta_info = change.get("value", {}).get("metadata", {})
+            phone_number_id = meta_info.get("phone_number_id") or meta_info.get("display_phone_number")
+            if phone_number_id:
+                break
+        if phone_number_id:
+            break
+    clinic = resolve_webhook_clinic(db, channel=ClinicChannel.WHATSAPP, address=phone_number_id)
+    if clinic is None:
+        return _unbound_channel_response(phone_number_id)
     messages = parse_meta_payload(payload)
     results = [ingestion_payload(ingest_clinical_message(db, item, clinic=clinic)) for item in messages]
     return results

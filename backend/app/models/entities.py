@@ -200,6 +200,28 @@ class Clinic(Base):
     voice_qa_runs: Mapped[list["ClinicalVoiceQARun"]] = relationship(back_populates="clinic", cascade="all, delete-orphan")
 
 
+class ClinicChannelBinding(Base):
+    """Gelen kanal adresini kliniğe bağlar — multi-tenant webhook yönlendirmesi.
+
+    `address` normalize edilmiş aranan numara (telefon/Twilio WhatsApp `To`)
+    veya Meta Cloud `phone_number_id`'dir. Bir adres tam olarak bir kliniğe
+    bağlanabilir; eşleşme yoksa davranışı `clinical_channel_binding_strict`
+    belirler (False → demo default kliniğe düş, True → reddet).
+    """
+
+    __tablename__ = "clinic_channel_bindings"
+    __table_args__ = (UniqueConstraint("channel", "address", name="uq_channel_binding_address"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), nullable=False, index=True)
+    channel: Mapped[ClinicChannel] = mapped_column(SqlEnum(ClinicChannel), nullable=False)
+    address: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    clinic: Mapped["Clinic"] = relationship()
+
+
 class ClinicalVoiceQARun(Base):
     """Real-device voice QA evidence captured before and during clinic pilots."""
 
