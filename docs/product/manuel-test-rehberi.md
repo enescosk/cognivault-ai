@@ -85,7 +85,36 @@ NETGSM_MSGHEADER=ONAYLIBASLIK
 - Çifte rezervasyon testi: bir slotu onayladıktan sonra aynı slotu ikinci bir
   oturumdan onaylamaya çalış → 409 `slot_already_booked` almalısın.
 
-## 7. Otomatik kapılar (her değişiklikten sonra)
+## 7. Telefonda randevu kapanışı (Twilio olmadan, curl ile)
+
+Gerçek numara bağlamadan akışın tamamı simüle edilebilir (imza doğrulama
+lokal ortamda kapalıdır):
+
+```bash
+# Tur 1 — arayan talebini söyler → sistem müsait saatleri sesli okur
+curl -s -X POST http://localhost:8000/api/webhooks/voice/gather \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "SpeechResult=Randevu almak istiyorum diş temizliği için&From=%2B905321234567&To=%2B902120000000&CallSid=CAtest1"
+# Beklenen: TwiML içinde "Sizin için müsait randevu saatleri şunlar: birinci: ..."
+# ve <Play>/api/webhooks/voice/tts/<sha>.wav (kendi fahrettin sesimiz).
+
+# Tur 2 — arayan seçer → randevu kapanır + SMS + kibar veda (Gather yok)
+curl -s -X POST http://localhost:8000/api/webhooks/voice/gather \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "SpeechResult=birincisi olsun&From=%2B905321234567&To=%2B902120000000&CallSid=CAtest1"
+# Beklenen: "randevunuzu oluşturdum" + backend konsolunda hasta+doktor SMS'i;
+# operatör panelinde slot'a bağlı PENDING randevu.
+
+# Sesi kulağınla doğrula: TwiML'deki <Play> yolunu indir
+curl -s http://localhost:8000/api/webhooks/voice/tts/<sha>.wav -o /tmp/tts.wav && afplay /tmp/tts.wav
+```
+
+Sözlü seçim varyantları: "birincisi/ikincisi", "yarın dokuz buçuk", "salı 14",
+"fark etmez". Acil cümle ("kanama durmuyor, nefes alamıyorum") her aşamada
+akışı keser ve 112 yönlendirmesi + doktor eskalasyonu döner — randevu akışı
+araya giremez. `VOICE_PHONE_NATIVE_TTS_ENABLED=false` ile alice'e dönülebilir.
+
+## 8. Otomatik kapılar (her değişiklikten sonra)
 
 ```bash
 cd backend && ./.venv/bin/python -m pytest -q      # tamamı yeşil olmalı

@@ -116,6 +116,9 @@ class Settings(BaseSettings):
     # True (demo): boş takvimde bile teklif üretilir. False (pilot): yalnız
     # gerçek takvim — boşsa hastaya "ekip sizinle iletişime geçecek" akışı.
     clinical_demo_slots_enabled: bool = True
+    # Telefon TwiML yanıtlarında kendi lokal TTS'imiz (<Play>) kullanılsın mı?
+    # Kapatılırsa Twilio <Say voice="alice"> fallback'i (kill-switch).
+    voice_phone_native_tts_enabled: bool = True
     netgsm_usercode: str = ""
     netgsm_password: str = ""
     netgsm_msgheader: str = ""  # operatör onaylı gönderici başlığı

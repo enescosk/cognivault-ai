@@ -801,13 +801,34 @@ def patch_pre_intake(
     return pre_intake_payload(pre_intake)
 
 
-def _voice_twiml(message: str, action_url: str = "/api/webhooks/voice/gather") -> str:
-    escaped_message = escape(message, quote=True)
+def _voice_prompt_verse(message: str) -> str:
+    """Yanıt cümlesi için TwiML ses verse'ü üretir.
+
+    Önce lokal TTS (Piper/fahrettin) ile önceden sentezleyip `<Play>` URL'i
+    döner — Twilio relative URL'i webhook adresine göre çözer, ayrıca base-url
+    konfigürasyonu gerekmez. Sentez başarısızsa (model yok, bayrak kapalı)
+    `<Say alice>` fallback'i devreye girer; arama hiçbir koşulda sessiz kalmaz.
+    """
+    from app.services.voice_prompt_cache import synthesize_prompt
+
+    key = synthesize_prompt(message)
+    if key is not None:
+        return f'<Play>/api/webhooks/voice/tts/{key}.wav</Play>'
+    return f'<Say language="tr-TR" voice="alice">{escape(message, quote=True)}</Say>'
+
+
+def _voice_twiml(message: str, action_url: str = "/api/webhooks/voice/gather", *, gather: bool = True) -> str:
     escaped_action = escape(action_url, quote=True)
+    verse = _voice_prompt_verse(message)
+    if not gather:
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {verse}
+</Response>"""
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="speech" language="tr-TR" speechTimeout="auto" action="{escaped_action}" method="POST">
-    <Say language="tr-TR" voice="alice">{escaped_message}</Say>
+    {verse}
   </Gather>
   <Say language="tr-TR" voice="alice">Sizi anlayamadım. Lütfen tekrar arayın veya kliniğe WhatsApp üzerinden yazın.</Say>
 </Response>"""
@@ -837,13 +858,35 @@ async def receive_voice_call(request: Request) -> PlainTextResponse:
     _verify_twilio_voice_request(request, body)
     parsed = dict((key, values[0] if values else "") for key, values in parse_qs(body.decode("utf-8")).items())
     caller = parsed.get("From", "hasta")
+    # KVKK aydınlatma anonsu: web'deki onay ekranının telefon karşılığı.
+    # Nihai metin avukat onayından geçmeli (İP-5/6 hukuk paketi); yapı hazır.
     prompt = (
         "CogniVault medikal asistanına hoş geldiniz. Ben Selin. "
-        "Randevu, sigorta, fiyat veya doktorunuza iletilmesini istediğiniz sağlık talebinizi kısaca söyleyin."
+        "Bu görüşme randevu oluşturmak amacıyla işlenir ve doktor ekranına güvenli "
+        "şekilde not düşülür; devam ederek bunu kabul etmiş olursunuz. "
+        "Randevu, sigorta, fiyat veya sağlık talebinizi kısaca söyleyebilirsiniz."
     )
-    if caller:
-        prompt += " Konuşmanız doktor ekranına güvenli şekilde not olarak düşecektir."
+    if not caller:
+        prompt += " Dilerseniz kliniğe WhatsApp üzerinden de yazabilirsiniz."
     return PlainTextResponse(_voice_twiml(prompt), media_type="application/xml")
+
+
+@router.get("/webhooks/voice/tts/{key}.wav")
+def serve_voice_prompt(key: str):
+    """TwiML <Play> için önceden sentezlenmiş yanıt sesi.
+
+    Anahtar = metnin sha256'sı: yalnız metni zaten bilen (Twilio) indirebilir.
+    Cache'te yoksa 404 — Twilio o verse'ü atlar, arama devam eder.
+    """
+    from fastapi.responses import Response
+
+    from app.services.voice_prompt_cache import get_prompt_audio
+
+    cached = get_prompt_audio(key)
+    if cached is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="prompt_not_found")
+    audio, mime = cached
+    return Response(content=audio, media_type=mime)
 
 
 @router.post("/webhooks/voice/gather")
@@ -888,6 +931,19 @@ async def receive_voice_speech(request: Request, db: Session = Depends(get_db)) 
         ),
         clinic=clinic,
     )
+
+    # Randevu akışı: teklif → sözlü seçim → onay + SMS. Acil/insan-yükseltme
+    # turlarında devreye girmez (None döner) — eskalasyon yanıtı korunur.
+    from app.services.phone_flow_service import handle_phone_turn
+
+    outcome = handle_phone_turn(db, result, speech)
+    if outcome is not None:
+        # Randevu kapandıysa kibarca vedalaş ve aramayı bitir (Gather yok).
+        return PlainTextResponse(
+            _voice_twiml(outcome.reply, gather=outcome.stage != "booked"),
+            media_type="application/xml",
+        )
+
     reply = result.reply
     if result.shadow_review is not None:
         reply = (

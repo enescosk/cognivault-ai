@@ -23,6 +23,10 @@ _test_settings = get_settings()
 _test_settings.clinical_ai_enabled = False
 _test_settings.clinical_external_ai_allowed = False
 _test_settings.voice_external_enabled = False
+# Telefon TwiML testleri yanıt METNİNİ doğrular; gerçek TTS sentezi hem yavaş
+# hem metni <Play> URL'ine gizler. Testte kapalı — TwiML <Say> fallback'i
+# üretir. TTS'li verse davranışı test_phone_booking_flow'da mock ile açılır.
+_test_settings.voice_phone_native_tts_enabled = False
 
 # Test suite TestClient'ı tek IP üzerinden binlerce istek atar; login için
 # `@limiter.limit("10/minute")` testleri brute-force kabul edip 429 döner ve
