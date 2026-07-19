@@ -93,6 +93,15 @@
       "title": "Dağıtım öncesi güvenlik preflight (guard doğrulama + migration head)"
     },
     {
+      "gates_passed": 7,
+      "gates_total": 7,
+      "ip": "Outbox",
+      "overall_pass": true,
+      "source": "app.ops.outbox.build_report",
+      "status": "ok",
+      "title": "Transactional outbox güvenilirliği (retry + dead-letter)"
+    },
+    {
       "gates_passed": 5,
       "gates_total": 5,
       "ip": "Ses-Rıza",
@@ -103,9 +112,9 @@
     }
   ],
   "summary": {
-    "gates_passed": 86,
-    "gates_total": 86,
-    "panels": 11,
-    "panels_passed": 11
+    "gates_passed": 93,
+    "gates_total": 93,
+    "panels": 12,
+    "panels_passed": 12
   }
 }

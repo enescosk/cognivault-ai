@@ -15,8 +15,8 @@ import hmac
 import hashlib
 import os
 
+import bcrypt
 import jwt
-from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
@@ -39,16 +39,9 @@ _ARGON2_HASHER = (
 )
 
 
-# Bcrypt cost factor: 12 = ~250ms/hash on modern CPUs. Düşürmek brute-force
-# direncini azaltır; yükseltmek login latency'yi şişirir.
-_pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__rounds=12,
-)
-
-
+BCRYPT_ROUNDS = 12
 BCRYPT_MAX_BYTES = 72
+BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
 
 
 def _is_legacy_sha256(hashed_password: str) -> bool:
@@ -74,7 +67,10 @@ def hash_password(password: str) -> str:
         raise ValueError(
             f"Şifre çok uzun: bcrypt en fazla {BCRYPT_MAX_BYTES} byte destekler."
         )
-    return _pwd_context.hash(password)
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt(rounds=BCRYPT_ROUNDS),
+    ).decode("utf-8")
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
@@ -111,9 +107,11 @@ def verify_password(password: str, hashed_password: str) -> bool:
         except (KeyError, ValueError, TypeError):
             return False
 
+    if not hashed_password.startswith(BCRYPT_PREFIXES):
+        return False
     try:
-        return _pwd_context.verify(password, hashed_password)
-    except Exception:  # noqa: BLE001
+        return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except ValueError:
         return False
 
 
@@ -122,8 +120,11 @@ def needs_rehash(hashed_password: str) -> bool:
     if _is_legacy_sha256(hashed_password):
         return True
     try:
-        return _pwd_context.needs_update(hashed_password)
-    except Exception:  # noqa: BLE001
+        if not hashed_password.startswith(BCRYPT_PREFIXES):
+            return True
+        cost = int(hashed_password.split("$", 3)[2])
+        return cost < BCRYPT_ROUNDS
+    except (IndexError, ValueError):
         return True
 
 

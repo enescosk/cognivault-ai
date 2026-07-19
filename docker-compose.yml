@@ -24,6 +24,19 @@ services:
     ports:
       - "8000:8000"
 
+  outbox-worker:
+    build:
+      context: ./backend
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+psycopg://cognivault:cognivault@db:5432/cognivault
+      JWT_SECRET: ${JWT_SECRET:-replace-me}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080}
+    command: ["python", "-m", "app.workers.outbox_worker"]
+
   frontend:
     build:
       context: ./frontend

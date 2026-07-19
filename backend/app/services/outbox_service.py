@@ -22,7 +22,7 @@ import random
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import OutboxEvent, OutboxEventStatus
@@ -71,6 +71,23 @@ def _backoff_seconds(attempts: int) -> int:
     return int(base * jitter)
 
 
+def pending_events_query(now: datetime, batch_size: int):
+    """Dispatch edilebilir outbox satırları.
+
+    PostgreSQL'de `FOR UPDATE SKIP LOCKED` birden fazla worker'ın aynı satırı
+    almasını engeller. SQLite dialect'i bu kilidi desteklemediği için SQLAlchemy
+    orada ifadeyi otomatik no-op derler; lokal/dev test davranışı korunur.
+    """
+    return (
+        select(OutboxEvent)
+        .where(OutboxEvent.status == OutboxEventStatus.PENDING)
+        .where((OutboxEvent.next_retry_at == None) | (OutboxEvent.next_retry_at <= now))  # noqa: E711
+        .order_by(OutboxEvent.created_at.asc())
+        .limit(batch_size)
+        .with_for_update(skip_locked=True)
+    )
+
+
 def dispatch_pending_events(
     db: Session,
     handlers: dict[str, OutboxHandler],
@@ -90,22 +107,16 @@ def dispatch_pending_events(
     now = datetime.now(timezone.utc)
     stats = {"dispatched": 0, "failed": 0, "dead_letter": 0, "no_handler": 0}
 
-    # SELECT … FOR UPDATE SKIP LOCKED → birden fazla worker aynı satırı
-    # işlemesin. SQLite bunu desteklemez; SKIP LOCKED Postgres-only.
-    # Burada single-worker varsayımıyla basit select yapıyoruz; production'da
-    # FOR UPDATE SKIP LOCKED ekle.
-    pending = db.scalars(
-        select(OutboxEvent)
-        .where(OutboxEvent.status == OutboxEventStatus.PENDING)
-        .where((OutboxEvent.next_retry_at == None) | (OutboxEvent.next_retry_at <= now))  # noqa: E711
-        .order_by(OutboxEvent.created_at.asc())
-        .limit(batch_size)
-    ).all()
+    pending = db.scalars(pending_events_query(now, batch_size)).all()
 
     for event in pending:
         handler = handlers.get(event.event_type)
         if handler is None:
             stats["no_handler"] += 1
+            event.status = OutboxEventStatus.DEAD_LETTER
+            event.last_error = f"Handler bulunamadı: {event.event_type}"
+            event.dispatched_at = None
+            db.commit()
             logger.warning(
                 "outbox.no_handler",
                 extra={"event_type": event.event_type, "event_id": event.id},
@@ -186,3 +197,92 @@ DEFAULT_HANDLERS: dict[str, OutboxHandler] = {
     "whatsapp.send": handler_send_whatsapp,
     "email.send": handler_send_email,
 }
+
+
+def _scope_filters(organization_id: int | None) -> list:
+    if organization_id is None:
+        return []
+    return [
+        or_(
+            OutboxEvent.organization_id == organization_id,
+            OutboxEvent.organization_id.is_(None),
+        )
+    ]
+
+
+def summarize_outbox(db: Session, *, organization_id: int | None = None) -> dict[str, Any]:
+    """Operator/admin için outbox sağlık özeti.
+
+    Legacy satırlar (`organization_id IS NULL`) görünür kalır; Phase 1 öncesi
+    outbound denemeleri operatör ekranından kaybolmasın.
+    """
+    filters = _scope_filters(organization_id)
+    now = datetime.now(timezone.utc)
+    by_status = {status.value: 0 for status in OutboxEventStatus}
+    for status, count in db.execute(
+        select(OutboxEvent.status, func.count(OutboxEvent.id))
+        .where(*filters)
+        .group_by(OutboxEvent.status)
+    ).all():
+        key = status.value if isinstance(status, OutboxEventStatus) else str(status).lower()
+        by_status[key] = int(count)
+
+    pending_ready = db.scalar(
+        select(func.count(OutboxEvent.id))
+        .where(*filters)
+        .where(OutboxEvent.status == OutboxEventStatus.PENDING)
+        .where((OutboxEvent.next_retry_at == None) | (OutboxEvent.next_retry_at <= now))  # noqa: E711
+    ) or 0
+    oldest_pending = db.scalar(
+        select(func.min(OutboxEvent.created_at))
+        .where(*filters)
+        .where(OutboxEvent.status == OutboxEventStatus.PENDING)
+    )
+    next_retry = db.scalar(
+        select(func.min(OutboxEvent.next_retry_at))
+        .where(*filters)
+        .where(OutboxEvent.status == OutboxEventStatus.PENDING)
+        .where(OutboxEvent.next_retry_at.is_not(None))
+    )
+    latest_dead = db.scalars(
+        select(OutboxEvent)
+        .where(*filters)
+        .where(OutboxEvent.status == OutboxEventStatus.DEAD_LETTER)
+        .order_by(OutboxEvent.created_at.desc())
+        .limit(1)
+    ).first()
+
+    return {
+        "total": sum(by_status.values()),
+        "by_status": by_status,
+        "pending_ready": int(pending_ready),
+        "dead_letter": by_status[OutboxEventStatus.DEAD_LETTER.value],
+        "oldest_pending_at": oldest_pending,
+        "next_retry_at": next_retry,
+        "latest_dead_letter_id": latest_dead.id if latest_dead else None,
+        "latest_dead_letter_error": latest_dead.last_error if latest_dead else None,
+    }
+
+
+def list_outbox_events(
+    db: Session,
+    *,
+    organization_id: int | None = None,
+    status: OutboxEventStatus | None = None,
+    event_type: str | None = None,
+    limit: int = 100,
+) -> list[OutboxEvent]:
+    filters = _scope_filters(organization_id)
+    if status is not None:
+        filters.append(OutboxEvent.status == status)
+    if event_type:
+        filters.append(OutboxEvent.event_type == event_type)
+
+    return list(
+        db.scalars(
+            select(OutboxEvent)
+            .where(*filters)
+            .order_by(OutboxEvent.created_at.desc(), OutboxEvent.id.desc())
+            .limit(limit)
+        )
+    )

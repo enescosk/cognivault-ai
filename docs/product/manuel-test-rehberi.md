@@ -133,7 +133,24 @@ SQLite yedeği sunucu ÇALIŞIRKEN alınabilir (online backup API — tutarlı k
 PostgreSQL'de pg_dump/pg_restore kullanılır; drill yapı doğrulamasıyla sınırlıdır
 ve kanıtta dürüstçe `structure_listing_only` yazar.
 
-## 9. Otomatik kapılar (her değişiklikten sonra)
+## 9. Outbox worker provası
+
+Outbound mesajlar doğrudan request içinde dış servise gönderilmez; önce
+`outbox_events` tablosuna yazılır, worker retry/dead-letter mantığıyla gönderir:
+
+```bash
+./scripts/run_outbox_worker.sh
+cd backend && ./.venv/bin/python -m app.ops.outbox
+# "Genel: PASS" görmelisin.
+```
+
+Operatör/admin token'ıyla canlı kuyruk da izlenebilir:
+`GET /api/agents/outbox/summary` ve
+`GET /api/agents/outbox/events?status=dead_letter`.
+
+Docker'da `outbox-worker` servisi aynı backend imajıyla çalışır.
+
+## 10. Otomatik kapılar (her değişiklikten sonra)
 
 ```bash
 cd backend && ./.venv/bin/python -m pytest -q      # tamamı yeşil olmalı

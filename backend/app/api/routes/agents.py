@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_organization, get_db, require_roles
-from app.models import AgentDecisionLog, LlmUsageRecord, Organization, RoleName, User
+from app.models import AgentDecisionLog, LlmUsageRecord, Organization, OutboxEventStatus, RoleName, User
 from app.services.agents import (
     AgentDecision,
     AgentType,
@@ -16,6 +16,7 @@ from app.services.agents import (
     dispatch,
     list_agents,
 )
+from app.services.outbox_service import list_outbox_events, summarize_outbox
 
 
 router = APIRouter(tags=["agents"])
@@ -174,6 +175,77 @@ class UsageSummaryResponse(BaseModel):
     total_cost_usd: float
     by_model: list[UsageSummaryByModel]
     by_agent_type: dict[str, float]   # agent_type → cost_usd
+
+
+class OutboxSummaryResponse(BaseModel):
+    total: int
+    by_status: dict[str, int]
+    pending_ready: int
+    dead_letter: int
+    oldest_pending_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    latest_dead_letter_id: int | None = None
+    latest_dead_letter_error: str | None = None
+
+
+class OutboxEventRow(BaseModel):
+    id: int
+    event_type: str
+    status: str
+    organization_id: int | None = None
+    clinic_id: int | None = None
+    attempts: int
+    max_attempts: int
+    last_error: str | None = None
+    next_retry_at: datetime | None = None
+    dispatched_at: datetime | None = None
+    created_at: datetime
+
+
+@router.get("/agents/outbox/summary", response_model=OutboxSummaryResponse)
+def get_outbox_summary(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(RoleName.OPERATOR, RoleName.ADMIN)),
+    organization: Organization | None = Depends(get_current_organization),
+) -> OutboxSummaryResponse:
+    """Transactional outbox sağlık özeti — operator/admin ve org scope'lu."""
+    summary = summarize_outbox(db, organization_id=organization.id if organization else None)
+    return OutboxSummaryResponse(**summary)
+
+
+@router.get("/agents/outbox/events", response_model=list[OutboxEventRow])
+def get_outbox_events(
+    status: OutboxEventStatus | None = Query(default=None),
+    event_type: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(RoleName.OPERATOR, RoleName.ADMIN)),
+    organization: Organization | None = Depends(get_current_organization),
+) -> list[OutboxEventRow]:
+    """Outbox event listesi — dead-letter inceleme ve worker debug için."""
+    rows = list_outbox_events(
+        db,
+        organization_id=organization.id if organization else None,
+        status=status,
+        event_type=event_type,
+        limit=limit,
+    )
+    return [
+        OutboxEventRow(
+            id=row.id,
+            event_type=row.event_type,
+            status=row.status.value if isinstance(row.status, OutboxEventStatus) else str(row.status),
+            organization_id=row.organization_id,
+            clinic_id=row.clinic_id,
+            attempts=row.attempts,
+            max_attempts=row.max_attempts,
+            last_error=row.last_error,
+            next_retry_at=row.next_retry_at,
+            dispatched_at=row.dispatched_at,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
 
 
 @router.get("/agents/usage/summary", response_model=UsageSummaryResponse)

@@ -32,7 +32,7 @@ Veri modelinde nullable kolon eklendi; mevcut tek-organizasyon kurulumu icin ger
 1. ✅ **Twilio imza dogrulamasi**: `verify_twilio_signature()` `X-Twilio-Signature`'i HMAC-SHA1+base64 ile dogrulayip canonical URL+sorted-params ile karsilastirir.
 2. ✅ **Meta `X-Hub-Signature-256` dogrulamasi**: HMAC SHA256 + `hmac.compare_digest()` zaman-sabit karsilastirma.
 3. ✅ **`inbound_events` tablosu**: `(provider, external_id)` benzersiz; `ingest_clinical_message` tekrar gelen webhook'larda ayni `IngestionResult.message`'i `action="duplicate_ignored"` ile dondurur.
-4. ⏳ **Outbound `delivery_outbox` tablosu**: Faz 2.5 — retry, dead-letter, audit (sonraki adim).
+4. ✅ **Outbound `outbox_events` tablosu**: transactional enqueue, retry/backoff, dead-letter, PostgreSQL `SKIP LOCKED` çoklu-worker koruması, operator/admin izleme endpoint'leri (`/api/agents/outbox/summary`, `/api/agents/outbox/events`) ve worker entrypoint'i (`python -m app.workers.outbox_worker`, `./scripts/run_outbox_worker.sh`). `app.ops.outbox` kanıt panosu ve servis/API testleri ile güvence altında.
 
 **Feature flag**: `clinical_webhook_signature_required` (default `False`) — dev/test gercek imza istemeden calisir; prod'da `True` yapilirsa imzasiz inbound 401 doner.
 

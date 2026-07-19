@@ -1,0 +1,52 @@
+{
+  "gates": [
+    {
+      "detail": "enqueue_outbox_event commit etmez; atomiklik caller transaction'ında kalır.",
+      "id": "transactional_enqueue",
+      "pass": true,
+      "title": "Caller rollback ederse outbox satırı kalmaz"
+    },
+    {
+      "detail": "stats={'dispatched': 1, 'failed': 0, 'dead_letter': 0, 'no_handler': 0}",
+      "id": "successful_dispatch",
+      "pass": true,
+      "title": "Başarılı handler DISPATCHED yazar"
+    },
+    {
+      "detail": "stats={'dispatched': 0, 'failed': 1, 'dead_letter': 0, 'no_handler': 0}",
+      "id": "retry_backoff",
+      "pass": true,
+      "title": "Geçici hata payload'u koruyup retry planlar"
+    },
+    {
+      "detail": "first={'dispatched': 0, 'failed': 0, 'dead_letter': 0, 'no_handler': 1}, second={'dispatched': 0, 'failed': 0, 'dead_letter': 0, 'no_handler': 0}",
+      "id": "unknown_handler_dead_letter",
+      "pass": true,
+      "title": "Handler eksikliği sonsuz pending döngüsü üretmez"
+    },
+    {
+      "detail": "stats={'dispatched': 0, 'failed': 0, 'dead_letter': 1, 'no_handler': 0}",
+      "id": "max_attempts_dead_letter",
+      "pass": true,
+      "title": "Max attempt dolunca DEAD_LETTER olur"
+    },
+    {
+      "detail": "summary={'total': 4, 'by_status': {'pending': 1, 'dispatched': 1, 'failed': 0, 'dead_letter': 2}, 'pending_ready': 0, 'dead_letter': 2, 'oldest_pending_at': datetime.datetime(2026, 7, 19, 10, 17, 40), 'next_retry_at': datetime.datetime(2026, 7, 19, 10, 17, 42, 946442), 'latest_dead_letter_id': 3, 'latest_dead_letter_error': 'Handler bulunamadı: fax.send'}",
+      "id": "operator_summary_contract",
+      "pass": true,
+      "title": "Operator özeti pending/dead-letter sayar"
+    },
+    {
+      "detail": "PostgreSQL sorgusu row-lock + skip-locked ile derlenir.",
+      "id": "postgres_skip_locked",
+      "pass": true,
+      "title": "Çoklu worker aynı event'i kapmaz"
+    }
+  ],
+  "name": "outbox_reliability_board",
+  "overall_pass": true,
+  "summary": {
+    "gates_passed": 7,
+    "gates_total": 7
+  }
+}

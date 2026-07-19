@@ -193,11 +193,11 @@ def _base_gates(
             kind="ops",
             status="partial" if preflight_passed else "pending",
             evidence=(
-                "Dagitim oncesi preflight: prod guvenlik guard'lari (zayif JWT/demo-seed/auto-schema/sqlite/CORS) + tek migration head test-kanitli."
+                "Dagitim oncesi preflight: prod guvenlik guard'lari (zayif JWT/demo-seed/auto-schema/sqlite/CORS), tek migration head ve transactional outbox retry/dead-letter/izleme kapilari test-kanitli."
                 if preflight_passed
                 else "Health/readyz, metrics, request-id ve prod runtime fail-fast kontrolleri mevcut."
             ),
-            remaining="Gercek prod ortaminda migration kosumu, backup restore provasi, secret rotation, alert/runbook tatbikati.",
+            remaining="Gercek prod ortaminda migration kosumu, backup restore provasi, outbox worker proses denetimi, secret rotation, alert/runbook tatbikati.",
             priority=11,
         ),
         PhaseGate(

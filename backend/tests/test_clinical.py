@@ -258,7 +258,7 @@ def test_list_doctors(client, operator_token):
 
 def test_list_doctor_slots(client, operator_token):
     doctor_id, _ = _seed_doctor(client, operator_token)
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     res = client.get(
         f"/api/clinical/doctors/{doctor_id}/slots?date={today}",
         headers={"Authorization": f"Bearer {operator_token}"},
@@ -282,7 +282,7 @@ def test_book_slot_marks_as_booked(client, operator_token):
     conversation_id = msg_res.json()["conversation_id"]
 
     # Get available slots
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     slots_res = client.get(
         f"/api/clinical/doctors/{doctor_id}/slots?date={today}",
         headers={"Authorization": f"Bearer {operator_token}"},
@@ -339,7 +339,7 @@ def test_double_book_slot_returns_409(client, operator_token):
     conv2 = msg2.json()["conversation_id"]
 
     # Get an available slot
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     slots = client.get(
         f"/api/clinical/doctors/{doctor_id}/slots?date={today}",
         headers={"Authorization": f"Bearer {operator_token}"},
@@ -381,4 +381,4 @@ def test_seed_idempotency(client, operator_token):
     assert count1 == count2
 
 
-from datetime import datetime
+from datetime import datetime, timezone
