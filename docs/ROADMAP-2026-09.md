@@ -20,30 +20,42 @@ soyutlama — hiçbiri bu ilkenin önüne geçmez.
 
 ---
 
-## F0 — Temizlik ve Doğruluk (önce bu; ~1-2 gün) 🔵 ŞU AN
+## F0 — Temizlik ve Doğruluk ✅ YAPILDI (2026-09-05)
 
 Bunlar bitmeden diğer fazlar yalan söyler: testler kırmızı, CI kopuk, main kirli.
 
-- ⬜ **0.1 KVKK rıza deliğini kapat.** `clinical_ai_service._try_runtime_reply`
+- ✅ **0.1 KVKK rıza deliğini kapat.** (branch `fix/f0-kvkk-consent-ve-test-hizi`) `clinical_ai_service._try_runtime_reply`
   yalnızca **klinik politikasına** (`external_transfer_allowed`) bakıyor,
   **hastanın kendi rızasına** (`external_ai_consent`) bakmıyor; ana sağlayıcı
   yolu ise `politika AND rıza` diye hesaplıyor. Runtime yolu önce çalıştığı için
   rıza kapısı devre dışı kalıyor. `PREFERRED_LLM_PROVIDER=auto` (varsayılan) ve
   lokal LLM yokken bu, hasta metnini rızasız OpenAI'a gönderir.
-  - Kabul: `_try_runtime_reply` de `external_ai_consent` alır ve kapıya ekler;
-    `tests/test_ai_factory.py`'deki 2 kırmızı test yeşile döner.
-- ⬜ **0.2 Test paketini hızlandır (65 dk → hedef <5 dk).** Testler gerçek
+  - ✅ `app/ai/runtime.py:runtime_is_cross_border()` eklendi; `_try_runtime_reply`
+    artık `external_ai_consent` alıyor ve sınır-ötesi runtime'da rıza yoksa yolu
+    kapatıyor. Lokal runtime'da rıza aranmıyor → yerel-öncelik davranışı aynı
+    (sadece daraltma, genişleme yok). 3 regresyon testi eklendi.
+- ✅ **0.2 Test paketini hızlandır — 65:19 → 3:11.** Testler gerçek
   Ollama'ya (`localhost:11434`) HTTP atıyor. `conftest.py`'ye ağ kill-switch'i:
   test ortamında dış/lokal LLM çağrısı **varsayılan kapalı**, açıkça isteyen test
   fixture ile açar.
-  - Kabul: `pytest -q` <5 dk; hiçbir test gerçek HTTP atmıyor.
-- ⬜ **0.3 CI'ı gerçekten yeşile al.** `.github/workflows/ci.yml` backend job'ı
+  - ✅ `tests/conftest.py`'de iki katmanlı kill-switch: sağlayıcı ayarları
+    boşaltıldı + `socket.socket.connect` kapatıldı (kaçış kapısı:
+    `allow_real_network` fixture'ı). Tüm paket kill-switch ile yeşil
+    (**5203 passed, 1 skipped, 3:11**) → hiçbir test gerçek ağa muhtaç değilmiş.
+- 🟡 **0.3 CI'ı gerçekten yeşile al.** `.github/workflows/ci.yml` backend job'ı
   `timeout-minutes: 15` — 65 dakikalık paketle CI zaten geçemiyor. 0.2 sonrası
   gerçek bir GitHub Actions koşusuyla doğrula.
-  - Kabul: son commit'te yeşil CI rozeti.
-- ⬜ **0.4 main'i temizle.** Commit'lenmemiş iş: `backend/app/ops/bind_channel.py`
-  (numara→klinik bağlama CLI'ı) ve `docs/ops/netgsm-twilio-sip-trunk-kurulumu.md`.
-  İkisi de F1'in ön koşulu; commit'le.
+  - ✅ Lokalde CI'ın üç job'ı da geçiyor: `compileall` OK · `pytest -q` 3:11
+    (limit 15 dk) · `npm run test:run` 73/73 · `npm run build` OK.
+  - ⬜ Kalan: branch'i push'la ve gerçek GitHub Actions koşusunu doğrula.
+- ✅ **0.4 main'i temizle.** `app/ops/bind_channel.py` ve
+  `docs/ops/netgsm-twilio-sip-trunk-kurulumu.md` commit'lendi. CLI'a 5 test
+  eklendi (bağlama+resolver eşleşmesi, idempotent yeniden yönlendirme, devre dışı
+  bırakma, hatalı slug reddi, kanalın anahtarın parçası olması) — yanlış bağlanan
+  bir numara çağrıyı yanlış kliniğe yazar, resolver kadar kritik.
+- ✅ **0.5 `origin/main` ile birleştir.** Yerel main ve `origin/main` ayrışmıştı;
+  `201cfde` (İP-6.1 başarı-bazlı faturalama MVP'si) merge edildi, paket birleşik
+  halde yeşil.
 
 ---
 
@@ -152,8 +164,9 @@ işlenmiş.
 
 ## F6 — Ticarileşme ve FM (İP-6.1 / 6.4-6.6 / 6.8)
 
-- ⬜ **6.1** Billing MVP: `billing_service.py`'yi gerçek plan/fiyatla bağla,
-  kullanım sayaçları faturaya dönsün.
+- 🟡 **6.1** Billing MVP — `app/billing/success_billing.py` (başarı-bazlı
+  faturalama motoru + 193 test) `origin/main`'de landed. Kalan: gerçek plan/fiyatla
+  bağlama ve fiyatın pilot ödeme istekliliğiyle valide edilmesi (F4'e bağlı).
 - ⬜ **6.2** Patent: `docs/patent/IP-6.6-vekil-basvuru-paketi.md`'yi **gerçek
   vekile** teslim et, resmî novelty araştırması yaptır.
 - ⬜ **6.3** ≥5 ücretli klinik dönüşümü.
@@ -173,6 +186,10 @@ işlenmiş.
 
 ## Değişiklik Günlüğü
 
+- **2026-09-05 (akşam)** — F0 kapandı. KVKK rıza açığı düzeltildi, test paketi
+  65:19'dan 3:11'e indi, F1 ön koşulları (bind_channel CLI + SIP dokümanı) test
+  edilip commit'lendi, `origin/main` merge edildi. Sıradaki: **F1 — gerçek +90
+  telefon hattı.**
 - **2026-09-05** — Yol haritası sıfırdan oluşturuldu. Tespit: 93/93 teknik kapı
   geçiyor ama gerçek dünya teması sıfır; 2 kırmızı test gerçek bir KVKK rıza
   açığını gösteriyor; test paketi 65 dk sürüyor ve CI 15 dk limitiyle geçemez.
