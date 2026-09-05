@@ -42,12 +42,26 @@ Bunlar bitmeden diğer fazlar yalan söyler: testler kırmızı, CI kopuk, main 
     boşaltıldı + `socket.socket.connect` kapatıldı (kaçış kapısı:
     `allow_real_network` fixture'ı). Tüm paket kill-switch ile yeşil
     (**5203 passed, 1 skipped, 3:11**) → hiçbir test gerçek ağa muhtaç değilmiş.
-- 🟡 **0.3 CI'ı gerçekten yeşile al.** `.github/workflows/ci.yml` backend job'ı
+- ✅ **0.3 CI'ı gerçekten yeşile al.** `.github/workflows/ci.yml` backend job'ı
   `timeout-minutes: 15` — 65 dakikalık paketle CI zaten geçemiyor. 0.2 sonrası
   gerçek bir GitHub Actions koşusuyla doğrula.
   - ✅ Lokalde CI'ın üç job'ı da geçiyor: `compileall` OK · `pytest -q` 3:11
     (limit 15 dk) · `npm run test:run` 73/73 · `npm run build` OK.
-  - ⬜ Kalan: branch'i push'la ve gerçek GitHub Actions koşusunu doğrula.
+  - ✅ Gerçek koşum doğrulandı — [run 33998544123](https://github.com/enescosk/cognivault-ai/actions/runs/33998544123):
+    Backend 5m58s ✓ · Frontend 20s ✓ · Mobile typecheck 18s ✓.
+  - İlk koşum (33990721991) backend'de kırmızıydı ve **önceden var olan** bir
+    hatayı ortaya çıkardı: `math` tabanlı ECE metrikleri libm farkı yüzünden
+    platformlar arasında son bitte kayıyor, commit'lenmiş kanıt artefaktı `==`
+    karşılaştırmasını geçemiyordu (macOS `0.24808362369337983` vs Linux
+    `...97`). Yani artefakt üretildiği makineye bağımlıydı ve CI hiç yeşil
+    olamazdı. `app/core/determinism.py:stabilize_floats()` eklendi, artefakt
+    9 basamağa yuvarlanarak yeniden üretildi; kapı kararları yuvarlanmamış
+    değerlerle verilmeye devam ediyor.
+  - ⚠️ **Kalan risk:** aynı sınıf 17 `test_committed_artifact_is_fresh` testinde
+    daha var (özellikle exp/log kullanan no-show lojistik regresyonu). Şimdilik
+    yalnızca fiilen kırılan düzeltildi; diğerleri farklı bir platformda/Python
+    sürümünde patlayabilir. Sırası geldiğinde `stabilize_floats` tüm üreticilere
+    uygulanmalı.
 - ✅ **0.4 main'i temizle.** `app/ops/bind_channel.py` ve
   `docs/ops/netgsm-twilio-sip-trunk-kurulumu.md` commit'lendi. CLI'a 5 test
   eklendi (bağlama+resolver eşleşmesi, idempotent yeniden yönlendirme, devre dışı
@@ -186,7 +200,10 @@ işlenmiş.
 
 ## Değişiklik Günlüğü
 
-- **2026-09-05 (akşam)** — F0 kapandı. KVKK rıza açığı düzeltildi, test paketi
+- **2026-09-06** — F0 **tamamen** kapandı: CI gerçek koşumla yeşil doğrulandı
+  (33998544123). Yol boyunca commit'lenen kanıt artefaktlarının platforma bağımlı
+  olduğu ortaya çıktı ve düzeltildi.
+- **2026-09-05 (akşam)** — F0'ın ilk dört maddesi. KVKK rıza açığı düzeltildi, test paketi
   65:19'dan 3:11'e indi, F1 ön koşulları (bind_channel CLI + SIP dokümanı) test
   edilip commit'lendi, `origin/main` merge edildi. Sıradaki: **F1 — gerçek +90
   telefon hattı.**
