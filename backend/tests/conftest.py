@@ -1,3 +1,5 @@
+import socket
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -27,6 +29,50 @@ _test_settings.voice_external_enabled = False
 # hem metni <Play> URL'ine gizler. Testte kapalı — TwiML <Say> fallback'i
 # üretir. TTS'li verse davranışı test_phone_booking_flow'da mock ile açılır.
 _test_settings.voice_phone_native_tts_enabled = False
+
+# ── Ağ kill-switch'i (test koşumu ASLA gerçek servise gitmez) ───────────────
+# Geliştirme makinesinde .env `LOCAL_LLM_BASE_URL`/`OPENAI_API_KEY` dolu ve
+# Ollama ayakta olabiliyor. Bu ayarlar cached settings üzerinden testlere sızınca
+# `select_llm_runtime()` gerçek bir runtime döndürüyor, `complete_json` de
+# localhost:11434'e HTTP atıyordu: paket 65 dakikaya çıkıyor (CI'ın 15 dk
+# limitini aşıyor) ve sonuçlar makinede Ollama açık mı diye değişiyordu.
+# İki katmanlı savunma: (1) ayarları boşalt → runtime seçilemez,
+# (2) socket.connect'i kapat → herhangi bir yol yine de dışarı çıkmayı denerse
+# sessizce yavaşlamak yerine anlaşılır bir hata ile patlasın.
+_test_settings.openai_api_key = ""
+_test_settings.anthropic_api_key = ""
+_test_settings.local_llm_base_url = ""
+_test_settings.elevenlabs_api_key = ""
+_test_settings.preferred_llm_provider = "local"
+
+
+class BlockedNetworkCall(RuntimeError):
+    """Test koşumunda gerçek ağ çağrısı denendi."""
+
+
+_real_socket_connect = socket.socket.connect
+
+
+def _blocked_socket_connect(self, address, *args, **kwargs):
+    raise BlockedNetworkCall(
+        f"Test koşumunda gerçek ağ bağlantısı engellendi: {address!r}. "
+        "Dış servisi (LLM/STT/TTS/SMS) mock'layın; gerçek çağrı gerekiyorsa "
+        "tests/conftest.py'deki allow_real_network fixture'ını kullanın."
+    )
+
+
+socket.socket.connect = _blocked_socket_connect
+
+
+@pytest.fixture
+def allow_real_network():
+    """Bilerek gerçek ağ isteyen (entegrasyon) testler için kaçış kapısı."""
+    socket.socket.connect = _real_socket_connect
+    try:
+        yield
+    finally:
+        socket.socket.connect = _blocked_socket_connect
+
 
 # Test suite TestClient'ı tek IP üzerinden binlerce istek atar; login için
 # `@limiter.limit("10/minute")` testleri brute-force kabul edip 429 döner ve

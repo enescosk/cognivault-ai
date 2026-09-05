@@ -281,3 +281,97 @@ def test_clinic_policy_cannot_replace_patient_cross_border_consent(monkeypatch):
     assert observed_external_flags == [False]
     assert result.data["provider_source"] == "local_qwen"
     assert result.data["external_ai_consent_verified"] is False
+
+
+def _consent_test_clinic():
+    """Sınır-ötesi işlemciye politika olarak İZİN VEREN klinik.
+
+    Rıza kapısı testlerinde tek değişken hastanın rızası olsun diye klinik
+    tarafındaki her kapı açık bırakılır.
+    """
+    return SimpleNamespace(
+        name="Test Klinik",
+        default_language="tr",
+        ai_auto_reply_threshold=0.9,
+        emergency_disclaimer="Call emergency services.",
+        organization_id=None,
+        settings_json={
+            "data_residency_mode": "hybrid_explicit_consent",
+            "allow_cross_border_processors": True,
+        },
+    )
+
+
+def _arm_runtime_path(monkeypatch, *, cross_border: bool, calls: list):
+    """`_try_runtime_reply` yolunu açar ve LLM çağrısını gözlemlenebilir yapar."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "clinical_ai_enabled", True)
+    monkeypatch.setattr(settings, "clinical_external_ai_allowed", True)
+    monkeypatch.setattr(
+        clinical_ai_service, "runtime_is_cross_border", lambda: cross_border
+    )
+
+    def _spy_complete_json(**kwargs):
+        calls.append(kwargs)
+        return {
+            "reply": "Merkez şubemiz Çankaya'da.",
+            "confidence": 0.92,
+            "intent": "ask_location",
+            "action": "answer_location",
+            "requires_human_review": False,
+            "data": {},
+        }
+
+    monkeypatch.setattr(clinical_ai_service, "complete_json", _spy_complete_json)
+
+
+def test_runtime_path_blocks_cross_border_llm_without_patient_consent(monkeypatch):
+    """Klinik politikası hastanın açık rızasının yerine geçemez.
+
+    Regresyon: `_try_runtime_reply` asıl sağlayıcı yolundan ÖNCE çalışıyor ve
+    yalnızca klinik politikasına bakıyordu. Runtime OpenAI'a düştüğünde hasta
+    metni rızasız yurt dışına çıkıyordu (KVKK md. 9 açık rıza ihlali).
+    """
+    calls: list = []
+    _arm_runtime_path(monkeypatch, cross_border=True, calls=calls)
+
+    result = clinical_ai_service.generate_clinical_reply(
+        _consent_test_clinic(),
+        "Konumunuz nerede?",
+        external_ai_consent=False,
+    )
+
+    assert calls == [], "rıza yokken sınır-ötesi runtime'a istek gitmemeli"
+    assert result.action != "collect_info" or result.data.get("provider_source") != "runtime"
+
+
+def test_runtime_path_allows_cross_border_llm_with_patient_consent(monkeypatch):
+    """Rıza VARSA aynı yol çalışmaya devam eder — kapı kilit değil, kapı."""
+    calls: list = []
+    _arm_runtime_path(monkeypatch, cross_border=True, calls=calls)
+
+    clinical_ai_service.generate_clinical_reply(
+        _consent_test_clinic(),
+        "Konumunuz nerede?",
+        external_ai_consent=True,
+    )
+
+    assert len(calls) == 1
+
+
+def test_runtime_path_does_not_require_consent_for_local_runtime(monkeypatch):
+    """Lokal runtime'da sınır-ötesi transfer YOK → rıza aranmaz.
+
+    Yerel-öncelik davranışı korunmalı: rıza kapısını lokal işlemeye de
+    uygulamak, KVKK'ya uygun olan yolu gereksiz yere kapatırdı.
+    """
+    calls: list = []
+    _arm_runtime_path(monkeypatch, cross_border=False, calls=calls)
+
+    clinical_ai_service.generate_clinical_reply(
+        _consent_test_clinic(),
+        "Konumunuz nerede?",
+        external_ai_consent=False,
+    )
+
+    assert len(calls) == 1

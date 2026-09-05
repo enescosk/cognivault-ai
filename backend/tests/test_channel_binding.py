@@ -16,6 +16,7 @@ from app.models import (
     ClinicChannelBinding,
     ClinicConversation,
 )
+from app.ops.bind_channel import bind_channel
 from app.services.clinical_service import ensure_default_clinic, resolve_webhook_clinic
 
 
@@ -239,3 +240,107 @@ def test_meta_webhook_routes_by_phone_number_id(client, db_session):
         select(ClinicConversation).order_by(ClinicConversation.id.desc())
     ).first()
     assert conversation is not None and conversation.clinic_id == clinic_b.id
+
+
+# ─── bind_channel CLI (app/ops/bind_channel.py) ──────────────────────────────
+# F1'in (gerçek +90 hattı) operasyonel aracı: yanlış bağlanan bir numara ya
+# çağrıyı YANLIŞ kliniğe yazar ya da strict modda hastayı reddeder. Bu yüzden
+# CLI'ın kendisi de resolver kadar test edilir.
+
+def test_cli_binds_number_and_resolver_finds_it(db_session):
+    """CLI'ın yazdığı adres ile webhook'un aradığı adres birebir eşleşmeli."""
+    clinic = _make_clinic(db_session, "klinik-cli", "Klinik CLI")
+
+    rc = bind_channel(
+        db_session,
+        clinic_slug="klinik-cli",
+        phone="+90 312 000 11 22",   # boşluklu, insan yazımı
+        channel=ClinicChannel.PHONE,
+        deactivate=False,
+    )
+
+    assert rc == 0
+    resolved = resolve_webhook_clinic(
+        db_session, channel=ClinicChannel.PHONE, address="+903120001122"
+    )
+    assert resolved is not None and resolved.id == clinic.id
+
+
+def test_cli_is_idempotent_and_repoints_without_duplicating(db_session):
+    """Aynı numara ikinci kez bağlanınca çift kayıt değil, yeniden yönlendirme."""
+    _make_clinic(db_session, "klinik-a", "Klinik A")
+    clinic_b = _make_clinic(db_session, "klinik-b", "Klinik B")
+
+    bind_channel(
+        db_session, clinic_slug="klinik-a", phone="+903120001122",
+        channel=ClinicChannel.PHONE, deactivate=False,
+    )
+    bind_channel(
+        db_session, clinic_slug="klinik-b", phone="+903120001122",
+        channel=ClinicChannel.PHONE, deactivate=False,
+    )
+
+    rows = db_session.scalars(
+        select(ClinicChannelBinding).where(
+            ClinicChannelBinding.channel == ClinicChannel.PHONE,
+            ClinicChannelBinding.address == "+903120001122",
+        )
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].clinic_id == clinic_b.id
+
+
+def test_cli_deactivate_makes_number_unroutable(db_session, strict_mode):
+    """Devre dışı bırakılan numara strict modda artık hiçbir kliniğe yazmaz."""
+    _make_clinic(db_session, "klinik-a", "Klinik A")
+    bind_channel(
+        db_session, clinic_slug="klinik-a", phone="+903120001122",
+        channel=ClinicChannel.PHONE, deactivate=False,
+    )
+
+    rc = bind_channel(
+        db_session, clinic_slug="klinik-a", phone="+903120001122",
+        channel=ClinicChannel.PHONE, deactivate=True,
+    )
+
+    assert rc == 0
+    assert resolve_webhook_clinic(
+        db_session, channel=ClinicChannel.PHONE, address="+903120001122"
+    ) is None
+
+
+def test_cli_rejects_unknown_clinic_slug(db_session):
+    """Yazım hatası sessizce yanlış kliniğe bağlamak yerine hata döndürmeli."""
+    _make_clinic(db_session, "klinik-a", "Klinik A")
+
+    rc = bind_channel(
+        db_session, clinic_slug="klinik-yok", phone="+903120001122",
+        channel=ClinicChannel.PHONE, deactivate=False,
+    )
+
+    assert rc == 2
+    assert db_session.scalars(select(ClinicChannelBinding)).all() == []
+
+
+def test_cli_channel_is_part_of_the_key(db_session):
+    """Aynı numara phone ve whatsapp için ayrı kliniklere bağlanabilir."""
+    clinic_a = _make_clinic(db_session, "klinik-a", "Klinik A")
+    clinic_b = _make_clinic(db_session, "klinik-b", "Klinik B")
+
+    bind_channel(
+        db_session, clinic_slug="klinik-a", phone="+903120001122",
+        channel=ClinicChannel.PHONE, deactivate=False,
+    )
+    bind_channel(
+        db_session, clinic_slug="klinik-b", phone="+903120001122",
+        channel=ClinicChannel.WHATSAPP, deactivate=False,
+    )
+
+    phone_clinic = resolve_webhook_clinic(
+        db_session, channel=ClinicChannel.PHONE, address="+903120001122"
+    )
+    whatsapp_clinic = resolve_webhook_clinic(
+        db_session, channel=ClinicChannel.WHATSAPP, address="+903120001122"
+    )
+    assert phone_clinic is not None and phone_clinic.id == clinic_a.id
+    assert whatsapp_clinic is not None and whatsapp_clinic.id == clinic_b.id

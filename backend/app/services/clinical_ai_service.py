@@ -6,7 +6,7 @@ import math
 import re
 
 from app.ai.ai_factory import OpenAIProvider, get_llm_provider, parse_model_json
-from app.ai.runtime import complete_json
+from app.ai.runtime import complete_json, runtime_is_cross_border
 from app.core.config import get_settings
 from app.clinical.ontology import (
     EMERGENCY_KEYWORDS,
@@ -530,6 +530,7 @@ def _try_runtime_reply(
     intent: ClinicIntent,
     persona: ClinicalPersona,
     governance: dict,
+    external_ai_consent: bool,
 ) -> ClinicalAIResult | None:
     settings = get_settings()
     if not settings.clinical_ai_enabled:
@@ -541,6 +542,15 @@ def _try_runtime_reply(
     if "special_category_health_data" in governance.get("data_classes", []):
         return None
     if "financial_or_insurance_data" in governance.get("data_classes", []):
+        return None
+    # Klinik politikası hastanın açık rızasının YERİNE GEÇMEZ. Yukarıdaki kapılar
+    # yalnızca kliniğin sınır-ötesi işlemciye izin verip vermediğini sorar; asıl
+    # yolda (`generate_clinical_reply`) transfer `politika AND hasta rızası` ile
+    # hesaplanır. Bu yol ondan ÖNCE çalıştığı için aynı çarpımı burada da
+    # uygulamak zorundayız — yoksa runtime OpenAI'a düştüğünde hasta metni
+    # rızasız yurt dışına çıkar. Lokal runtime'da transfer olmadığı için rıza
+    # aranmaz (KVKK yerel-öncelik davranışı korunur).
+    if runtime_is_cross_border() and not external_ai_consent:
         return None
 
     try:
@@ -692,7 +702,9 @@ def generate_clinical_reply(
     slot_decision = build_slot_decision(intake)
 
     if use_ai:
-        runtime_reply = _try_runtime_reply(clinic, text, resolved_language, intent, persona, governance)
+        runtime_reply = _try_runtime_reply(
+            clinic, text, resolved_language, intent, persona, governance, external_ai_consent
+        )
         if runtime_reply is not None:
             return runtime_reply
 

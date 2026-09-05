@@ -52,6 +52,19 @@ def select_llm_runtime() -> LLMRuntime | None:
     return None
 
 
+def runtime_is_cross_border() -> bool:
+    """Seçili runtime hasta metnini yurt dışı bir işlemciye mi taşır?
+
+    `select_llm_runtime()` sağlayıcı tercihine göre lokal (Ollama/vLLM) ya da
+    OpenAI seçebilir. Sınır-ötesi kapıları uygulayan çağıranlar (KVKK açık rıza)
+    "runtime var mı" ile "runtime yurt dışına mı çıkıyor" sorularını ayırmak
+    zorunda; bu yardımcı o ayrımın tek doğru kaynağı. Runtime yoksa transfer de
+    yoktur → False.
+    """
+    runtime = select_llm_runtime()
+    return runtime is not None and not runtime.is_local
+
+
 def llm_capabilities() -> dict:
     settings = get_settings()
     runtime = select_llm_runtime()
