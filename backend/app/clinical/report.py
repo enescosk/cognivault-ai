@@ -27,6 +27,7 @@ import argparse
 import json
 from pathlib import Path
 
+from app.core.determinism import stabilize_floats
 from app.clinical.calibrate import SEED, TRAIN_FRACTION, build_pairs, split
 from app.clinical.calibration import IsotonicCalibrator, expected_calibration_error
 from app.clinical.emergency_report import CORPUS_FILES, evaluate_recall
@@ -185,7 +186,9 @@ def build_dashboard() -> dict:
         "emergency_recall": _emergency_block(),
         "selective": _selective_block(),
     }
-    return {
+    # Kapı kararı YUVARLANMAMIŞ değerler üzerinden verilir; yuvarlama yalnızca
+    # artefaktın platformlar arası birebir eşleşmesi için (bkz. determinism).
+    dashboard = {
         "ip": "1.8",
         "title": "CogniVault Türkçe Diş Triyaj — Kalibrasyon/Metrik Panosu",
         "corpus": {
@@ -196,6 +199,7 @@ def build_dashboard() -> dict:
         "metrics": metrics,
         "overall_pass": overall_pass(metrics),
     }
+    return stabilize_floats(dashboard)
 
 
 def render(dashboard: dict) -> str:

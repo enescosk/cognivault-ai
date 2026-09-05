@@ -14,12 +14,12 @@
     "specialty_accuracy": {
       "target": 0.9,
       "synthetic": {
-        "accuracy": 0.967032967032967,
+        "accuracy": 0.967032967,
         "correct": 528,
         "total": 546,
         "per_specialty": {
           "cene_cerrahisi": {
-            "accuracy": 0.7777777777777778,
+            "accuracy": 0.777777778,
             "correct": 49,
             "total": 63
           },
@@ -39,7 +39,7 @@
             "total": 46
           },
           "genel_dis": {
-            "accuracy": 0.9272727272727272,
+            "accuracy": 0.927272727,
             "correct": 51,
             "total": 55
           },
@@ -88,7 +88,7 @@
         ]
       },
       "golden": {
-        "accuracy": 0.6571428571428571,
+        "accuracy": 0.657142857,
         "correct": 23,
         "total": 35
       },
@@ -100,9 +100,9 @@
       "train_fraction": 0.6,
       "train_n": 327,
       "test_n": 219,
-      "test_ece": 0.020854215391468915,
-      "test_ece_naive": 0.5290280495759948,
-      "golden_ece": 0.24808362369337983,
+      "test_ece": 0.020854215,
+      "test_ece_naive": 0.52902805,
+      "golden_ece": 0.248083624,
       "pass": true
     },
     "emergency_recall": {
@@ -149,22 +149,22 @@
     },
     "selective": {
       "target_risk": 0.05,
-      "threshold": 0.9876543209876543,
+      "threshold": 0.987654321,
       "synthetic": {
         "total": 546,
         "accepted": 471,
         "abstained": 75,
-        "coverage": 0.8626373626373627,
-        "selective_accuracy": 0.9915074309978769,
-        "selective_risk": 0.00849256900212314
+        "coverage": 0.862637363,
+        "selective_accuracy": 0.991507431,
+        "selective_risk": 0.008492569
       },
       "golden": {
         "total": 35,
         "accepted": 21,
         "abstained": 14,
         "coverage": 0.6,
-        "selective_accuracy": 0.8571428571428571,
-        "selective_risk": 0.1428571428571429
+        "selective_accuracy": 0.857142857,
+        "selective_risk": 0.142857143
       },
       "pass": true
     }
