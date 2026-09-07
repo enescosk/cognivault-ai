@@ -1,0 +1,11 @@
+# Sanal ortamlar ve derleme çıktıları imaja girmemeli (hem şişirir hem host'a
+# özgü yolları taşır).
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Yerel veritabanı ve yedekler — prod verisi imajdan değil volume'dan gelir.
+data/
+tests/

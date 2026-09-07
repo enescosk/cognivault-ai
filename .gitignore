@@ -3,6 +3,10 @@
 .env.local
 .env.*.local
 .env.production
+# Prod sırları (JWT, DB parolası, Netgsm/Twilio) — asla commit'lenmez.
+# Örnek dosya (.env.prod.example) izlenmeye devam eder.
+.env.prod
+!.env.prod.example
 *.key
 *.pem
 secrets/

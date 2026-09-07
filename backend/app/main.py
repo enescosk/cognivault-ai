@@ -267,15 +267,21 @@ def healthz() -> dict[str, str]:
 
 
 @app.get("/readyz")
-def readyz(db: Session = Depends(get_db)) -> dict:
+def readyz(response: Response, db: Session = Depends(get_db)) -> dict:
+    """Hazırlık probu — DB'ye ulaşamıyorsa **503** döner.
+
+    Yük dengeleyici / Docker healthcheck / uptime izleme bu ucu HTTP durum
+    koduna bakarak yorumlar. Gövdede "fail" yazıp 200 dönmek, veritabanı ölmüş
+    bir konteyneri sağlıklı gösterir ve trafik almaya devam etmesine yol
+    açardı — probun tek işi tam olarak bunu engellemek.
+    """
     try:
         db.execute(text("SELECT 1"))
-        database = "ok"
-        status = "ok"
+        return {"status": "ok", "checks": {"database": "ok"}}
     except Exception:  # noqa: BLE001
-        database = "fail"
-        status = "fail"
-    return {"status": status, "checks": {"database": database}}
+        logger.error("readyz.database_unreachable", exc_info=True)
+        response.status_code = 503
+        return {"status": "fail", "checks": {"database": "fail"}}
 
 
 @app.get("/metrics")

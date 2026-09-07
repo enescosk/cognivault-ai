@@ -1,0 +1,159 @@
+# CogniVault — production dağıtımı (tek sunucu / klinik on-prem kutusu).
+#
+# Geliştirme compose'undan (docker-compose.yml) farkları, hepsi kasıtlı:
+#   - Postgres host'a port AÇMAZ; sadece iç ağdan erişilir.
+#   - Şema uygulama başlangıcında değil, tek seferlik `migrate` servisiyle
+#     değişir (AUTO_CREATE_SCHEMA=false — production guard'ı zaten zorunlu kılar).
+#   - Caddy gerçek domain için Let's Encrypt sertifikasını otomatik alır/yeniler.
+#   - Sırlar compose dosyasında değil, .env.prod dosyasında; varsayılan YOK,
+#     eksikse compose hata verir (`?` sözdizimi) — "replace-me" ile canlıya
+#     çıkmak imkânsız.
+#   - Yedekleme servisi günlük PROVA koşar (yedekle→doğrula→geri yükle→karşılaştır).
+#
+# Kullanım:  ./scripts/prod/deploy.sh
+# Elle:      docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB gerekli}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER gerekli}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD gerekli}
+    # Host'a port açılmıyor: veritabanına yalnızca compose ağından erişilir.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Tek seferlik şema göçü. Backend bunun BAŞARIYLA bitmesini bekler; migration
+  # patlarsa uygulama hiç ayağa kalkmaz (yarı göçmüş şemayla trafik almaz).
+  migrate:
+    build:
+      context: ./backend
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ENVIRONMENT: production
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET gerekli (min 32 karakter)}
+      AUTO_CREATE_SCHEMA: "false"
+      SEED_DEMO_DATA: "false"
+    command: ["alembic", "upgrade", "head"]
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env.prod
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ENVIRONMENT: production
+      # Prod guard'ları: şema otomatik yaratılmaz, demo verisi tohumlanmaz.
+      AUTO_CREATE_SCHEMA: "false"
+      SEED_DEMO_DATA: "false"
+      # Tek domain arkasındayız; tarayıcı isteği aynı origin'den geldiği için
+      # CORS listesi yalnız bu domain'i içerir (wildcard preflight'ta uyarı verir).
+      CORS_ORIGINS: https://${COGNIVAULT_DOMAIN:?COGNIVAULT_DOMAIN gerekli}
+      # Twilio imzası bu URL'e göre doğrulanır — domain ile birebir aynı olmalı.
+      CLINICAL_WEBHOOK_BASE_URL: https://${COGNIVAULT_DOMAIN}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
+    volumes:
+      - backend_data:/app/data
+
+  # Giden bildirimleri (SMS/webhook) transactional outbox'tan işler. Ayrı
+  # süreç olması kasıtlı: API isteği kuyruğa yazar, gönderim burada retry/
+  # dead-letter ile yürür (bkz. app/services/outbox_service.py).
+  outbox-worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env.prod
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ENVIRONMENT: production
+      AUTO_CREATE_SCHEMA: "false"
+      SEED_DEMO_DATA: "false"
+    command: ["python", "-m", "app.workers.outbox_worker"]
+
+  # Günlük yedek PROVASI: yedekle → bütünlük doğrula → geçici hedefe geri yükle
+  # → satır sayılarını karşılaştır. Sadece "yedek aldım" demez, geri
+  # dönülebildiğini kanıtlar. Kanıt: /app/data/backups/latest.json
+  backup:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ENVIRONMENT: production
+      JWT_SECRET: ${JWT_SECRET}
+      AUTO_CREATE_SCHEMA: "false"
+      SEED_DEMO_DATA: "false"
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - backend_data:/app/data
+    # Cron konteyneri yerine düz döngü: bağımlılık yok, log'u compose'ta görünür,
+    # başarısızlık `docker compose logs backup` ile tek yerden okunur.
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          echo "[backup] prova başlıyor: $$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python -m app.ops.backup drill || echo "[backup] PROVA BAŞARISIZ — müdahale gerekir"
+          sleep "$$BACKUP_INTERVAL_SECONDS"
+        done
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Tek domain: tarayıcı API'yi kendi origin'inden çağırır, CORS yok.
+        VITE_API_URL: https://${COGNIVAULT_DOMAIN}/api
+    restart: unless-stopped
+
+  # TLS sonlandırma + tek domain yönlendirmesi. Caddy sertifikayı Let's
+  # Encrypt'ten kendisi alır ve yeniler (80/443 açık ve DNS doğru olmalı).
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      COGNIVAULT_DOMAIN: ${COGNIVAULT_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL gerekli (sertifika bildirimleri için)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  backend_data:
+  caddy_data:
+  caddy_config:

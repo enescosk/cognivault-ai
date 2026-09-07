@@ -24,7 +24,7 @@ import ast
 import json
 from pathlib import Path
 
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 
 
 ARTIFACT_PATH = Path(__file__).resolve().parent / "data" / "preflight.json"
@@ -226,6 +226,51 @@ def evaluate_production_config(settings: Settings) -> list[dict]:
     return findings
 
 
+def audit_live_environment() -> dict:
+    """Bu makinedeki GERÇEK `.env`/ortam değişkenlerini dağıtıma karşı denetler.
+
+    `build_report()` mekanizmanın kendisini (guard'lar çalışıyor mu) sentetik
+    profillerle kanıtlar. Bu fonksiyon ise operatörün elindeki asıl profili
+    denetler — dağıtımdan önce cevaplanması gereken soru bu: "benim config'im
+    canlıya çıkabilir mi?".
+    """
+    settings = get_settings()
+    findings = evaluate_production_config(settings)
+    blocking = [f for f in findings if f["severity"] == "block"]
+    return {
+        "name": "prod_env_audit",
+        "environment": settings.environment,
+        "is_production": settings.is_production,
+        "findings": findings,
+        "blocking_count": len(blocking),
+        "ready_to_deploy": not blocking,
+    }
+
+
+def render_env_audit(audit: dict) -> str:
+    lines = [
+        "Prod Ops — Canlı Ortam Denetimi",
+        "=" * 60,
+        f"ENVIRONMENT = {audit['environment']}  (production kabul edilir mi: {audit['is_production']})",
+        "-" * 60,
+    ]
+    if not audit["findings"]:
+        lines.append("Bulgu yok — bu deterministik kontroller açısından dağıtıma hazır.")
+    for finding in audit["findings"]:
+        mark = "BLOCK" if finding["severity"] == "block" else "WARN "
+        lines.append(f"{mark} [{finding['id']}] {finding['message']}")
+    lines += [
+        "-" * 60,
+        "SONUÇ: " + ("DAĞITILABİLİR" if audit["ready_to_deploy"] else "DAĞITIM BLOKE"),
+    ]
+    if not audit["is_production"]:
+        lines.append(
+            "NOT: ENVIRONMENT production/staging değil — production guard'larının "
+            "çoğu bu profilde hiç çalışmaz. Canlı sunucuda ENVIRONMENT=production olmalı."
+        )
+    return "\n".join(lines)
+
+
 def build_report() -> dict:
     gates = {
         "migration_single_head": _gate_migration_single_head(),
@@ -291,7 +336,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Prod ops dağıtım öncesi preflight panosu")
     parser.add_argument("--no-save", action="store_true", help="artefakt yazma")
     parser.add_argument("--json", action="store_true", help="JSON çıktısı")
+    parser.add_argument(
+        "--check-env",
+        action="store_true",
+        help="sentetik panoyu değil, BU makinedeki gerçek .env profilini denetle "
+             "(bloke eden bulgu varsa çıkış kodu 1) — dağıtım script'i bunu kullanır",
+    )
     args = parser.parse_args(argv)
+
+    if args.check_env:
+        audit = audit_live_environment()
+        print(json.dumps(audit, ensure_ascii=False, indent=2, sort_keys=True)
+              if args.json else render_env_audit(audit))
+        return 0 if audit["ready_to_deploy"] else 1
 
     report = build_report()
     if args.json:

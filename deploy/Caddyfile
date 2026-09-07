@@ -1,0 +1,39 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$COGNIVAULT_DOMAIN} {
+	encode gzip
+
+	# Prometheus metrikleri iç ağ içindir: istek hacmi, hata oranı ve klinik
+	# kimlikleri gibi işletme bilgisi taşır. Dışarıdan kapalı; scrape yapacaksan
+	# compose ağından `http://backend:8000/metrics` kullan.
+	handle /metrics* {
+		respond "Not found" 404
+	}
+
+	# API + webhook'lar (Twilio/Meta buraya POST eder) + sağlık probları.
+	# Twilio imzası CLINICAL_WEBHOOK_BASE_URL ile bu domain üzerinden doğrulanır.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /health* {
+		reverse_proxy backend:8000
+	}
+	handle /readyz {
+		reverse_proxy backend:8000
+	}
+	handle /healthz {
+		reverse_proxy backend:8000
+	}
+
+	# Geri kalan her şey SPA — nginx statik dosyaları servis eder.
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
