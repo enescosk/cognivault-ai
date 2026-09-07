@@ -115,22 +115,43 @@ vaka ve randevu onayı davranışında **regresyon yok**.
 
 ---
 
-## F3 — Tek Kliniğe Kurulabilir Ürün (~1 hafta)
+## F3 — Tek Kliniğe Kurulabilir Ürün 🟡 KOD AYAĞI BİTTİ (2026-09-07)
 
-Bugün elimizde sadece geliştirici `docker-compose.yml` var. Bir kliniğe kurulacak
-şey yok.
+Branch: `feat/f3-prod-deploy`. Kod ve yapılandırma ayağı tamam; **saha ayağı**
+(gerçek sunucu, gerçek domain, kronometre) F4 pilotuyla kapanır.
 
-- ⬜ **3.1** `docker-compose.prod.yml` + reverse proxy + TLS + gerçek domain.
-- ⬜ **3.2** Dağıtım runbook'u: migration → preflight (`app.ops.preflight`) →
-  seed → smoke test → geri dönüş adımı.
-- ⬜ **3.3** Operasyon otomasyonu: günlük yedek cron (`scripts/backup_db.sh`),
-  haftalık geri-dönüş provası (`scripts/backup_drill.sh`), outbox worker servisi,
-  `/readyz` izleme.
+Yolda iki gerçek engel çıktı, ikisi de düzeltildi:
+- **`/readyz` veritabanı ölüyken bile HTTP 200 dönüyordu** — gövdede `"fail"`
+  yazıyor ama durum kodu 200 olduğu için yük dengeleyici / Docker healthcheck
+  konteyneri SAĞLIKLI görüp trafik göndermeye devam ederdi. Artık 503.
+- **Backend imajında `migrations/` ve `alembic.ini` yoktu** — production'da şema
+  açık `alembic upgrade head` ile değişiyor ama migration'lar imaja
+  kopyalanmadığı için bu komut konteynerde hiç koşamazdı. Yani mevcut imajla
+  production'a çıkmak fiilen imkânsızdı.
+
+- ✅ **3.1** `docker-compose.prod.yml` + `deploy/Caddyfile` (otomatik Let's
+  Encrypt TLS, tek domain: `/api/*` → backend, gerisi → SPA, `/metrics` dışarıya
+  kapalı) + `.env.prod.example`. Postgres host'a port açmıyor; sırların
+  varsayılanı yok (`${VAR:?}`); backend `migrate` bitmeden başlamıyor.
+- ✅ **3.2** `docs/ops/prod-deploy-runbook.md` — kurulum, provizyon, güncelleme,
+  yedek/geri dönüş, günlük sağlık kontrolü, rollback karar ağacı, olay
+  müdahalesi. `scripts/prod/deploy.sh` (kapılı: env → config denetimi → derleme →
+  migration → başlatma → `/readyz` → duman testi; `--check-only` hiçbir konteyner
+  başlatmaz) ve `scripts/prod/smoke_test.sh` (8 dış kontrol).
+- ✅ **3.3** Operasyon otomasyonu: günlük yedek **provası** servisi (yedekle →
+  doğrula → geri yükle → karşılaştır), outbox worker servisi, `/readyz` tabanlı
+  konteyner healthcheck'i, `preflight --check-env` ile canlı config denetimi.
+- ✅ **3.5** Dağıtım paketi test altında — `tests/test_prod_deploy_package.py`
+  (27 test) compose/Caddyfile/Dockerfile/env örneğinin kodla senkron kalmasını
+  garantiliyor. Bu dosyalar aksi hâlde hiç test edilmiyordu.
 - ⬜ **3.4** `python -m app.onboarding.provision`'ı **gerçek klinik verisiyle
   kronometreyle** koş → İP-6.3'ün "<1 gün onboarding" iddiası kanıtlanır.
+  (Gerçek klinik verisi gerektirir — F4'e bağlı.)
 
-**Kabul:** Sıfır makinede, runbook'u takip eden bir kişi <6 saatte kurulumu
-bitiriyor; geri-dönüş provası `overall_ok: true` veriyor.
+**Kalan kabul kapıları (saha):** gerçek sunucuda kronometreli kurulum (<6 saat),
+gerçek domain'de sertifika alımı, canlı veriyle geri yükleme (RPO/RTO ölçümü),
+secret rotation tatbikatı, alarm/izleme kurulumu. Runbook Bölüm 10 bunları
+dürüstçe "henüz kanıtlanmadı" olarak listeliyor.
 
 ---
 
@@ -200,6 +221,11 @@ işlenmiş.
 
 ## Değişiklik Günlüğü
 
+- **2026-09-07** — F3'ün kod ayağı bitti (`feat/f3-prod-deploy`). Prod compose +
+  Caddy TLS + kapılı deploy script'i + duman testi + runbook + 27 sözleşme
+  testi. Yolda `/readyz`'in 503 dönmediği ve imajda migration bulunmadığı
+  ortaya çıktı, ikisi de düzeltildi. Sıradaki: **F1 — gerçek +90 telefon hattı**
+  (numara tedariki bekliyor).
 - **2026-09-06** — F0 **tamamen** kapandı: CI gerçek koşumla yeşil doğrulandı
   (33998544123). Yol boyunca commit'lenen kanıt artefaktlarının platforma bağımlı
   olduğu ortaya çıktı ve düzeltildi.

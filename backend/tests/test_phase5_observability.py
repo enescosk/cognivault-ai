@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import json
 
+from tests.conftest import override_get_db
+
+from sqlalchemy.exc import OperationalError
+
+from app.api.dependencies import get_db
+from app.main import app
 from app.core.observability import (
     JsonFormatter,
     agent_decisions_total,
@@ -25,6 +31,31 @@ def test_readyz_returns_ok_when_db_reachable(client):
     body = res.json()
     assert body["status"] == "ok"
     assert body["checks"]["database"] == "ok"
+
+
+def test_readyz_returns_503_when_database_unreachable(client):
+    """DB'ye ulaşılamıyorsa prob HTTP 503 dönmeli — gövdede "fail" yazıp 200
+    dönmek, veritabanı ölmüş bir konteyneri yük dengeleyiciye/Docker
+    healthcheck'e SAĞLIKLI gösterir ve trafik almaya devam etmesine yol açar.
+
+    Regresyon: uç tam olarak bunu yapıyordu (gövde fail, durum kodu 200).
+    """
+
+    class DeadSession:
+        def execute(self, *_args, **_kwargs):
+            raise OperationalError("SELECT 1", {}, Exception("bağlantı yok"))
+
+    app.dependency_overrides[get_db] = lambda: DeadSession()
+    try:
+        res = client.get("/readyz")
+    finally:
+        # conftest'in kurduğu asıl override'ı geri koy (silmek testleri bozar).
+        app.dependency_overrides[get_db] = override_get_db
+
+    assert res.status_code == 503
+    body = res.json()
+    assert body["status"] == "fail"
+    assert body["checks"]["database"] == "fail"
 
 
 def test_metrics_endpoint_serves_prometheus_format(client):

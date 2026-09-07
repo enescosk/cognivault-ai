@@ -152,3 +152,102 @@ def test_cli_smoke_exits_zero():
     assert proc.returncode == 0, proc.stderr
     payload = json.loads(proc.stdout)
     assert payload["overall_pass"] is True
+
+
+# ── --check-env: operatörün GERÇEK profilinin denetimi ───────────────────────
+# `build_report()` mekanizmayı sentetik profillerle kanıtlar. `--check-env` ise
+# dağıtım anında elde ne varsa onu denetler; `scripts/prod/deploy.sh` hiçbir
+# konteyner başlatmadan önce bunu koşar ve çıkış koduna göre durur.
+
+def _run_check_env(env_overrides: dict[str, str]):
+    """CLI'ı ayrı süreçte, verilen ortam değişkenleriyle koşar."""
+    import os
+
+    # NOT: `Settings` .env yolunu sabit tutuyor (config.py model_config), yani
+    # geliştirme makinesindeki .env bu alt sürece de yüklenir. Sonuç yine de
+    # deterministik: bloke eden bulguların TAMAMI (jwt_secret, runtime_safety →
+    # seed_demo/auto_schema, database_backend) aşağıda açıkça set edilen
+    # değişkenlerden türüyor ve ortam değişkenleri .env'i ezer.
+    env = {**os.environ, **env_overrides}
+    return subprocess.run(
+        [sys.executable, "-m", "app.ops.preflight", "--check-env", "--json"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+    )
+
+
+def test_check_env_blocks_weak_jwt_secret_in_production():
+    """Zayıf secret ile production'a çıkmak engellenmeli (çıkış kodu 1)."""
+    proc = _run_check_env({
+        "ENVIRONMENT": "production",
+        "JWT_SECRET": "change-me-in-production",
+        "DATABASE_URL": "postgresql+psycopg://u:p@db:5432/cognivault",
+    })
+    assert proc.returncode == 1, proc.stdout
+    audit = json.loads(proc.stdout)
+    assert audit["ready_to_deploy"] is False
+    assert any(f["id"] == "jwt_secret" for f in audit["findings"])
+
+
+def test_check_env_blocks_sqlite_in_production():
+    """Production'da sqlite bloke edilmeli — tek dosyalı DB klinik verisi taşımaz."""
+    proc = _run_check_env({
+        "ENVIRONMENT": "production",
+        "JWT_SECRET": STRONG_TEST_JWT,
+        "DATABASE_URL": "sqlite:///data/cognivault.db",
+    })
+    assert proc.returncode == 1, proc.stdout
+    audit = json.loads(proc.stdout)
+    assert any(f["id"] == "database_backend" for f in audit["findings"])
+
+
+def test_check_env_blocks_demo_seed_in_production():
+    """Demo verisiyle canlıya çıkmak engellenmeli."""
+    proc = _run_check_env({
+        "ENVIRONMENT": "production",
+        "JWT_SECRET": STRONG_TEST_JWT,
+        "DATABASE_URL": "postgresql+psycopg://u:p@db:5432/cognivault",
+        "SEED_DEMO_DATA": "true",
+    })
+    assert proc.returncode == 1, proc.stdout
+    audit = json.loads(proc.stdout)
+    assert any(f["id"] == "runtime_safety" for f in audit["findings"])
+
+
+def test_check_env_accepts_clean_production_profile():
+    """docker-compose.prod.yml'in ürettiği profil dağıtılabilir olmalı.
+
+    Buradaki değerler compose'daki `environment:` bloğunun birebir karşılığı —
+    kapılar orayı reddederse dağıtım hiç başlamaz.
+    """
+    proc = _run_check_env({
+        "ENVIRONMENT": "production",
+        "JWT_SECRET": STRONG_TEST_JWT,
+        "DATABASE_URL": "postgresql+psycopg://cognivault:pw@db:5432/cognivault",
+        "AUTO_CREATE_SCHEMA": "false",
+        "SEED_DEMO_DATA": "false",
+        "CORS_ORIGINS": "https://klinik.example.com",
+    })
+    assert proc.returncode == 0, proc.stdout
+    audit = json.loads(proc.stdout)
+    assert audit["ready_to_deploy"] is True
+    assert audit["blocking_count"] == 0
+
+
+def test_check_env_warns_when_environment_is_not_production():
+    """Geliştirme profili bloke edilmez ama production guard'ları da çalışmaz.
+
+    Sunucuda ENVIRONMENT=production unutulursa hiçbir kapı devreye girmez;
+    denetim çıktısı bunu açıkça söylemeli.
+    """
+    proc = _run_check_env({
+        "ENVIRONMENT": "development",
+        "JWT_SECRET": "kisa",
+        "DATABASE_URL": "sqlite:///data/cognivault.db",
+    })
+    assert proc.returncode == 0, proc.stdout
+    audit = json.loads(proc.stdout)
+    assert audit["is_production"] is False
+    assert audit["blocking_count"] == 0

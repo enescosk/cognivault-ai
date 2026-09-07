@@ -191,7 +191,32 @@ inceleyebilesiniz. Karar ağacı:
 | Hasta verisi yurt dışına gitti şüphesi | `PREFERRED_LLM_PROVIDER` ve `CLINICAL_EXTERNAL_AI_ALLOWED` değerlerini kontrol edin; sınır-ötesi işlem hem klinik izni hem hasta açık rızası ister. |
 | Sertifika yenilenemedi | `$CV logs caddy`. 80 portu kapanmış olabilir. Sertifikalar 30 gün önceden yenilenir, panik payı vardır. |
 
-## 9. Bu runbook'un henüz kanıtlamadığı şeyler
+## 9. Dağıtım paketinin kendisi test altında
+
+`docker-compose.prod.yml`, `deploy/Caddyfile`, `backend/Dockerfile` ve
+`.env.prod.example` kodun dışında yaşıyor — hiçbir test onlara bakmazsa sessizce
+kodla çelişebilirler ve bunu ancak canlıda fark ederiz.
+`backend/tests/test_prod_deploy_package.py` bu çelişkileri dağıtımdan önce
+yakalar (27 test):
+
+| Sözleşme | Neden |
+|---|---|
+| Prod guard değerleri compose'da doğru | Yanlışsa konteyner ya hiç başlamaz ya demo verisiyle canlıya çıkar |
+| Sırların compose'da varsayılanı yok | "replace-me" ile canlıya çıkmak imkânsız olsun |
+| Yalnız Caddy host'a port açıyor, Postgres kapalı | Veritabanı internete açılmasın |
+| backend, `migrate` bitmeden başlamıyor | Yarım göçmüş şemayla trafik alınmasın |
+| `CLINICAL_WEBHOOK_BASE_URL` = servis edilen domain | Farklıysa Twilio imzası her çağrıda düşer, telefon akışı sessizce ölür |
+| İmajda migration + `pg_dump`/`pg_restore` var | Olmazsa göç ve yedekleme konteynerde hiç koşamaz |
+| `/metrics` Caddy'de dışarıya kapalı | İstek hacmi ve klinik kimliği sızdırır |
+| deploy.sh'in istediği her alan örnekte var | Operatör örneği doldurup yine hata almasın |
+
+Kapıları elle koşmak:
+
+```bash
+cd backend && ./.venv/bin/python -m pytest tests/test_prod_deploy_package.py -q
+```
+
+## 10. Bu runbook'un henüz kanıtlamadığı şeyler
 
 Dürüstlük bölümü — aşağıdakiler kod ile değil, **saha ile** kapanır:
 
