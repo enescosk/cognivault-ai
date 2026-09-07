@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
+from app.core.determinism import stabilize_floats
 from app.clinical.distillation import build_report as build_distillation_report
 from app.evidence import build_readiness
 from app.integrations.hbys import build_report as build_hbys_report
@@ -296,7 +297,9 @@ def build_project_readiness() -> dict:
         ],
         "overall_pass": all(gate["status"] == "passed" for gate in gates),
     }
-    return report
+    # Artefakt commit'lenip `==` ile karşılaştırılıyor (bayatlama kapısı);
+    # float'lar platformdan bağımsız olmalı.
+    return stabilize_floats(report)
 
 
 def render(report: dict) -> str:

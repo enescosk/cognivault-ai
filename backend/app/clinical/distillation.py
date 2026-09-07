@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 
+from app.core.determinism import stabilize_floats
 from app.clinical.corpus.schema import CorpusEntry, corpus_data_dir, load_corpus, scan_pii
 from app.clinical.normalizer import triage
 from app.clinical.ontology import SPECIALTY_BY_CODE, UrgencyLevel
@@ -486,7 +487,9 @@ def build_report() -> dict:
             "Fine-tuned modelin baseline exact-label ve mevcut klinik kalite/latency panolarina karsi karsilastirmasi.",
         ],
     }
-    return report
+    # Artefakt commit'lenip `==` ile karşılaştırılıyor; float'lar
+    # platformdan bağımsız olmalı (bkz. app/core/determinism.py).
+    return stabilize_floats(report)
 
 
 def render(report: dict) -> str:

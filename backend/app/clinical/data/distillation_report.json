@@ -2,20 +2,23 @@
   "baseline": {
     "test": {
       "channel_accuracy": 1.0,
-      "exact_label_accuracy": 0.5142857142857142,
-      "specialty_accuracy": 0.6571428571428571,
+      "emergency_recall": 1.0,
+      "exact_label_accuracy": 0.514285714,
+      "specialty_accuracy": 0.657142857,
       "total": 35,
-      "urgency_accuracy": 0.7714285714285715
+      "urgency_accuracy": 0.771428571
     },
     "train": {
       "channel_accuracy": 1.0,
-      "exact_label_accuracy": 0.8348623853211009,
-      "specialty_accuracy": 0.9587155963302753,
+      "emergency_recall": 1.0,
+      "exact_label_accuracy": 0.834862385,
+      "specialty_accuracy": 0.958715596,
       "total": 436,
-      "urgency_accuracy": 0.8761467889908257
+      "urgency_accuracy": 0.876146789
     },
     "validation": {
       "channel_accuracy": 1.0,
+      "emergency_recall": 1.0,
       "exact_label_accuracy": 0.8,
       "specialty_accuracy": 1.0,
       "total": 110,
@@ -54,7 +57,7 @@
     "baseline_protocol": {
       "pass": true,
       "target": "fine-tune sonrasi karsilastirma icin validation/test baseline metrikleri kayitli",
-      "test_exact_label_accuracy": 0.5142857142857142,
+      "test_exact_label_accuracy": 0.514285714,
       "validation_specialty_accuracy": 1.0
     },
     "eval_input_contract": {
@@ -105,7 +108,7 @@
   },
   "improvement_targets": {
     "note": "Fine-tuned model bu baseline'i gecmeli; test split golden settir ve egitime karismamalidir.",
-    "test_exact_label_accuracy_min": 0.5142857142857142,
+    "test_exact_label_accuracy_min": 0.514285714,
     "validation_exact_label_accuracy_min": 0.8
   },
   "name": "ip3_6_distillation_data_pack",

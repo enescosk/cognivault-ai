@@ -21,6 +21,7 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.core.determinism import stabilize_floats
 from app.clinical.ontology import rank_specialties
 
 # Kalibratörün diske yazıldığı varsayılan konum (calibrate.py üretir).
@@ -155,7 +156,7 @@ class IsotonicCalibrator:
 
     def save(self, path: Path = CALIBRATION_ARTIFACT) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        path.write_text(json.dumps(stabilize_floats(self.to_dict()), indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, path: Path = CALIBRATION_ARTIFACT) -> "IsotonicCalibrator | None":

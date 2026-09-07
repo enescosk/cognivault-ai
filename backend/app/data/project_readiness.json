@@ -9,7 +9,7 @@
   "current_phase": "İP-5.2 pilot hazirlik + İP-3.6/3.7 saha teknik tamamlama",
   "distillation_summary": {
     "baseline": {
-      "test_exact_label_accuracy": 0.5142857142857142,
+      "test_exact_label_accuracy": 0.514285714,
       "validation_exact_label_accuracy": 0.8
     },
     "dataset_artifact": "distillation_dataset.jsonl",

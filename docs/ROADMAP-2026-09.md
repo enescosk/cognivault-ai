@@ -57,11 +57,12 @@ Bunlar bitmeden diğer fazlar yalan söyler: testler kırmızı, CI kopuk, main 
     olamazdı. `app/core/determinism.py:stabilize_floats()` eklendi, artefakt
     9 basamağa yuvarlanarak yeniden üretildi; kapı kararları yuvarlanmamış
     değerlerle verilmeye devam ediyor.
-  - ⚠️ **Kalan risk:** aynı sınıf 17 `test_committed_artifact_is_fresh` testinde
-    daha var (özellikle exp/log kullanan no-show lojistik regresyonu). Şimdilik
-    yalnızca fiilen kırılan düzeltildi; diğerleri farklı bir platformda/Python
-    sürümünde patlayabilir. Sırası geldiğinde `stabilize_floats` tüm üreticilere
-    uygulanmalı.
+  - ✅ **Kalan risk kapatıldı (2026-09-07, branch `fix/artifact-determinism`).**
+    24 commit'li artefaktın taranmasıyla riskin 17 değil **5 dosyada** olduğu
+    görüldü; beşi de yuvarlandı ve artık **0/24** yuvarlanmamış float var.
+    Asıl kalıcı çözüm tek tek yama değil, `tests/test_determinism.py`'deki
+    parametrize kapı: `app/**/*.json` altındaki HER artefakt taranıyor, yeni bir
+    pano `stabilize_floats` olmadan eklenirse test o dosyanın adıyla düşüyor.
 - ✅ **0.4 main'i temizle.** `app/ops/bind_channel.py` ve
   `docs/ops/netgsm-twilio-sip-trunk-kurulumu.md` commit'lendi. CLI'a 5 test
   eklendi (bağlama+resolver eşleşmesi, idempotent yeniden yönlendirme, devre dışı
@@ -175,6 +176,31 @@ veriden alınabiliyor.
 
 ---
 
+## F-ARA — Bayat kalibratör kararı (küçük ama İP-1'i etkiler)
+
+2026-09-07'de artefakt determinizmi çalışırken çıktı: `calibration.json` ve
+`selective.json` commit'li hâlleriyle **bayat**. Aynı korpustan yeniden fit
+edildiklerinde fitter farklı bir kalibratör üretiyor:
+
+```
+commit'li : thresholds [0, 4, 5, 6, 7]      values[0] = 0.9876543209876543
+yeniden fit: thresholds [0, 1, 4, 5, 6, 7]  values[0] = 0.784615385  (+ 0.984555985)
+```
+
+Bu artefaktlar **çalışma zamanında yükleniyor** (`normalizer.py` kalibratörü,
+`report.py`/`selective.py` eşiği), yani canlı güven kalibrasyonunu etkiliyorlar.
+Determinizm işine karıştırılmadı — o iş 1e-10'luk bir yuvarlamayken bu gerçek bir
+davranış değişikliği ve İP-1'in (kalibre çekimser yönlendirici) sahibinin kararı.
+
+- ⬜ Fitter mi değişti, korpus mu? `git log` ile artefaktın en son ne zaman
+  üretildiğini ve o tarihten sonra `calibration.py`/korpusun değişip değişmediğini
+  belirle.
+- ⬜ Yeniden fit edilmiş kalibratörle İP-1 kapılarını koş (ECE, seçici risk,
+  acil-recall). Panodaki metrikler değişmiyordu ama canlı yol farklı.
+- ⬜ Karar verildikten sonra bu iki dosyaya da **tazelik testi** ekle — şu an
+  hiçbir test onları üreticiyle karşılaştırmıyor, bayatlamaları bu yüzden
+  aylarca görünmedi.
+
 ## F5 — İP-3.6: Fine-tune Kararını Kapat (~2-3 gün, F1'e paralel)
 
 Üç GPU denemesi de başarısız (v1 acil-recall %26,7 · v2 %13,3 · v3 validation %0).
@@ -221,6 +247,11 @@ işlenmiş.
 
 ## Değişiklik Günlüğü
 
+- **2026-09-07 (ii)** — Artefakt determinizmi kapatıldı: 5 üretici yuvarlandı +
+  tüm artefaktları tarayan parametrize kapı eklendi. Yolda **`calibration.json`
+  ve `selective.json`'ın bayat olduğu** ortaya çıktı (fitter artık farklı bir
+  kalibratör üretiyor) — bu bir davranış değişikliği olduğu için determinizm
+  işine karıştırılmadı, ayrı karar olarak açık bırakıldı (bkz. F5 altındaki not).
 - **2026-09-07** — F3'ün kod ayağı bitti (`feat/f3-prod-deploy`). Prod compose +
   Caddy TLS + kapılı deploy script'i + duman testi + runbook + 27 sözleşme
   testi. Yolda `/readyz`'in 503 dönmediği ve imajda migration bulunmadığı

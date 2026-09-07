@@ -12,9 +12,15 @@ reddediyordu:
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 from app.clinical.report import METRICS_ARTIFACT, build_dashboard
 from app.core.determinism import ARTIFACT_FLOAT_DIGITS, stabilize_floats
+
+APP_ROOT = Path(__file__).resolve().parents[1] / "app"
+COMMITTED_ARTIFACTS = sorted(APP_ROOT.rglob("*.json"))
 
 
 def _floats(value, path="$"):
@@ -56,15 +62,34 @@ def test_clinical_dashboard_has_no_platform_unstable_floats():
     assert offenders == [], f"yuvarlanmamış float'lar artefaktı platforma bağımlı yapar: {offenders}"
 
 
-def test_committed_metrics_artifact_is_platform_stable():
-    """Commit'lenmiş artefakt da yuvarlanmış olmalı (bayat üretici yakalanır)."""
-    committed = json.loads(METRICS_ARTIFACT.read_text(encoding="utf-8"))
+def test_every_committed_artifact_is_found():
+    """Tarama gerçekten dosya buluyor mu — sessizce boş küme üzerinde geçmesin."""
+    assert len(COMMITTED_ARTIFACTS) >= 20, COMMITTED_ARTIFACTS
+
+
+@pytest.mark.parametrize(
+    "artifact", COMMITTED_ARTIFACTS, ids=lambda p: p.relative_to(APP_ROOT).as_posix()
+)
+def test_committed_artifact_is_platform_stable(artifact):
+    """HER commit'lenmiş artefakt platformdan bağımsız serileşmeli.
+
+    Tek tek üreticiyi yamamak yerine sınıfı kapatan kapı bu: yeni bir pano
+    eklendiğinde ve `stabilize_floats` unutulduğunda test HEMEN düşer, üretildiği
+    makineye bağımlı bir artefakt sessizce repoya giremez.
+
+    Düzeltme her zaman aynı tek satır: üreticinin dönüşünü `stabilize_floats()`
+    içine al ve artefaktı yeniden üret.
+    """
+    data = json.loads(artifact.read_text(encoding="utf-8"))
     offenders = [
         (path, value)
-        for path, value in _floats(committed)
+        for path, value in _floats(data)
         if round(value, ARTIFACT_FLOAT_DIGITS) != value
     ]
-    assert offenders == [], f"artefakt yuvarlanmamış float içeriyor: {offenders}"
+    assert offenders == [], (
+        f"{artifact.relative_to(APP_ROOT)} yuvarlanmamış float içeriyor "
+        f"(platforma bağımlı): {offenders[:5]}"
+    )
 
 
 def test_rounding_does_not_move_any_quality_gate():

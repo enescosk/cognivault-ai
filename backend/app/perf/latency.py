@@ -39,6 +39,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
 
+from app.core.determinism import stabilize_floats
 from app.models import ClinicIntent
 from app.services.clinical_compliance_service import (
     build_governance_context,
@@ -247,7 +248,9 @@ def build_perf_report(trials: int = DEFAULT_TRIALS, warmup: int = DEFAULT_WARMUP
 
     latency = build_latency_report(trials, warmup)
     quality = build_dashboard()
-    return {
+    # Gecikme değerleri koşumdan koşuma zaten değişir (gerçek ölçüm), ama kalite
+    # bloğu deterministik olmalı — artefakt platformdan bağımsız serileşsin.
+    return stabilize_floats({
         "ip": "3.9",
         "title": "CogniVault Yerel Yığın — Gecikme + Kalite Raporu",
         "latency": latency,
@@ -256,7 +259,7 @@ def build_perf_report(trials: int = DEFAULT_TRIALS, warmup: int = DEFAULT_WARMUP
             "overall_pass": quality["overall_pass"],
         },
         "overall_pass": latency["overall_pass"] and quality["overall_pass"],
-    }
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 
+from app.core.determinism import stabilize_floats
 from app.clinical.normalizer import TriageResult, triage
 from app.clinical.ontology import rank_specialties
 
@@ -211,7 +212,7 @@ def save_threshold(
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"confidence_threshold": threshold, "target_risk": target_risk}
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(stabilize_floats(payload), indent=2), encoding="utf-8")
 
 
 @lru_cache(maxsize=1)
