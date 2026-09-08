@@ -192,14 +192,55 @@ Bu artefaktlar **çalışma zamanında yükleniyor** (`normalizer.py` kalibratö
 Determinizm işine karıştırılmadı — o iş 1e-10'luk bir yuvarlamayken bu gerçek bir
 davranış değişikliği ve İP-1'in (kalibre çekimser yönlendirici) sahibinin kararı.
 
-- ⬜ Fitter mi değişti, korpus mu? `git log` ile artefaktın en son ne zaman
-  üretildiğini ve o tarihten sonra `calibration.py`/korpusun değişip değişmediğini
-  belirle.
-- ⬜ Yeniden fit edilmiş kalibratörle İP-1 kapılarını koş (ECE, seçici risk,
-  acil-recall). Panodaki metrikler değişmiyordu ama canlı yol farklı.
-- ⬜ Karar verildikten sonra bu iki dosyaya da **tazelik testi** ekle — şu an
-  hiçbir test onları üreticiyle karşılaştırmıyor, bayatlamaları bu yüzden
-  aylarca görünmedi.
+### Sebep bulundu (2026-09-08)
+
+Ne fitter değişti ne de kalibrasyonun okuduğu korpus (`dental_tr.jsonl`).
+Değişen **skorlama zinciri**:
+
+```
+calibration.json en son fit edildi   → 6d88aea  (İP-1.5, kalibrasyon katmanı)
+sonra gelen commit                   → a9e9ea2  (İP-1.7, acil-recall %100)
+a9e9ea2'nin dokunduğu dosyalar       → ontology.py + normalizer.py
+```
+
+`raw_confidence_signal()` sinyalini `rank_specialties()` eşleşme sayılarından
+türetiyor. İP-1.7 acil-recall'u %100'e çıkarmak için ontolojinin acil anahtar
+kelime setlerini ve normalizer'ın argo genişletmesini yeniden yazdı → eşleşme
+sayıları değişti → ham güven sinyali değişti. Ama kimse `app.clinical.calibrate`
+komutunu yeniden koşmadı. **Artefakt tam olarak bir commit bayat.**
+
+Bu artefaktlar yalnız kanıt değil: `evaluate_selective` → `decide` →
+`normalizer`'ın yüklediği kalibratör zinciriyle **İP-1.6 seçici kapısını da
+besliyorlar**, canlı hasta yolunu da.
+
+### Ölçüm: yeniden fit hiçbir kapıyı oynatmıyor
+
+| Metrik | Commit'li (bayat) | Yeniden fit | |
+|---|---|---|---|
+| overall_pass | True | True | aynı |
+| test_ece | 0.020854215 | 0.020854215 | aynı |
+| branş doğruluğu | 0.967032967 | 0.967032967 | aynı |
+| acil-recall | 76/76 | 76/76 | aynı |
+| seçici kabul (sentetik) | 471 · %86,26 · risk %0,85 | 471 · %86,26 · risk %0,85 | aynı |
+| seçici kabul (golden) | 21 · %60 · risk %14,29 | 21 · %60 · risk %14,29 | aynı |
+| **eşik değeri** | **0.987654321** | **0.784615385** | **değişti** |
+
+Sebebi: eşik aynı kalibratörden türetiliyor, yani ikisi birlikte hareket ediyor
+ve kabul/ret sınırı aynı örneklerin üstüne düşüyor. Bayat çift **kendi içinde
+tutarlı** — bugün zarar vermiyor.
+
+**Asıl risk tutarlılığın bozulması:** çift eski skorlama zinciriyle tutarlı. Biri
+yeniden fit edilip diğeri edilmezse, ya da skorlama zinciri bir kez daha
+değişirse ayrışırlar ve bunu kimse fark etmez.
+
+### Kalan karar (İP-1 sahibi)
+
+- ⬜ Yeniden fit edilip commit'lensin mi? Kapı riski ölçüldü: **sıfır**. Kalan
+  bilinmeyen, korpus dışı gerçek hasta metinlerinde canlı eşiğin 0,988'den
+  0,785'e inmesinin etkisi.
+- ⬜ Karar ne olursa olsun bu iki dosyaya **tazelik testi** eklenmeli — şu an
+  hiçbir test onları üreticiyle karşılaştırmıyor; bayatlamalarının bir commit
+  boyunca görünmemesinin sebebi bu.
 
 ## F5 — İP-3.6: Fine-tune Kararını Kapat (~2-3 gün, F1'e paralel)
 
@@ -247,6 +288,10 @@ işlenmiş.
 
 ## Değişiklik Günlüğü
 
+- **2026-09-08** — F-ARA araştırıldı: bayatlığın sebebi İP-1.7'nin skorlama
+  zincirini (ontology + normalizer) değiştirip kalibratörü yeniden fit
+  etmemesi. Yeniden fit'in kapılara etkisi ölçüldü: **sıfır** — tek değişen
+  eşik değerinin kendisi. Karar İP-1 sahibinde.
 - **2026-09-07 (ii)** — Artefakt determinizmi kapatıldı: 5 üretici yuvarlandı +
   tüm artefaktları tarayan parametrize kapı eklendi. Yolda **`calibration.json`
   ve `selective.json`'ın bayat olduğu** ortaya çıktı (fitter artık farklı bir
