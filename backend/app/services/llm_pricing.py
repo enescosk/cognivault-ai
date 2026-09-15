@@ -10,6 +10,7 @@ from __future__ import annotations
 
 # (input_per_1m_usd, output_per_1m_usd)
 PRICING: dict[str, tuple[float, float]] = {
+    "gpt-6-astra":          (10.00, 50.00),
     # OpenAI
     "gpt-4.1-mini":         (0.40, 1.60),
     "gpt-4o-mini":          (0.15, 0.60),

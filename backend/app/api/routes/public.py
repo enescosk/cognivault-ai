@@ -1157,19 +1157,9 @@ def _has_active_consent(
     conversation_id: int,
     consent_type: ConsentType,
 ) -> bool:
-    row = db.scalars(
-        select(ConsentRecord)
-        .where(
-            ConsentRecord.clinic_id == clinic_id,
-            ConsentRecord.patient_id == patient_id,
-            ConsentRecord.conversation_id == conversation_id,
-            ConsentRecord.consent_type == consent_type,
-            ConsentRecord.granted.is_(True),
-            ConsentRecord.withdrawn_at.is_(None),
-        )
-        .order_by(ConsentRecord.granted_at.desc(), ConsentRecord.id.desc())
-    ).first()
-    return row is not None
+    from app.services.clinical_consent import has_active_consent
+    return has_active_consent(db, clinic_id=clinic_id, patient_id=patient_id,
+                              conversation_id=conversation_id, consent_type=consent_type)
 
 
 def _voice_consent_scope(

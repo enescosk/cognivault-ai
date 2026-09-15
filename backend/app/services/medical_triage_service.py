@@ -272,14 +272,16 @@ def _external_clinical_ai_allowed(clinic: Clinic, settings) -> bool:
     external_transfer_allowed = bool(clinic_settings.get("allow_cross_border_processors", False))
     return bool(
         settings.clinical_ai_enabled
+        and getattr(settings, "clinical_llm_provider", "auto") == "auto"
         and settings.clinical_external_ai_allowed
         and external_transfer_allowed
     )
 
 
-def _try_openai_triage(clinic: Clinic, text: str, language: str) -> MedicalTriageAssessment | None:
+def _try_openai_triage(clinic: Clinic, text: str, language: str, *,
+                      external_ai_consent: bool = False) -> MedicalTriageAssessment | None:
     settings = get_settings()
-    if not settings.openai_api_key or not _external_clinical_ai_allowed(clinic, settings):
+    if not external_ai_consent or not settings.openai_api_key or not _external_clinical_ai_allowed(clinic, settings):
         return None
 
     safe_text = mask_identifiers(text)
@@ -316,7 +318,16 @@ def _try_openai_triage(clinic: Clinic, text: str, language: str) -> MedicalTriag
     )
 
 
-def assess_medical_triage(clinic: Clinic, text: str, language: str) -> MedicalTriageAssessment:
-    if not looks_medical(text):
-        return _fallback_assessment(text, language)
-    return _try_openai_triage(clinic, text, language) or _fallback_assessment(text, language)
+def assess_medical_triage(clinic: Clinic, text: str, language: str, *,
+                          use_ai: bool = True, external_ai_consent: bool = False) -> MedicalTriageAssessment:
+    baseline = _fallback_assessment(text, language)
+    # Urgent deterministic findings must not be softened by a generated draft.
+    if not use_ai or not looks_medical(text) or baseline.urgency == MedicalUrgency.EMERGENCY:
+        return baseline
+    candidate = _try_openai_triage(clinic, text, language, external_ai_consent=external_ai_consent)
+    if candidate is None:
+        return baseline
+    order = list(MedicalUrgency)
+    if order.index(candidate.urgency) > order.index(baseline.urgency):
+        return baseline
+    return candidate

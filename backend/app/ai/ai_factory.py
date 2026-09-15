@@ -225,7 +225,7 @@ class LocalQwenProvider(LLMProvider):
         reply = "Ben Selin. Size nasıl yardımcı olabilirim?"
 
         if intent == "book_appointment":
-            reply = "Diş şikayetiniz için en uygun randevu saatlerini kontrol ediyorum. Hangi gün uygun olursunuz?"
+            reply = "Randevu için hangi gün uygun olursunuz?"
             action = "collect_appointment_details"
         elif intent == "ask_price":
             reply = "Tedavi fiyatlarımız işlem türüne göre değişmektedir. Hangi işlem hakkında fiyat almak istiyorsunuz?"
@@ -266,8 +266,15 @@ def get_llm_provider(data_residency_mode: str, external_transfer_allowed: bool) 
         return LocalQwenProvider()
 
     settings = get_settings()
+    preference = settings.clinical_llm_provider
+    if preference == "local":
+        return LocalQwenProvider()
     if not (settings.clinical_external_ai_allowed and external_transfer_allowed):
         return LocalQwenProvider()
+
+    if preference == "astra":
+        from app.ai.astra import AstraProvider
+        return AstraProvider() if settings.openai_api_key else LocalQwenProvider()
 
     # Fallback/hybrid modes
     if settings.anthropic_api_key:

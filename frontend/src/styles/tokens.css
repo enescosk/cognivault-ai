@@ -54,7 +54,8 @@
  * override kuralları (global.css) dokunulmaz kaldı; bu blok yalnız onlara sahip
  * OLMAYAN bileşenleri düzeltir (= eskiden beyaz-üstüne-beyaz kalanlar).
  */
-.dashboard-shell.clinical-view {
+.dashboard-shell.clinical-view,
+.login-shell {
   --bg: #eaf3ef;
   --bg-2: #e3ece8;
   --surface: #ffffff;

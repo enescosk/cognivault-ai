@@ -42,6 +42,24 @@ ARTIFACT_PATH = Path(__file__).resolve().parent / "data" / "greeting.json"
 DEFAULT_ASSISTANT = "Selin"
 DEFAULT_CLINIC = "kliniğimiz"
 
+
+def compose_social_reply(text: str, *, language: str = "tr") -> str | None:
+    """Only whole-message social turns; never swallow an attached request."""
+    value = normalize(text)
+    if value in {"tesekkurler", "tesekkur ederim", "cok tesekkurler", "sag olun", "sagol", "sag olunuz"}:
+        return "Rica ederim, yardımcı olabildiysem ne mutlu."
+    if value in {"thanks", "thank you", "thanks a lot"}:
+        return "You're welcome. I'm here if you need anything else."
+    if value in {"orada misin", "burada misin", "sesim geliyor mu", "beni duyuyor musun"}:
+        return "Buradayım, mesajınız ulaştı. Nasıl yardımcı olabilirim?"
+    if value in {"are you there", "can you hear me"}:
+        return "I'm here and received your message. How can I help?"
+    if value in {"sen kimsin", "siz kimsiniz", "robot musun", "yapay zeka misin"}:
+        return "Ben Selin, kliniğin dijital asistanıyım. Randevu ve klinik bilgileri için yardımcı olabilirim."
+    if value in {"who are you", "are you a bot", "are you human"}:
+        return "I'm Selin, the clinic's digital assistant. I can help with appointments and clinic information."
+    return None
+
 # İnsancıl gecikme modeli (ms). Robotik anındalık yerine gerçek bir resepsiyonist
 # temposu: küçük bir düşünme tabanı + cevap uzunluğuna oranlı "yazma" süresi.
 DELAY_MIN_MS = 450

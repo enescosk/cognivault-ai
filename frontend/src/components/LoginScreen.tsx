@@ -122,6 +122,7 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
   }
 
   function pickStaff(s: { email: string; password: string }) {
+    setLoginError(null);
     setLoginEmail(s.email);
     setLoginPassword(s.password);
     setTab("login");
@@ -237,7 +238,8 @@ export function LoginScreen({ onLogin, onRegister }: Props) {
             {staffUsers.map((u) => (
               <button
                 key={u.email}
-                className="demo-account-card"
+                className={`demo-account-card${loginEmail === u.email ? " is-selected" : ""}`}
+                aria-pressed={loginEmail === u.email}
                 type="button"
                 onClick={() => pickStaff(u)}
               >

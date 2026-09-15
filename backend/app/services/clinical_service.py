@@ -752,7 +752,30 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
     db.commit()
     db.refresh(message)
 
-    ai_result = generate_clinical_reply(clinic, incoming.body, language, incoming.requested_persona_id, use_ai=use_ai)
+    from app.services.clinical_consent import has_active_consent
+
+    previous_messages = list(db.scalars(select(ClinicMessage).where(
+        ClinicMessage.clinic_id == clinic.id,
+        ClinicMessage.conversation_id == conversation.id,
+        ClinicMessage.id < message.id,
+        ClinicMessage.sender.in_([ClinicMessageSender.PATIENT, ClinicMessageSender.ASSISTANT,
+                                 ClinicMessageSender.OPERATOR]),
+    ).order_by(ClinicMessage.id.desc()).limit(6)))
+    history = [
+        {"role": "user" if item.sender == ClinicMessageSender.PATIENT else "assistant",
+         "content": item.content}
+        for item in reversed(previous_messages)
+    ]
+    ai_result = generate_clinical_reply(
+        clinic, incoming.body, language, incoming.requested_persona_id, use_ai=use_ai,
+        previous_intent=conversation.intent,
+        conversation_history=history,
+        already_greeted=bool(previous_messages),
+        external_ai_consent=has_active_consent(
+            db, clinic_id=clinic.id, patient_id=patient.id, conversation_id=conversation.id,
+            consent_type=ConsentType.CROSS_BORDER_TRANSFER,
+        ),
+    )
     triage = ai_result.triage_assessment or {}
     doctor_summary = (ai_result.data or {}).get("doctor_summary")
     possible_conditions = (ai_result.data or {}).get("possible_conditions", [])

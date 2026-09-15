@@ -110,7 +110,7 @@ def test_fully_consented_path_masks_pii_before_external_call(monkeypatch):
     _FakeOpenAI.captured_calls = []
     clinic = _clinic(allow_cross_border=True)
 
-    result = svc._try_openai_triage(clinic, SYMPTOM_TEXT, "tr")
+    result = svc._try_openai_triage(clinic, SYMPTOM_TEXT, "tr", external_ai_consent=True)
 
     assert result is not None
     assert result.source == "openai_structured"

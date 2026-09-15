@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,6 +56,11 @@ class Settings(BaseSettings):
     piper_voice_model: str = ""
     max_voice_upload_bytes: int = 15_000_000
     clinical_ai_enabled: bool = False
+    clinical_llm_provider: Literal["auto", "local", "astra"] = "auto"
+    clinical_astra_model: str = "gpt-6-astra"
+    clinical_astra_reasoning: Literal["low", "medium", "high"] = "low"
+    clinical_astra_timeout: float = Field(default=15.0, ge=1, le=60)
+    clinical_astra_max_output_tokens: int = Field(default=1800, ge=512, le=8192)
     clinical_external_ai_allowed: bool = False
     voice_external_enabled: bool = False
     # Lokal LLM (KVKK local-first) — Ollama/vLLM OpenAI-uyumlu endpoint.

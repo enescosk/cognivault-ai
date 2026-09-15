@@ -44,6 +44,9 @@ _test_settings.anthropic_api_key = ""
 _test_settings.local_llm_base_url = ""
 _test_settings.elevenlabs_api_key = ""
 _test_settings.preferred_llm_provider = "local"
+# Provider selection tests explicitly opt into Astra; a developer's .env
+# must not change the existing auto-provider contract under test.
+_test_settings.clinical_llm_provider = "auto"
 
 
 class BlockedNetworkCall(RuntimeError):
