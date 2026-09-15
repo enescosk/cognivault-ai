@@ -8,7 +8,7 @@
 ## Tek cümlelik durum
 
 Ar-Ge çekirdeği (triyaj, yönetişim zarfı, öğrenme döngüsü, ses kontrol mantığı,
-ops araçları) **bitmiş ve panolu kanıtlı** — 93/93 kapı, 5170 backend + 73
+ops araçları) **bitmiş ve panolu kanıtlı** — 93/93 kapı, 5385 backend + 76
 frontend testi. Eksik olan tek şey **gerçek dünya teması**: sistemi hiç kimse
 gerçek bir telefondan aramadı, hiçbir klinik canlıda kullanmadı.
 
@@ -76,9 +76,11 @@ Bunlar bitmeden diğer fazlar yalan söyler: testler kırmızı, CI kopuk, main 
 
 ## F1 — Gerçek Telefon Hattı (asıl kilit; ~1 hafta)
 
-Kod tarafı **hazır**: `phone_flow_service.py` çok turlu slot akışını telefonda
-kapatıyor, kendi TTS'imizi `<Play>` ile veriyor, KVKK anonsu var, onay SMS'i
-Netgsm'den gidiyor. Eksik olan tek şey **arayabileceğimiz bir +90 numara**.
+Kod tarafı büyük ölçüde hazır: `phone_flow_service.py` çok turlu slot akışını
+telefonda kapatıyor, kendi TTS'imizi `<Play>` ile veriyor, KVKK anonsu var, onay
+SMS'i Netgsm'den gidiyor. Ana eksik **arayabileceğimiz bir +90 numara** — ama
+2026-09-16'da Voice Studio çalışması sırasında telefon akışında üç boşluk daha
+ortaya çıktı (1.6–1.8); ilk gerçek aramadan önce en az 1.6 kapanmalı.
 
 - ⬜ **1.1** Netgsm SIP Trunk + coğrafi +90 numara aktivasyonu.
 - ⬜ **1.2** Twilio SIP Domain + Netgsm IP ACL (yol: `docs/ops/netgsm-twilio-sip-trunk-kurulumu.md`).
@@ -88,13 +90,34 @@ Netgsm'den gidiyor. Eksik olan tek şey **arayabileceğimiz bir +90 numara**.
   `CLINICAL_CHANNEL_BINDING_STRICT=true`.
 - ⬜ **1.5** **İlk gerçek arama.** Kayıt al, gecikmeleri ölç.
 
+### Voice Studio çalışmasından çıkan üç boşluk (2026-09-16)
+
+- ⬜ **1.6** **Niyet/kural katmanını `phone_flow_service`'e taşı.** Deterministik
+  niyet tablosu (meşgulüm · kimsiniz/robot musunuz · fiyat · yetkiliye bağlayın ·
+  mesaj bırak · anlamadım tekrar et · konu dışı · bir daha aramayın) şu an
+  **yalnız** `voice_studio_service.py`'de. Gerçek telefon akışında yok: arayan
+  bunlardan birini derse akış slot teklifine takılıyor. Ortak bir modüle çıkarılıp
+  iki yoldan da kullanılmalı — **ilk gerçek aramadan önce kapanmalı**, çünkü bir
+  insanın telefonda söyleyeceği ilk şeyler tam olarak bunlar.
+- ⬜ **1.7** **Telefon karşılamasını klinik bazlı yap.** `clinical.py`'daki
+  `/webhooks/voice/incoming` karşılaması hardcoded: hangi numara aranırsa aransın
+  "CogniVault… Ben Selin" diyor ve kliniği hiç çözmüyor (`resolve_webhook_clinic`
+  yalnız `/gather`'da çağrılıyor). Ayrıca ~45 kelimelik KVKK anonsu arayan tek
+  kelime edemeden okunuyor — telefon için fazla uzun. Kliniği çöz, markayı ve sesi
+  `voice_profile`'dan üret, anonsu kısalt (detay SMS ile).
+- ⬜ **1.8** **Yol B — telefonda ses de yurt içinde** (F1 kapandıktan sonra).
+  Yol A'da konuşmayı Twilio'nun ABD STT'si çözüyor; bizim `faster-whisper`'ımız
+  telefon yolunda **devrede değil** (web ve Voice Studio'da devrede). Kalıcı
+  çözüm Netgsm-native + lokal Whisper. Büyük iş, F1'i bloke etmez ama pilot
+  sözleşmesi imzalanmadan karar verilmeli.
+
 **Kabul kapısı (F1 kapanır):** Bir insan telefonu eline alıp numarayı arıyor,
 konuşuyor, **90 saniye içinde** onay SMS'i geliyor ve randevu operatör panelinde
 slot'a bağlı olarak görünüyor. Elle müdahale yok.
 
 > KVKK notu: Bu yol (Yol A) sesi Twilio ABD STT'sinden geçirir → sınır-ötesi
-> işlemci sorunu **devam eder**. Pilot sözleşmesinde bu açıkça yazılmalı; kalıcı
-> çözüm Yol B (Netgsm-native + lokal Whisper) ve F5'e bağlı.
+> işlemci sorunu **devam eder** (bkz. 1.8). Pilot sözleşmesinde bu açıkça
+> yazılmalı.
 
 ---
 
@@ -288,6 +311,16 @@ işlenmiş.
 
 ## Değişiklik Günlüğü
 
+- **2026-09-16** — Voice Studio (operatör prova stüdyosu) main'e alındı: klinik
+  bazlı ses karakteri profili + deterministik niyet katmanı + `simulate_call` /
+  `voice_demo` ops betikleri. Test paketi 5385 backend + 76 frontend, hepsi
+  yeşil. Yolda telefon akışında **üç boşluk** ortaya çıktı ve F1'e madde olarak
+  eklendi: niyet katmanı gerçek telefon yolunda yok (1.6), karşılama metni
+  hardcoded ve klinik-bağımsız (1.7), telefonda STT hâlâ Twilio ABD'de (1.8).
+  Prova motorundaki iki hata da düzeltildi: kısa onay ("Evet, doğrudur.")
+  randevu sanılıyordu ve model zamanı "15:00" yazınca kullanıcının "saat 15"
+  cümlesiyle eşleşmediği için aynı soru tekrar tekrar soruluyordu — randevu
+  zamanı artık modelin çıktısından değil kullanıcının kendi cümlesinden okunuyor.
 - **2026-09-08** — F-ARA araştırıldı: bayatlığın sebebi İP-1.7'nin skorlama
   zincirini (ontology + normalizer) değiştirip kalibratörü yeniden fit
   etmemesi. Yeniden fit'in kapılara etkisi ölçüldü: **sıfır** — tek değişen
