@@ -21,7 +21,7 @@ import tempfile
 import threading
 import wave
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.core.config import get_settings
 
@@ -194,7 +194,7 @@ class ElevenLabsScribeSTT(STTProvider):
         resp = httpx.post(
             "https://api.elevenlabs.io/v1/speech-to-text",
             headers={"xi-api-key": s.elevenlabs_api_key},
-            data={"model_id": s.elevenlabs_stt_model, "language_code": language or "tr"},
+            data={"model_id": "scribe_v2" if s.elevenlabs_stt_model == "scribe_v2_realtime" else s.elevenlabs_stt_model, "language_code": language or "tr"},
             files={"file": ("audio.webm", audio, "audio/webm")},
             timeout=s.local_llm_timeout,
         )
@@ -350,22 +350,115 @@ class OpenAITTS(TTSProvider):
         return resp.content, "audio/mpeg"
 
 
+# OpenAI ses adları — eski çağrı yolları (hasta sayfası, /voice/synthesize)
+# varsayılan olarak "nova" gönderiyor. Bunlar ElevenLabs voice_id değil; profilde
+# seçili sesi ezmemeleri gerekir, yoksa istek 404 döner.
+OPENAI_VOICE_NAMES = frozenset({"nova", "alloy", "echo", "fable", "onyx", "shimmer"})
+
+# ElevenLabs'in kabul ettiği aralıklar. Dışına çıkan değer 422 döndürür; bu yüzden
+# klinik ayarından ne gelirse gelsin burada kırpılır.
+_SPEED_RANGE = (0.7, 1.2)
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+@dataclass(frozen=True)
+class VoiceProfile:
+    """Bir kliniğin seçtiği ElevenLabs ses karakteri.
+
+    Voice Studio'da dinlenip kaydedilen ayarların ta kendisi: canlı çağrı yolu da,
+    stüdyo önizlemesi de aynı profili kullanır — böylece "stüdyoda duyduğun ses"
+    ile "hastanın duyduğu ses" aynı olur.
+    """
+
+    voice_id: str
+    model_id: str
+    speed: float = 1.0
+    stability: float = 0.45
+    similarity_boost: float = 0.80
+    style: float = 0.0
+    speaker_boost: bool = True
+    output_format: str = "mp3_44100_128"
+
+    def payload(self, text: str) -> dict:
+        """ElevenLabs /text-to-speech gövdesi.
+
+        `language_code="tr"` TR telaffuzu kilitler — model dili metinden tahmin
+        ettiğinde kısa cümlelerde ("Tamam.", "Buyurun?") İngilizce okuyabiliyor,
+        robotik/aksanlı algının en büyük kaynağı bu.
+        """
+        return {
+            "text": text[:5000],
+            "model_id": self.model_id,
+            "language_code": "tr",
+            "voice_settings": {
+                "stability": self.stability,
+                "similarity_boost": self.similarity_boost,
+                "style": self.style,
+                "use_speaker_boost": self.speaker_boost,
+                "speed": self.speed,
+            },
+        }
+
+
+def resolve_voice_profile(
+    overrides: dict | None = None, *, voice: str | None = None
+) -> VoiceProfile:
+    """Settings varsayılanları + klinik override'ları → tek ses profili.
+
+    Öncelik: çağrıya özel `voice` (gerçek bir voice_id ise) → klinik ayarı →
+    ortam değişkeni. Sayısal alanlar ElevenLabs sınırlarına kırpılır; bozuk bir
+    klinik ayarı çağrıyı düşürmez, varsayılana döner.
+    """
+    s = get_settings()
+    over = overrides or {}
+
+    def _num(key: str, fallback: float, low: float, high: float) -> float:
+        try:
+            raw = over.get(key)
+            return _clamp(float(fallback if raw is None else raw), low, high)
+        except (TypeError, ValueError):
+            return _clamp(float(fallback), low, high)
+
+    voice_id = str(over.get("voice_id") or s.elevenlabs_voice_id or "")
+    if voice and voice not in OPENAI_VOICE_NAMES:
+        voice_id = voice
+    return VoiceProfile(
+        voice_id=voice_id,
+        model_id=str(over.get("model") or s.elevenlabs_tts_model),
+        speed=_num("speed", s.elevenlabs_speed, *_SPEED_RANGE),
+        stability=_num("stability", s.elevenlabs_stability, 0.0, 1.0),
+        similarity_boost=_num("similarity_boost", s.elevenlabs_similarity_boost, 0.0, 1.0),
+        style=_num("style", s.elevenlabs_style, 0.0, 1.0),
+        speaker_boost=bool(over.get("speaker_boost", s.elevenlabs_speaker_boost)),
+        output_format=str(over.get("output_format") or s.elevenlabs_output_format),
+    )
+
+
 class ElevenLabsTTS(TTSProvider):
-    """ElevenLabs Flash/Turbo TTS — düşük gecikmeli (~75ms) premium TR ses.
+    """ElevenLabs premium TR ses.
 
     Rıza kapısı (klinik DPA + hasta rızası + API anahtarı) geçilmeden seçilmez;
     metin ElevenLabs'e HTTP ile gider (sınır-ötesi transfer).
     """
 
+    def __init__(self, profile: VoiceProfile | None = None) -> None:
+        self.profile = profile
+
     def synthesize(self, text: str, voice: str | None = None) -> tuple[bytes, str]:
         import httpx
 
         s = get_settings()
-        voice_id = voice or s.elevenlabs_voice_id
+        profile = self.profile or resolve_voice_profile()
+        if voice and voice not in OPENAI_VOICE_NAMES and voice != profile.voice_id:
+            profile = replace(profile, voice_id=voice)
         resp = httpx.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            f"https://api.elevenlabs.io/v1/text-to-speech/{profile.voice_id}",
             headers={"xi-api-key": s.elevenlabs_api_key, "accept": "audio/mpeg"},
-            json={"text": text[:5000], "model_id": s.elevenlabs_tts_model},
+            params={"output_format": profile.output_format},
+            json=profile.payload(text),
             timeout=s.local_llm_timeout,
         )
         resp.raise_for_status()
@@ -378,6 +471,7 @@ def get_tts_provider(
     consent_granted: bool = False,
     provider_name: str | None = None,
     external_enabled: bool | None = None,
+    voice_profile: dict | None = None,
 ) -> TTSProvider:
     """Local-first: bulut TTS yalnızca sağlayıcıya özel rıza kapısı geçilirse.
 
@@ -391,12 +485,13 @@ def get_tts_provider(
     effective_external_enabled = s.voice_external_enabled and (
         s.voice_external_enabled if external_enabled is None else external_enabled
     )
+    profile = resolve_voice_profile(voice_profile)
     if selected_provider == "elevenlabs" and external_voice_permitted(
         external_enabled=effective_external_enabled,
         consent_granted=consent_granted,
-        has_credentials=bool(s.elevenlabs_api_key and s.elevenlabs_voice_id),
+        has_credentials=bool(s.elevenlabs_api_key and profile.voice_id),
     ) and external_transfer_allowed:
-        return ElevenLabsTTS()
+        return ElevenLabsTTS(profile)
     if (
         selected_provider == "openai"
         and external_voice_permitted(

@@ -82,8 +82,23 @@ class Settings(BaseSettings):
     # TTS: Flash/Turbo (düşük gecikme). STT: Scribe v2 Realtime.
     elevenlabs_api_key: str = ""
     elevenlabs_tts_model: str = "eleven_flash_v2_5"
-    elevenlabs_stt_model: str = "scribe_v2_realtime"
+    elevenlabs_stt_model: str = "scribe_v2"
     elevenlabs_voice_id: str = ""  # klinik başına seçilen Selin sesi
+    # Ses karakteri varsayılanları. Voice Studio bunları klinik bazında
+    # (settings_json["voice"]) ezer; burada duran değerler "hiç ayar yapılmadı"
+    # halindeki tonu belirler.
+    #  stability      : düşük → canlı/tonlamalı, yüksek → düz ve öngörülebilir.
+    #                   0.45 TR karşılama için doğal-ama-dağılmayan aralık.
+    #  similarity     : seçilen sesin kimliğine bağlılık (çok yüksek → nefes/
+    #                   parazit kopyalar), 0.80 pratikte temiz.
+    #  style          : abartı; >0 gecikmeyi artırır, resepsiyonda 0 doğru.
+    #  speaker_boost  : sesin karakterini korur, maliyeti yok.
+    elevenlabs_stability: float = 0.45
+    elevenlabs_similarity_boost: float = 0.80
+    elevenlabs_style: float = 0.0
+    elevenlabs_speaker_boost: bool = True
+    elevenlabs_speed: float = 1.0  # 0.7–1.2 arası; ElevenLabs sınırı
+    elevenlabs_output_format: str = "mp3_44100_128"
     local_whisper_model: str = "small"  # tiny|base|small|medium — small TR için iyi denge
     local_whisper_compute: str = "int8"
     local_whisper_language: str = "tr"

@@ -61,6 +61,12 @@ class _FakeSettings:
     elevenlabs_voice_id = "voice-1"
     elevenlabs_tts_model = "eleven_flash_v2_5"
     elevenlabs_stt_model = "scribe_v2_realtime"
+    elevenlabs_stability = 0.45
+    elevenlabs_similarity_boost = 0.80
+    elevenlabs_style = 0.0
+    elevenlabs_speaker_boost = True
+    elevenlabs_speed = 1.0
+    elevenlabs_output_format = "mp3_44100_128"
     piper_voice_path = "/nonexistent/piper.onnx"
     local_llm_timeout = 5.0
 
@@ -106,6 +112,35 @@ def test_tts_without_voice_id_stays_local(monkeypatch):
     monkeypatch.setattr(voice_factory, "get_settings", lambda: NoVoiceId())
     provider = voice_factory.get_tts_provider(external_transfer_allowed=True, consent_granted=True)
     assert provider.__class__.__name__ in {"LocalPiperTTS", "MacSayTTS"}
+
+
+def test_clinic_profile_supplies_the_voice_when_env_has_none(monkeypatch):
+    """Ses artık .env'e değil, kliniğin Voice Studio'da kaydettiği profile bağlı."""
+    from app.ai import voice_factory
+
+    class NoVoiceId(_FakeSettings):
+        elevenlabs_voice_id = ""
+
+    monkeypatch.setattr(voice_factory, "get_settings", lambda: NoVoiceId())
+    provider = voice_factory.get_tts_provider(
+        external_transfer_allowed=True,
+        consent_granted=True,
+        voice_profile={"voice_id": "clinic-voice", "model": "eleven_multilingual_v2", "speed": 1.05},
+    )
+    assert provider.__class__.__name__ == "ElevenLabsTTS"
+    assert provider.profile.voice_id == "clinic-voice"
+    assert provider.profile.model_id == "eleven_multilingual_v2"
+    assert provider.profile.speed == 1.05
+
+
+def test_openai_voice_names_do_not_override_the_clinic_voice(monkeypatch):
+    """Hasta sayfası geriye dönük "nova" gönderiyor; bu bir ElevenLabs ses kimliği değil."""
+    from app.ai import voice_factory
+
+    monkeypatch.setattr(voice_factory, "get_settings", lambda: _FakeSettings())
+    profile = voice_factory.resolve_voice_profile({"voice_id": "clinic-voice"}, voice="nova")
+    assert profile.voice_id == "clinic-voice"
+    assert voice_factory.resolve_voice_profile({"voice_id": "clinic-voice"}, voice="other-id").voice_id == "other-id"
 
 
 # ── Rapor ────────────────────────────────────────────────────────────────────

@@ -74,6 +74,12 @@ def test_public_voice_uses_clinic_voice_provider_override(client, db_session, ad
             "stt_provider": "elevenlabs",
             "tts_provider": "elevenlabs",
             "external_enabled": True,
+            # Voice Studio'da kaydedilen ses karakterleri. Hasta sayfası
+            # karşılayan (receiver) tarafı duymalı, arayan tarafı asla.
+            "profiles": {
+                "receiver": {"voice_id": "voice-1", "model": "eleven_multilingual_v2", "stability": 0.4},
+                "caller": {"voice_id": "giden-ses", "model": "eleven_flash_v2_5"},
+            },
         },
     }
     db_session.add(clinic)
@@ -124,6 +130,11 @@ def test_public_voice_uses_clinic_voice_provider_override(client, db_session, ad
             "consent_granted": True,
             "provider_name": "elevenlabs",
             "external_enabled": True,
+            "voice_profile": {
+                "voice_id": "voice-1",
+                "model": "eleven_multilingual_v2",
+                "stability": 0.4,
+            },
         }
     ]
 

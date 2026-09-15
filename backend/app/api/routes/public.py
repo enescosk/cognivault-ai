@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.ai.voice_factory import TranscriptionResult, get_stt_provider, get_tts_provider
+from app.services.voice_profile import clinic_voice_profile
 from app.core.config import get_settings
 
 from app.api.dependencies import get_db
@@ -1206,12 +1207,19 @@ def _voice_consent_scope(
 
 
 def _clinic_voice_settings(clinic: Clinic) -> dict:
+    """Kliniğin ses ayarları + Voice Studio'da kaydedilen ses karakteri.
+
+    `profile` doğrudan `get_tts_provider(voice_profile=...)`'e geçer: stüdyoda
+    dinlenip kaydedilen ses/model/hız/stability hasta çağrısında da aynen çalar.
+    """
     settings = clinic.settings_json or {}
     voice = settings.get("voice") or {}
     return {
         "stt_provider": voice.get("stt_provider") or "local",
         "tts_provider": voice.get("tts_provider") or "local",
         "external_enabled": bool(voice.get("external_enabled", False)),
+        # Hasta sayfası her zaman karşılayan tarafın sesidir.
+        "profile": clinic_voice_profile(voice, "receiver"),
     }
 
 
@@ -1240,6 +1248,7 @@ def public_synthesize_speech(
             consent_granted=voice_processing_consented,
             provider_name=voice_settings["tts_provider"],
             external_enabled=voice_settings["external_enabled"],
+            voice_profile=voice_settings["profile"],
         ).synthesize(text, voice=body.voice)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"Ses sentezi hatası: {exc}") from exc
