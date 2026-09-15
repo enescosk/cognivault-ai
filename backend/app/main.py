@@ -28,6 +28,7 @@ from app.api.routes import (
     quality,
     users,
     voice,
+    voice_studio,
 )
 from app.api.dependencies import get_db
 from app.core.config import get_settings
@@ -235,6 +236,7 @@ app.include_router(chat.router, prefix=settings.api_prefix)
 app.include_router(appointments.router, prefix=settings.api_prefix)
 app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(voice.router, prefix=settings.api_prefix)
+app.include_router(voice_studio.router, prefix=settings.api_prefix)
 app.include_router(enterprise.router, prefix=settings.api_prefix)
 app.include_router(knowledge.router, prefix=settings.api_prefix)
 app.include_router(clinical.router, prefix=settings.api_prefix)

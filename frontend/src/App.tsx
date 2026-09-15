@@ -6,6 +6,7 @@ import { ConversationDetailPage } from "./components/ConversationDetailPage";
 import { Dashboard } from "./components/Dashboard";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoginRoute } from "./components/LoginRoute";
+import { VoiceStudio } from "./components/voice-studio/VoiceStudio";
 import { PatientPage } from "./components/patient/PatientPage";
 import { RequireRole } from "./components/RequireRole";
 import { RoleRedirect } from "./components/RoleRedirect";
@@ -32,6 +33,7 @@ function AppRoutes() {
 
       {/* Tasarım kılavuzu — public, auth yok. Bkz. frontend/DESIGN_SYSTEM.md */}
       <Route path="/styleguide" element={<Styleguide />} />
+      <Route path="/voice-studio" element={<RequireRole roles={["operator", "admin"]}><ErrorBoundary scope="Voice Studio"><VoiceStudio /></ErrorBoundary></RequireRole>} />
 
       {/* Public hasta sayfası — auth yok, sadece klinik slug ile.
           Detay: docs/product/patient-clinic-experience.md §3 */}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { TurnRecorder } from "../voice-studio/recorder";
 
 import {
   confirmAppointment,
@@ -160,148 +161,32 @@ type NoResultReason =
   | "recorder_start_failed";
 
 function useMicRecorder(slug: string, sessionToken: string) {
-  const supported =
-    typeof navigator !== "undefined" &&
-    !!navigator.mediaDevices?.getUserMedia &&
-    typeof MediaRecorder !== "undefined";
-  const stopFnRef = useRef<() => void>(() => {});
-  const cancelledRef = useRef(false);
-
-  const stop = useCallback(() => {
-    cancelledRef.current = true;
-    try { stopFnRef.current?.(); } catch { /* ignore */ }
-  }, []);
-
-  const start = useCallback(
-    async (onResult: (result: HeardTranscript) => void, onNoResult: (reason: NoResultReason) => void, language = "tr") => {
-      if (!supported) { onNoResult("unsupported"); return; }
-      cancelledRef.current = false;
-      let stream: MediaStream;
+  const recorder = useRef(new TurnRecorder());
+  const generation = useRef(0);
+  const supported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+  const stop = useCallback(() => { generation.current++; recorder.current.stop(true); }, []);
+  const start = useCallback(async (
+    onResult: (result: HeardTranscript) => void,
+    onNoResult: (reason: NoResultReason) => void,
+    language = "tr",
+  ) => {
+    const current = ++generation.current;
+    await recorder.current.start(async blob => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
-      } catch {
-        onNoResult("mic_denied");
-        return;
-      }
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm")
-          ? "audio/webm"
-          : "";
-      const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      const chunks: BlobPart[] = [];
-      mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-
-      // Sessizlik algılama (Web Audio RMS)
-      const AC: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext;
-      const ac = new AC();
-      try { await ac.resume(); } catch { /* ignore */ }
-      const srcNode = ac.createMediaStreamSource(stream);
-      const analyser = ac.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.08;
-      srcNode.connect(analyser);
-      const buf = new Uint8Array(analyser.fftSize);
-      let speaking = false;
-      let speechRunMs = 0;
-      let silenceStart = 0;
-      let raf = 0;
-      const startedAt = Date.now();
-      let noiseSamples = 0;
-      let noiseSum = 0;
-      const CALIBRATION_MS = 450;
-      const INITIAL_SILENCE_MS = 6500;
-      const MIN_SPEECH_MS = 220;
-      const SILENCE_MS = 700; // konuşma sonrası bu kadar sessizlik → bitir (tur hızı ↔ cümle ortası kesme dengesi)
-      const MAX_MS = 14000;
-      const BASE_THRESHOLD = 0.018;
-
-      const cleanup = () => {
-        cancelAnimationFrame(raf);
-        try { stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
-        try { void ac.close(); } catch { /* ignore */ }
-      };
-      const finish = () => {
-        cancelAnimationFrame(raf);
-        try { if (mr.state !== "inactive") mr.stop(); } catch { /* ignore */ }
-      };
-      stopFnRef.current = finish;
-
-      const tick = () => {
-        analyser.getByteTimeDomainData(buf);
-        let sum = 0;
-        for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
-        const rms = Math.sqrt(sum / buf.length);
-        const now = Date.now();
-        const elapsed = now - startedAt;
-        if (!speaking && elapsed < CALIBRATION_MS) {
-          noiseSamples += 1;
-          noiseSum += rms;
-          raf = requestAnimationFrame(tick);
-          return;
+        const result = await transcribePublicSpeech(slug, blob, sessionToken, language);
+        if (current !== generation.current) return;
+        if (!result.text.trim()) { onNoResult("empty_transcript"); return; }
+        if (result.confidence !== null && result.confidence !== undefined && result.confidence < 0.45) {
+          onNoResult("stt_failed"); return;
         }
-        const noiseFloor = noiseSamples ? noiseSum / noiseSamples : 0;
-        const threshold = Math.max(BASE_THRESHOLD, noiseFloor * 3.2);
-        if (rms > threshold) {
-          speechRunMs += 16;
-          if (speechRunMs >= MIN_SPEECH_MS) speaking = true;
-          silenceStart = 0;
-        } else if (speaking) {
-          if (!silenceStart) silenceStart = now;
-          else if (now - silenceStart > SILENCE_MS) { finish(); return; }
-        } else {
-          speechRunMs = 0;
-        }
-        if (!speaking && elapsed > INITIAL_SILENCE_MS) { finish(); return; }
-        if (elapsed > MAX_MS) { finish(); return; }
-        raf = requestAnimationFrame(tick);
-      };
-
-      mr.onstop = async () => {
-        cleanup();
-        if (cancelledRef.current) return;
-        const blob = new Blob(chunks, { type: mime || "audio/webm" });
-        if (!speaking) { onNoResult("no_speech"); return; }
-        if (blob.size < 1500) { onNoResult("too_short"); return; } // çok kısa / sessiz
-        try {
-          const result = await transcribePublicSpeech(slug, blob, sessionToken, language);
-          const text = result.text.trim();
-          if (text) {
-            onResult({
-              text,
-              provider: result.provider,
-              language: result.language,
-              audio_bytes: result.audio_bytes,
-              confidence: result.confidence,
-              duration_seconds: result.duration_seconds,
-              processing_ms: result.processing_ms,
-              source: "voice_call",
-            });
-          }
-          else onNoResult("empty_transcript");
-        } catch { onNoResult("stt_failed"); }
-      };
-
-      try {
-        mr.start();
-        raf = requestAnimationFrame(tick);
-      } catch {
-        cleanup();
-        onNoResult("recorder_start_failed");
-      }
-    },
-    [sessionToken, slug, supported],
-  );
-
-  useEffect(() => () => { try { stopFnRef.current?.(); } catch { /* ignore */ } }, []);
-  return { supported, start, stop };
+        onResult({...result, text: result.text.trim(), source: "voice_call"});
+      } catch { if (current === generation.current) onNoResult("stt_failed"); }
+    }, message => {
+      if (current === generation.current) onNoResult(message.includes("izni") ? "mic_denied" : "no_speech");
+    }, () => {});
+  }, [slug, sessionToken]);
+  useEffect(() => stop, [stop]);
+  return {supported, start, stop};
 }
 
 // ── Yerelleştirme (TR/EN) ─────────────────────────────────────────────────────
@@ -681,10 +566,17 @@ export function PatientChatRoom({
           clinic.slug,
           conversationId,
           sessionToken,
-          `${text} için randevu almak istiyorum`,
+          text,
           { voice_metadata: voiceMetadata },
         );
         if (res.emergency || res.detected_intent === "medical_emergency") { handleEmergency(); return; }
+        if (!["book_appointment", "symptom_triage"].includes(res.detected_intent ?? "")) {
+          await say(langRef.current === "en"
+            ? "I can help with clinic appointments. Please describe the service or complaint you want an appointment for."
+            : "Klinik randevuları konusunda yardımcı olabiliyorum. Randevu istediğiniz hizmeti veya şikayetinizi söyler misiniz?");
+          if (callActiveRef.current) listen();
+          return;
+        }
         dataRef.current.department = res.specialty ?? (langRef.current === "en" ? "General Dentistry" : "Genel Diş Hekimliği");
         const offers = res.slot_offers ?? [];
         slotsRef.current = offers; setSlots(offers);
