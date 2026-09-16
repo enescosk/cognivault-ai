@@ -90,6 +90,10 @@ ortaya çıktı (1.6–1.8); ilk gerçek aramadan önce en az 1.6 kapanmalı.
   `CLINICAL_CHANNEL_BINDING_STRICT=true`.
 - ⬜ **1.5** **İlk gerçek arama.** Kayıt al, gecikmeleri ölç.
 
+> **Takvim:** bu alanın tarihli planı ayrı dosyada —
+> `docs/ses-telefon-takvimi.md`. Tedarik (1.1–1.4) ve kod (1.6–1.7) iki paralel
+> hat olarak yürür; F1 kabul kapısı hedefi 2026-09-28.
+
 ### Voice Studio çalışmasından çıkan üç boşluk (2026-09-16)
 
 - ⬜ **1.6** **Niyet/kural katmanını `phone_flow_service`'e taşı.** Deterministik
