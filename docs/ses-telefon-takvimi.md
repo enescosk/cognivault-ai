@@ -29,8 +29,8 @@ cümleleri sistem anlamaz.
 | Tarih | Gün | Madde | Hat | Süre | Durum |
 |---|---|---|---|---|---|
 | **09-16** | Çar | **1.1** Netgsm SIP trunk + numara **başvurusu** | B | 1 sa | ⬜ |
-| 09-16 → 09-18 | Çar–Cum | **1.6** Niyet katmanını telefon akışına taşı | A | 2 gün | 🔵 |
-| 09-21 | Pzt | **1.7** Klinik bazlı karşılama + anons kısaltma | A | 1 gün | ⬜ |
+| 09-16 | Çar | **1.6** Niyet katmanını telefon akışına taşı | A | ~~2 gün~~ 1 gün | ✅ |
+| 09-17 | Per | **1.7** Klinik bazlı karşılama + anons kısaltma | A | 1 gün | 🔵 |
 | 09-22 | Sal | **1.6+1.7 regresyon** — `simulate_call` ile uçtan uca | A | 0.5 gün | ⬜ |
 | 09-23 | Çar | **1.2** Twilio SIP Domain + IP ACL | B | 0.5 gün | ⛔ 1.1 |
 | 09-23 | Çar | **1.3** Public HTTPS (ngrok → domain + TLS) | B | 0.5 gün | ⬜ |
@@ -48,7 +48,7 @@ cümleleri sistem anlamaz.
 
 ## Maddeler — ne bitti sayılır
 
-### 1.6 — Niyet katmanını `phone_flow_service`'e taşı · 🔵 ŞU AN
+### 1.6 — Niyet katmanını `phone_flow_service`'e taşı · ✅ YAPILDI (2026-09-16)
 **Neden ilk:** telefonu açan insanın söyleyeceği ilk cümleler ("kimsiniz?",
 "meşgulüm", "ne kadar tutuyor?") bugün telefon akışında karşılıksız. Numara
 gelmeden bu kapanmazsa ilk gerçek arama kötü bir izlenimle biter.
@@ -64,6 +64,11 @@ korunur.
 
 **Kabul:** telefon akışında 8 niyet için test var; acil vaka regresyon testi
 yeşil; `simulate_call` ile uçtan uca oynatıldığında akış slot teklifine takılmıyor.
+
+**Sonuç:** ortak modül `app/ai/caller_intent.py`; 14 yeni test; paket 5399 yeşil;
+`simulate_call --all` → 22/22 kapı. Yolda aracın kendisinde **iki yanlış kırmızı**
+bulundu ve düzeltildi (native TTS'te metin göremeyen acil kontrolü; yeniden
+kullanılan görüşmeyi bulamayan DB doğrulaması). Tahmin 2 gündü, 1 günde kapandı.
 
 ### 1.7 — Klinik bazlı karşılama · ⬜
 **Kabul:** iki farklı kliniğe bağlı iki numara arandığında karşılama metni ve
@@ -108,5 +113,9 @@ Tahmini süreleri geçmişe dönük düzeltme — kaymanın kendisi bilgidir.
 
 ## Değişiklik Günlüğü
 
+- **2026-09-16 (ii)** — **1.6 kapandı.** Niyet katmanı ortak modüle çıkarıldı ve
+  telefon akışına bağlandı; tıbbi içerik koruması (`conversational_only`) ile
+  birlikte. `simulate_call`'daki iki yanlış kırmızı da yolda düzeltildi. Sıradaki:
+  **1.7 — klinik bazlı karşılama**.
 - **2026-09-16** — Dosya oluşturuldu. F1'in 1.6–1.8 maddeleri tarihlendirildi,
   tedarik ve kod işleri iki ayrı hatta ayrıldı. 1.6 başlatıldı.

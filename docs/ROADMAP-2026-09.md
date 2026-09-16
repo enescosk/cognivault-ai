@@ -80,7 +80,7 @@ Kod tarafı büyük ölçüde hazır: `phone_flow_service.py` çok turlu slot ak
 telefonda kapatıyor, kendi TTS'imizi `<Play>` ile veriyor, KVKK anonsu var, onay
 SMS'i Netgsm'den gidiyor. Ana eksik **arayabileceğimiz bir +90 numara** — ama
 2026-09-16'da Voice Studio çalışması sırasında telefon akışında üç boşluk daha
-ortaya çıktı (1.6–1.8); ilk gerçek aramadan önce en az 1.6 kapanmalı.
+ortaya çıktı (1.6–1.8). **1.6 kapandı**; 1.7 ilk gerçek aramadan önce bitmeli.
 
 - ⬜ **1.1** Netgsm SIP Trunk + coğrafi +90 numara aktivasyonu.
 - ⬜ **1.2** Twilio SIP Domain + Netgsm IP ACL (yol: `docs/ops/netgsm-twilio-sip-trunk-kurulumu.md`).
@@ -96,13 +96,15 @@ ortaya çıktı (1.6–1.8); ilk gerçek aramadan önce en az 1.6 kapanmalı.
 
 ### Voice Studio çalışmasından çıkan üç boşluk (2026-09-16)
 
-- ⬜ **1.6** **Niyet/kural katmanını `phone_flow_service`'e taşı.** Deterministik
-  niyet tablosu (meşgulüm · kimsiniz/robot musunuz · fiyat · yetkiliye bağlayın ·
-  mesaj bırak · anlamadım tekrar et · konu dışı · bir daha aramayın) şu an
-  **yalnız** `voice_studio_service.py`'de. Gerçek telefon akışında yok: arayan
-  bunlardan birini derse akış slot teklifine takılıyor. Ortak bir modüle çıkarılıp
-  iki yoldan da kullanılmalı — **ilk gerçek aramadan önce kapanmalı**, çünkü bir
-  insanın telefonda söyleyeceği ilk şeyler tam olarak bunlar.
+- ✅ **1.6** **Niyet/kural katmanı `phone_flow_service`'e taşındı** (2026-09-16).
+  Deterministik niyet tablosu ortak modüle (`app/ai/caller_intent.py`) çıkarıldı;
+  stüdyo ve telefon aynı sınıflandırmayı kullanıyor, yanıt metinleri kanala ait
+  kalıyor. Önceki durum ölçüldü: "robot musunuz", "hava durumu nasıl",
+  "yetkiliye bağlayın", "bir daha aramayın", "yanlış numara" cümlelerinin
+  **beşi de** aynı eskalasyon cümlesini alıyor ve doktor ekranına gereksiz
+  shadow review düşürüyordu. Tıbbi içerik koruması (`conversational_only`) ile
+  birlikte geldi: belirti kelimesi geçen ya da uzun söylem bu katmana giremez,
+  acil yol dokunulmadı. 14 yeni test · `simulate_call --all` 22/22.
 - ⬜ **1.7** **Telefon karşılamasını klinik bazlı yap.** `clinical.py`'daki
   `/webhooks/voice/incoming` karşılaması hardcoded: hangi numara aranırsa aransın
   "CogniVault… Ben Selin" diyor ve kliniği hiç çözmüyor (`resolve_webhook_clinic`
@@ -315,6 +317,13 @@ işlenmiş.
 
 ## Değişiklik Günlüğü
 
+- **2026-09-16 (ii)** — **F1.6 kapandı.** Niyet katmanı ortak modüle çıkarılıp
+  telefon akışına bağlandı; tıbbi içerik koruması eklendi. Ölçüm: beş ayrı
+  arayan cümlesi öncesinde aynı eskalasyon yanıtını alıyordu, artık beşi de
+  doğru ve ayrı yanıt alıyor. Yolda `simulate_call`'ın **iki yanlış kırmızısı**
+  bulundu ve düzeltildi — native TTS açıkken metin göremeyen acil kontrolü, ve
+  yeniden kullanılan görüşmeyi bulamayan DB doğrulaması. Bu alanın tarihli planı
+  `docs/ses-telefon-takvimi.md`'de tutuluyor.
 - **2026-09-16** — Voice Studio (operatör prova stüdyosu) main'e alındı: klinik
   bazlı ses karakteri profili + deterministik niyet katmanı + `simulate_call` /
   `voice_demo` ops betikleri. Test paketi 5385 backend + 76 frontend, hepsi
