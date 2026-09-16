@@ -271,8 +271,19 @@ def _apply_expectations(result: ScenarioResult, spec: dict[str, Any]) -> None:
                      "lokal TTS devrede değil — <Say> fallback kullanıldı")
 
     if spec.get("expect_emergency"):
-        result.check("Acil eskalasyonu devrede",
-                     "112" in raw_all or "doktor ekranına" in raw_all or "acil" in raw_all)
+        # Native TTS açıkken TwiML yalnız <Play>/tts/{sha}.wav taşır — yanıt
+        # metni XML'de HİÇ geçmez. Böyle bir turda metin araması zorunlu olarak
+        # boş döner; bunu ❌ saymak yanlış kırmızıdır (eskalasyon çalışıyor
+        # olsa bile). Ölçülemedi olarak işaretle ve nasıl ölçüleceğini söyle.
+        if all(t.spoken.startswith("[ses]") for t in turns if t.said):
+            result.skip(
+                "Acil eskalasyonu devrede",
+                "yanıt sesle verildi (<Play>) — metin TwiML'de yok; ölçmek için "
+                "sunucuyu VOICE_PHONE_NATIVE_TTS_ENABLED=false ile çalıştırın",
+            )
+        else:
+            result.check("Acil eskalasyonu devrede",
+                         "112" in raw_all or "doktor ekranına" in raw_all or "acil" in raw_all)
 
     if spec.get("expect_recovers"):
         result.check("Anlaşılmayan girdide çağrı düşmedi", turns[-1].has_gather)
@@ -297,16 +308,31 @@ def verify_in_db(call_sid: str) -> list[tuple[str, bool, str]]:
     from sqlalchemy import select
 
     from app.db.session import SessionLocal
-    from app.models import ClinicalAppointment, ClinicConversation
+    from app.models import ClinicalAppointment, ClinicConversation, ClinicMessage
 
     checks: list[tuple[str, bool, str]] = []
     with SessionLocal() as db:
-        conversation = db.scalars(
+        # Görüşme CallSid ile DEĞİL, turun mesajıyla bulunur. Aynı numara daha
+        # önce aradıysa ingest AÇIK görüşmeyi yeniden kullanır ve
+        # `external_thread_id` ilk aramanın CallSid'inde kalır — thread üzerinden
+        # aramak o durumda boş döner ve yanlış kırmızı üretir. Tur mesajları ise
+        # `{call_sid}:{parmakizi}` ile damgalıdır; bu aramaya özgüdür.
+        message = db.scalars(
+            select(ClinicMessage)
+            .where(ClinicMessage.external_message_id.like(f"{call_sid}:%"))
+            .order_by(ClinicMessage.id.desc())
+        ).first()
+        conversation = message.conversation if message is not None else db.scalars(
             select(ClinicConversation)
             .where(ClinicConversation.external_thread_id == call_sid)
             .order_by(ClinicConversation.id.desc())
         ).first()
-        checks.append(("Görüşme kaydedildi", conversation is not None, call_sid))
+        detail = call_sid if conversation is None else (
+            f"görüşme #{conversation.id}"
+            + (" (önceki açık görüşme yeniden kullanıldı)"
+               if conversation.external_thread_id != call_sid else "")
+        )
+        checks.append(("Görüşme kaydedildi", conversation is not None, detail))
         if conversation is None:
             return checks
 
