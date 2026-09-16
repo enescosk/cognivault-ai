@@ -138,6 +138,25 @@ def conversational_only(text: str) -> bool:
     return not any(signal in n for signal in MEDICAL_SIGNALS)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Reddetme sinyali
+# ─────────────────────────────────────────────────────────────────────────────
+# Niyet tablosundan ayrı durur, çünkü asıl müşterisi sınıflandırıcı değil sözlü
+# slot eşleyicisi: "Salı müsait değilim" cümlesinde de gün adı, "dokuzda
+# olmaz"da da saat geçer. Bunları seçim saymak, arayanın AÇIKÇA istemediği
+# saati rezerve etmek demektir.
+NEGATIONS = (
+    'musait degilim', 'musait degil', 'uygun degilim', 'uygun degil',
+    'olmaz', 'istemiyorum', 'gelemem', 'yapamam', 'yetisemem',
+)
+
+
+def is_negative(text: str) -> bool:
+    """Konuşmacı söylediği gün/saati reddediyor mu?"""
+    normalized = normalize_for_intent(text)
+    return any(phrase in normalized for phrase in NEGATIONS)
+
+
 def classify_caller_intent(
     text: str, *, allowed: Collection[str] | None = None
 ) -> str | None:

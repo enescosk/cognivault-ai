@@ -317,6 +317,20 @@ işlenmiş.
 
 ## Değişiklik Günlüğü
 
+- **2026-09-16 (iii)** — F1.6'nın üstüne sözlü seçimde **üç kusur** kapandı;
+  üçü de ilk gerçek aramada yaşanacak cinsten:
+  1. *Ret, seçim sanılıyordu.* "Salı müsait değilim"de gün adı, "dokuz
+     olmaz"da saat geçtiği için eşleyici bunları seçim sayıp arayanın açıkça
+     İSTEMEDİĞİ saati rezerve ediyordu (`caller_intent.is_negative` kapısı).
+  2. *"Dokuzda" duyulmuyordu.* Saat kelimeleri eksiz aranıyordu (`\bdokuz\b`),
+     Türkçenin en doğal söyleyişi olan bulunma hâli ("dokuzda olsun", "on
+     dörtte") hiçbir teklife eşleşmiyordu. Ek artık serbest.
+  3. *"Ekibimiz size dönecek" sözünün karşılığı yoktu.* Yüksek güvenli turda
+     ingest shadow review üretmediği için, insan isteyen arayanın görüşmesi
+     hiçbir kutuya düşmüyordu; niyet artık görüşmeyi `WAITING_HUMAN`
+     işaretliyor. Ayrıca randevu niyetli turda da "yetkiliye bağlayın" artık
+     saat listesiyle cevaplanmıyor.
+  Paket: **5403 passed / 1 skipped** (3:06).
 - **2026-09-16 (ii)** — **F1.6 kapandı.** Niyet katmanı ortak modüle çıkarılıp
   telefon akışına bağlandı; tıbbi içerik koruması eklendi. Ölçüm: beş ayrı
   arayan cümlesi öncesinde aynı eskalasyon yanıtını alıyordu, artık beşi de

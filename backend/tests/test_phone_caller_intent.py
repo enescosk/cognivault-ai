@@ -129,6 +129,28 @@ def test_human_request_is_acknowledged(client):
     assert "klinik ekibimizden" in response.text
 
 
+def test_human_request_actually_lands_in_the_human_inbox(client, db_session):
+    """"En kısa sürede size dönecekler" bir söz veriyor; karşılığı panelde
+    görünen bir durum olmalı. Yüksek güvenli turda ingest shadow review
+    üretmiyor — işaretlenmezse bu sözü kimse görmez."""
+    from app.models import ClinicConversationStatus
+
+    _gather(client, "Yetkiliye+baglayin+lutfen", call_sid="CAintent3b")
+    db_session.expire_all()
+    conversation = _conversation(db_session, "CAintent3b")
+    assert conversation.status == ClinicConversationStatus.WAITING_HUMAN
+
+
+def test_booking_intent_does_not_bury_a_request_for_a_person(client, db_session):
+    """Sınıflandırıcı "yetkiliye bağlayın"ı yüksek güvenle randevu niyeti
+    sayabiliyor; o durumda bile saat listesi okumak sorulanın cevabı değil."""
+    _add_dental_slot(db_session, hours_ahead=26)
+    response = _gather(client, "Randevu+icin+yetkiliye+baglayin", call_sid="CAintent3c")
+    assert response.status_code == 200
+    assert "müsait randevu saatleri" not in response.text
+    assert "klinik ekibimizden" in response.text
+
+
 def test_stop_ends_the_call(client):
     response = _gather(client, "Bir+daha+aramayin", call_sid="CAintent4")
     assert response.status_code == 200

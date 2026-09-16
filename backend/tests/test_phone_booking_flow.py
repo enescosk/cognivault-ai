@@ -234,6 +234,34 @@ def test_match_weekday(db_session):
     assert match_spoken_slot("çarşamba günü olsun", [tuesday, wednesday]) is wednesday
 
 
+def test_rejecting_a_time_is_never_read_as_choosing_it(db_session):
+    """"Salı müsait değilim" cümlesinde de gün adı, "dokuzda olmaz"da da saat
+    geçiyor. Reddi seçim saymak, arayanın AÇIKÇA istemediği saati rezerve eder —
+    telefonda geri alması en zor hata."""
+    tuesday = _offer(db_session, datetime(2026, 7, 21, 6, 0))    # Salı 09:00 TR
+    wednesday = _offer(db_session, datetime(2026, 7, 22, 6, 0))  # Çarşamba 09:00
+    offers = [tuesday, wednesday]
+    assert match_spoken_slot("salı müsait değilim", offers) is None
+    assert match_spoken_slot("dokuz olmaz", offers) is None
+    assert match_spoken_slot("çarşamba uygun değil", offers) is None
+    # Olumlu seçim bozulmadı
+    assert match_spoken_slot("çarşamba günü olsun", offers) is wednesday
+    assert match_spoken_slot("dokuz olsun", offers) is tuesday
+
+
+def test_spoken_hour_accepts_the_locative_suffix(db_session):
+    """İnsan "dokuz" değil "dokuzda" der. Eksiz kalıp bu cümleyi hiç tutmuyor,
+    arayan saati söylediği hâlde duyulmuyordu."""
+    nine = _offer(db_session, datetime(2026, 7, 21, 6, 0))       # 09:00 TR
+    fourteen = _offer(db_session, datetime(2026, 7, 21, 11, 0))  # 14:00 TR
+    offers = [nine, fourteen]
+    assert match_spoken_slot("dokuzda olsun", offers) is nine
+    assert match_spoken_slot("on dörtte olsun", offers) is fourteen
+    # 09:30 teklifi yoksa aynı saatin teklifine düşer (mevcut davranış; onay
+    # cümlesinde saat okunduğu için arayan neyi onayladığını duyar).
+    assert match_spoken_slot("dokuz buçukta", offers) is nine
+
+
 # ─── Native TTS TwiML ────────────────────────────────────────────────────────
 
 @pytest.fixture()

@@ -31,6 +31,7 @@ from app.ai.caller_intent import (
     PHONE_INTENTS,
     classify_caller_intent,
     conversational_only,
+    is_negative,
 )
 
 from app.models import (
@@ -66,10 +67,13 @@ MAX_SPOKEN_OFFERS = 3
 @dataclass(frozen=True)
 class PhoneTurnOutcome:
     reply: str
-    stage: str  # "offering" | "booked" | "closing"
+    stage: str  # "offering" | "booked" | "closing" | "conversation"
     # Aramayı kapat (TwiML'de <Gather> üretilmez). Randevu kapandığında ve
     # arayan görüşmeyi bitirmek istediğinde true olur.
     end_call: bool = False
+    # Arayan açıkça insan istedi. Karar burada saf kalsın diye yan etkiyi
+    # (görüşmeyi "insan bekliyor" işaretlemek) çağıran uygular.
+    needs_human: bool = False
 
 
 # ─── Sözlü slot eşleme ───────────────────────────────────────────────────────
@@ -101,8 +105,11 @@ def _spoken_hour(text: str) -> tuple[int, int] | None:
         minute = int(digit.group(2)) if digit.group(2) else (30 if "buçuk" in text else 0)
         if 0 <= hour <= 23:
             return hour, minute
+    # Bulunma hâli eki serbest: insan "dokuz" değil "dokuzDA" der. Eksiz kalıp
+    # ("\bdokuz\b") "dokuzda olsun" cümlesini hiç tutmuyordu — arayan saati
+    # söylüyor, sistem duymuyordu.
     for word in sorted(_HOUR_WORDS, key=len, reverse=True):
-        if re.search(rf"\b{word}\b", text):
+        if re.search(rf"\b{word}(?:da|de|ta|te)?\b", text):
             return _HOUR_WORDS[word], 30 if "buçuk" in text else 0
     return None
 
@@ -122,6 +129,12 @@ def match_spoken_slot(text: str, offers: list[ClinicalSlotOffer]) -> ClinicalSlo
     if not offers:
         return None
     s = text.strip().lower().replace("i̇", "i")
+
+    # Reddi seçim sanma: "salı müsait değilim" cümlesinde de gün adı, "dokuzda
+    # olmaz"da da saat geçiyor ve bu filtreler onları eşleştirip arayanın açıkça
+    # İSTEMEDİĞİ saati rezerve ediyordu. Seçim yoksa teklifler tekrar okunur.
+    if is_negative(s):
+        return None
 
     if _ANY_SLOT.search(s):
         return offers[0]
@@ -368,9 +381,14 @@ def _caller_intent_outcome(
             else "Elbette. Randevu talebinizi veya sorunuzu kısaca söyleyebilirsiniz."
         )
     elif intent == "human":
-        reply = (
-            "Elbette, klinik ekibimizden bir arkadaş sizinle ilgilensin. "
-            "Talebinizi not aldım, en kısa sürede size dönecekler."
+        # Bu yanıt bir söz veriyor; sözün karşılığı `needs_human` ile görüşmeyi
+        # operatör panelinde "insan bekliyor" kutusuna düşürmek. Yüksek güvenli
+        # turda ingest shadow review üretmiyor — işaretlenmezse kimse görmez.
+        return PhoneTurnOutcome(
+            reply=("Elbette, klinik ekibimizden bir arkadaş sizinle ilgilensin. "
+                   "Talebinizi not aldım, en kısa sürede size dönecekler."),
+            stage="offering" if offers else "conversation",
+            needs_human=True,
         )
     else:  # out_of_scope
         reply = (
@@ -380,6 +398,23 @@ def _caller_intent_outcome(
     # Teklif aşamasındaysak durum korunur: arayan bir sonraki turda hâlâ
     # "birincisi" diyebilsin.
     return PhoneTurnOutcome(reply=reply, stage="offering" if offers else "conversation")
+
+
+def _spoken_outcome(
+    db: Session,
+    *,
+    result: IngestionResult,
+    conversation: ClinicConversation,
+    speech: str,
+    offers: list[ClinicalSlotOffer] | None = None,
+) -> PhoneTurnOutcome | None:
+    """`_caller_intent_outcome` + kararın gerektirdiği yan etki."""
+    outcome = _caller_intent_outcome(speech, clinic=result.clinic, offers=offers)
+    if outcome is not None and outcome.needs_human:
+        conversation.status = ClinicConversationStatus.WAITING_HUMAN
+        db.add(conversation)
+        db.commit()
+    return outcome
 
 
 def handle_phone_turn(db: Session, result: IngestionResult, speech: str) -> PhoneTurnOutcome | None:
@@ -455,7 +490,9 @@ def handle_phone_turn(db: Session, result: IngestionResult, speech: str) -> Phon
             # ("tekrar eder misiniz", "robot musunuz")? Tıbbi içerik taşıyan
             # söz bu kapıdan geçemediği için shadow-review kontrolünden önce
             # denenir — sonrasına konsa hiç çalışmazdı.
-            spoken = _caller_intent_outcome(speech, clinic=result.clinic, offers=offers)
+            spoken = _spoken_outcome(
+                db, result=result, conversation=conversation, speech=speech, offers=offers
+            )
             if spoken is not None:
                 return spoken
             if result.shadow_review is not None:
@@ -487,7 +524,14 @@ def handle_phone_turn(db: Session, result: IngestionResult, speech: str) -> Phon
         # Randevu turu değil — ama görüşmenin kendisi hakkında bir soru olabilir.
         # Eskiden burada koşulsuz None dönülüyordu ve arayan, sorusu ne olursa
         # olsun eskalasyon cümlesini duyuyordu.
-        return _caller_intent_outcome(speech, clinic=result.clinic)
+        return _spoken_outcome(db, result=result, conversation=conversation, speech=speech)
+    # Randevu niyetinde bile arayan "yetkiliye bağlayın" ya da "kapatıyorum"
+    # diyor olabilir: sınıflandırıcı bunları yüksek güvenle BOOK_APPOINTMENT
+    # sayabiliyor. Saat listesi okumak sorulanın cevabı değil — teklif aşaması
+    # açılmadan önce bakılır.
+    spoken = _spoken_outcome(db, result=result, conversation=conversation, speech=speech)
+    if spoken is not None:
+        return spoken
     if result.shadow_review is not None and (result.shadow_review.confidence_score or 0) < 0.78:
         return None
     message_meta = (result.message.metadata_json or {}) if result.message is not None else {}
