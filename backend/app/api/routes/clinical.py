@@ -938,9 +938,10 @@ async def receive_voice_speech(request: Request, db: Session = Depends(get_db)) 
 
     outcome = handle_phone_turn(db, result, speech)
     if outcome is not None:
-        # Randevu kapandıysa kibarca vedalaş ve aramayı bitir (Gather yok).
+        # Randevu kapandıysa ya da arayan görüşmeyi bitirmek istediyse kibarca
+        # vedalaş ve aramayı kapat (Gather yok).
         return PlainTextResponse(
-            _voice_twiml(outcome.reply, gather=outcome.stage != "booked"),
+            _voice_twiml(outcome.reply, gather=not outcome.end_call),
             media_type="application/xml",
         )
 

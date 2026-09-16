@@ -27,6 +27,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.caller_intent import (
+    PHONE_INTENTS,
+    classify_caller_intent,
+    conversational_only,
+)
+
 from app.models import (
     Clinic,
     ClinicConversation,
@@ -60,7 +66,10 @@ MAX_SPOKEN_OFFERS = 3
 @dataclass(frozen=True)
 class PhoneTurnOutcome:
     reply: str
-    stage: str  # "offering" | "booked"
+    stage: str  # "offering" | "booked" | "closing"
+    # Aramayı kapat (TwiML'de <Gather> üretilmez). Randevu kapandığında ve
+    # arayan görüşmeyi bitirmek istediğinde true olur.
+    end_call: bool = False
 
 
 # ─── Sözlü slot eşleme ───────────────────────────────────────────────────────
@@ -310,6 +319,69 @@ def _fresh_offers(
     return PhoneTurnOutcome(reply=_speak_offers(offers), stage="offering")
 
 
+# ─── Arayan niyeti — randevu dışı konuşma turları ────────────────────────────
+
+
+def _caller_intent_outcome(
+    speech: str, *, clinic: Clinic, offers: list[ClinicalSlotOffer] | None = None
+) -> PhoneTurnOutcome | None:
+    """Görüşmenin kendisi hakkındaki soruları yanıtlar; değilse None.
+
+    Ölçülen sorun: bu katmandan önce "Robot musunuz?", "Hava durumu nasıl?" ve
+    "Yetkiliye bağlayın" cümlelerinin ÜÇÜ de aynı yanıtı alıyordu — "Talebinizi
+    doktor ekranına öncelikli olarak düşürdüm". Hem arayana yanlış cevap, hem
+    doktor ekranına gereksiz shadow review.
+
+    `conversational_only` kapısı yüzünden tıbbi içerik taşıyan hiçbir söz buraya
+    giremez; o yüzden bu kontrol, shadow-review kapısının ÖNÜNDE çalışabilir.
+    Aksi halde katman hiç devreye girmezdi: yukarıdaki üç cümlenin hepsi düşük
+    güvenli sayılıp shadow review üretiyor.
+    """
+    if not conversational_only(speech):
+        return None
+    intent = classify_caller_intent(speech, allowed=PHONE_INTENTS)
+    if intent is None:
+        return None
+
+    name = (clinic.name or "kliniğimiz").strip()
+    if intent == "stop":
+        return PhoneTurnOutcome(
+            reply="Anladım, görüşmeyi burada bitiriyorum. İyi günler.",
+            stage="closing", end_call=True,
+        )
+    if intent == "wrong_number":
+        return PhoneTurnOutcome(
+            reply="Kusura bakmayın, yanlış numaraya ulaşmışsınız. İyi günler.",
+            stage="closing", end_call=True,
+        )
+
+    if intent == "identity":
+        # Ne olduğunu saklamak hem hastayı yanıltır hem KVKK aydınlatmasıyla
+        # çelişir: açıkça söyle.
+        reply = (
+            f"Ben {name} adına konuşan yapay zekâ asistanıyım — insan değilim. "
+            "Randevu talebinizi alabilir, isteğinizi klinik ekibine iletebilirim."
+        )
+    elif intent == "repeat":
+        reply = (
+            "Elbette, tekrar ediyorum. " + _speak_offers(offers) if offers
+            else "Elbette. Randevu talebinizi veya sorunuzu kısaca söyleyebilirsiniz."
+        )
+    elif intent == "human":
+        reply = (
+            "Elbette, klinik ekibimizden bir arkadaş sizinle ilgilensin. "
+            "Talebinizi not aldım, en kısa sürede size dönecekler."
+        )
+    else:  # out_of_scope
+        reply = (
+            "Bu konuda yardımcı olamıyorum. Randevu almak veya kliniğe not "
+            "bırakmak isterseniz buradayım."
+        )
+    # Teklif aşamasındaysak durum korunur: arayan bir sonraki turda hâlâ
+    # "birincisi" diyebilsin.
+    return PhoneTurnOutcome(reply=reply, stage="offering" if offers else "conversation")
+
+
 def handle_phone_turn(db: Session, result: IngestionResult, speech: str) -> PhoneTurnOutcome | None:
     """Bir telefon turunu randevu akışına bağlar.
 
@@ -352,7 +424,7 @@ def handle_phone_turn(db: Session, result: IngestionResult, speech: str) -> Phon
                         conversation=conversation,
                         offer=selected,
                     )
-                    return PhoneTurnOutcome(reply=reply, stage="booked")
+                    return PhoneTurnOutcome(reply=reply, stage="booked", end_call=True)
                 except ValueError:
                     # Slot bu arada başka kanaldan doldu — dürüstçe söyle, yenile.
                     db.rollback()
@@ -379,6 +451,13 @@ def handle_phone_turn(db: Session, result: IngestionResult, speech: str) -> Phon
             # okumak kabul edilemez. Stage silinmez; arayan bir sonraki turda
             # yine seçim yapabilir. Yalnız shadow'suz (yüksek güvenli,
             # tıbbi/riskli sinyalsiz) söylemde teklifler tekrar okunur.
+            # Slot eşleşmedi. Önce: bu söz görüşmenin kendisi hakkında mı
+            # ("tekrar eder misiniz", "robot musunuz")? Tıbbi içerik taşıyan
+            # söz bu kapıdan geçemediği için shadow-review kontrolünden önce
+            # denenir — sonrasına konsa hiç çalışmazdı.
+            spoken = _caller_intent_outcome(speech, clinic=result.clinic, offers=offers)
+            if spoken is not None:
+                return spoken
             if result.shadow_review is not None:
                 return None
             return PhoneTurnOutcome(
@@ -405,7 +484,10 @@ def handle_phone_turn(db: Session, result: IngestionResult, speech: str) -> Phon
     # ise teklif okunur (public.py'deki eşikle birebir aynı).
     booking_intents = {ClinicIntent.BOOK_APPOINTMENT, ClinicIntent.RESCHEDULE_APPOINTMENT}
     if intent not in booking_intents:
-        return None
+        # Randevu turu değil — ama görüşmenin kendisi hakkında bir soru olabilir.
+        # Eskiden burada koşulsuz None dönülüyordu ve arayan, sorusu ne olursa
+        # olsun eskalasyon cümlesini duyuyordu.
+        return _caller_intent_outcome(speech, clinic=result.clinic)
     if result.shadow_review is not None and (result.shadow_review.confidence_score or 0) < 0.78:
         return None
     message_meta = (result.message.metadata_json or {}) if result.message is not None else {}

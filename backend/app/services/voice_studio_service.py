@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 import time
 from dataclasses import dataclass, field
 from threading import Lock
@@ -13,6 +12,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from typing import Literal
 
+from app.ai.caller_intent import classify_caller_intent, short_affirmative, stated_time
 from app.ai.text_understanding import normalize_for_intent
 from app.core.config import get_settings
 
@@ -102,63 +102,9 @@ def voices(key: str, search: str = '', page_token: str | None = None) -> dict:
             'next_page_token': data.get('next_page_token') if data.get('has_more') else None}
 
 
-# ── Türkçe zaman ifadesi — sunucu kullanıcının KENDİ sözünden okur ───────────
-# Eskiden modelin döndürdüğü zaman metni kullanıcının cümlesinde aranıyordu;
-# küçük yerel model "saat 15" yerine "15:00" yazınca eşleşme kırılıyor ve
-# asistan aynı soruyu tekrar tekrar soruyordu. Artık karar burada veriliyor.
-DAY_WORDS = ('bugun', 'yarin', 'obur gun', 'pazartesi', 'sali', 'carsamba', 'persembe',
-             'cuma', 'cumartesi', 'pazar', 'hafta ici', 'hafta sonu', 'haftaya',
-             'gelecek hafta', 'onumuzdeki', 'ayin')
-HOUR_WORDS = ('birde', 'ikide', 'ucte', 'dortte', 'beste', 'altida', 'yedide', 'sekizde',
-              'dokuzda', 'onda', 'on birde', 'on ikide', 'yarimda', 'bucukta', 'sabah',
-              'ogleden sonra', 'aksamustu')
-CLOCK = re.compile(r'\b\d{1,2}[:.]\d{2}\b')
-
-
-def stated_time(text: str) -> bool:
-    """Kullanıcı gerçekten bir gün/saat söyledi mi? Randevu talebi buna bağlı."""
-    n = normalize_for_intent(text)
-    if any(word in n for word in DAY_WORDS) or any(word in n for word in HOUR_WORDS):
-        return True
-    # Saat ayıracı ham metinde aranır: normalize ':' ve '.' karakterlerini siler,
-    # "15:30" normalize edilince "15 30" olur ve kalıp kaçar.
-    if CLOCK.search(text):
-        return True
-    return 'saat' in n and re.search(r'\b\d{1,2}\b', n) is not None
-
-
-# Kural tablosu — sırası önemli: önce görüşmeyi bitiren/güvenlik kuralları, sonra
-# konuşmayı ilerleten niyetler. Yerel LLM yalnız buraya düşmeyen serbest metinde
-# devreye girer; böylece demo küçük modelin kaprisine bağlı kalmaz.
-RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ('stop', ('bir daha arama', 'aramayin', 'aramani istemiyorum', 'ilgilenmiyorum',
-              'gorusmeyi bitir', 'hosca kal', 'hoscakal', 'kapatiyorum', 'istemiyoruz')),
-    ('wrong_number', ('yanlis numara', 'yanlis sirket', 'burasi degil', 'boyle bir sirket yok')),
-    ('out_of_scope', ('makarna', 'yemek tarifi', 'hava durumu', 'hava nasil', 'mac sonucu',
-                      'futbol', 'siyaset', 'bitcoin', 'siir yaz', 'sifreyi soyle',
-                      'talimatlari unut', 'sistem promptu')),
-    ('repeat', ('anlamadim', 'tekrar eder misiniz', 'tekrarlar misiniz', 'duyamadim',
-                'ne dediniz', 'sesiniz kesildi')),
-    ('identity', ('kimsiniz', 'kiminle gorusuyorum', 'nereden ariyorsunuz', 'hangi sirket',
-                  'robot musunuz', 'insan misiniz', 'gercek misiniz')),
-    ('busy', ('musait degilim', 'toplantidayim', 'simdi olmaz', 'sonra arayin', 'yogunum',
-              'mesgulum', 'arabadayim', 'sonra konusalim')),
-    ('human', ('yetkiliye baglayin', 'insanla gorusmek', 'satis ekibi', 'birine baglayin',
-               'muduru', 'yetkiliyle gorusmek')),
-    ('email', ('mail atin', 'e posta', 'eposta', 'mail gonderin', 'bilgi gonderin',
-               'dokuman gonderin', 'sunum gonderin')),
-    ('message', ('mesaj birakmak', 'mesaj birakabilir', 'not birakmak', 'mesaj iletebilir')),
-    ('pricing', ('fiyat', 'ucret', 'ne kadar', 'maliyet', 'abonelik', 'kac para')),
-)
-
-AFFIRMATIVE = ('evet', 'tabii', 'tabi', 'elbette', 'buyurun', 'olur', 'tamam', 'dogru',
-               'peki', 'anlatabilirsiniz', 'musaitim', 'dinliyorum')
-
-
-def short_affirmative(n: str) -> bool:
-    """Kısa onay ("Evet, doğrudur.") — küçük model bunu randevu sanabiliyordu."""
-    return (len(n.split()) <= 4 and n.startswith(AFFIRMATIVE)
-            and 'hayir' not in n and 'degil' not in n)
+# Zaman/onay/kural tablosu ortak modülde (`app.ai.caller_intent`) yaşar —
+# aynı sınıflandırıcıyı gerçek telefon akışı da kullanır. Buradaki yanıt
+# metinleri stüdyoya aittir ve ortaklaşmaz.
 
 
 def last_assistant_line(s: Rehearsal) -> str:
@@ -176,9 +122,9 @@ def analyze(s: Rehearsal, text: str) -> tuple[dict, str]:
     n = normalize_for_intent(text)
     if s.stage == 'message':
         return {'intent': 'message', 'note': text}, 'kural'
-    for intent, phrases in RULES:
-        if any(phrase in n for phrase in phrases):
-            return {'intent': intent}, 'kural'
+    matched = classify_caller_intent(text)
+    if matched is not None:
+        return {'intent': matched}, 'kural'
     if n.rstrip('.') in {'hayir', 'hayir degil', 'hayir yanlis'} and s.stage == 'opening' and s.scenario.direction == 'outgoing':
         return {'intent': 'wrong_number'}, 'kural'
     if stated_time(text):
