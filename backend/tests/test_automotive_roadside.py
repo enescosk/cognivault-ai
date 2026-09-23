@@ -19,7 +19,7 @@ import pytest
 from sqlalchemy import select
 
 from app.automotive import roadside as rs
-from app.automotive import whatsapp as wa
+from app.channels import whatsapp_meta as wa
 from app.core.config import get_settings
 from app.models import AutomotiveCase, AutomotiveMessage, OutboxEvent, User
 
@@ -421,7 +421,7 @@ def test_delivery_handler_marks_accepted(db_session, owner, live, monkeypatch):
     r = ready_tow(db_session, owner)
     offer = out(db_session, r.case['id'], 'team:atlas-01')[-1]
     sent = []
-    monkeypatch.setattr(wa, 'send', lambda message, client=None: sent.append(message) or 'wamid.OUT1')
+    monkeypatch.setattr(wa, 'send', lambda message, **kw: sent.append(message) or 'wamid.OUT1')
     deliver = rs.make_delivery_handler(lambda: _NoClose(db_session))
     deliver(db_session.get(OutboxEvent, offer.outbox_event_id))
     db_session.refresh(offer)
@@ -438,7 +438,7 @@ def test_undeliverable_team_offer_moves_on(db_session, owner, live, monkeypatch)
     r = ready_tow(db_session, owner)
     offer = out(db_session, r.case['id'], 'team:atlas-01')[-1]
 
-    def reject(message, client=None):
+    def reject(message, **kw):
         raise wa.PermanentSendError('400 Template not approved')
     monkeypatch.setattr(wa, 'send', reject)
     rs.make_delivery_handler(lambda: _NoClose(db_session))(db_session.get(OutboxEvent, offer.outbox_event_id))

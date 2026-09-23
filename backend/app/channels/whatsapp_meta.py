@@ -1,7 +1,7 @@
 """Meta WhatsApp Cloud API — gelen webhook okuma, giden mesaj kurma, gönderim.
 
-Bu modül iş kuralı içermez: neyin kime ne zaman gideceğine `roadside` karar
-verir. Burada yalnız sağlayıcının biçimi durur.
+Klinik ve otomotiv ortak kullanır. İş kuralı içermez: neyin kime ne zaman
+gideceğine sektör modülü karar verir. Burada yalnız sağlayıcının biçimi durur.
 
 Sağlayıcı sınırları (sessizce kesilmez, `ValueError` fırlatılır — kesmek
 canlıda anlamsız buton başlıkları üretir, hata ise testte yakalanır):
@@ -10,7 +10,7 @@ canlıda anlamsız buton başlıkları üretir, hata ise testte yakalanır):
 
 24 saat kuralı: işletme, son 24 saatte kendisine yazmamış birine serbest
 (session) mesaj GÖNDEREMEZ; yalnız Meta'nın onayladığı şablon gidebilir.
-Hangisinin kullanılacağına `roadside` karar verir; bu modül ikisini de kurar.
+Hangisinin kullanılacağına sektör modülü karar verir; bu modül ikisini de kurar.
 """
 from __future__ import annotations
 
@@ -19,13 +19,13 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.core.config import get_settings
 
 GRAPH_URL = 'https://graph.facebook.com/v21.0'
 BUTTON_TITLE_MAX = 20
 BUTTON_ID_MAX = 256
 MAX_BUTTONS = 3
-BODY_MAX = 1024
+BODY_MAX = 1024          # etkileşimli mesaj gövdesi
+TEXT_MAX = 4096          # düz metin mesajı
 SESSION_WINDOW_SECONDS = 24 * 60 * 60
 E164 = re.compile(r'\+[1-9]\d{7,14}')
 
@@ -139,7 +139,9 @@ def envelope(to: str, content: dict) -> dict:
 
 
 def text_content(body: str) -> dict:
-    return {'type': 'text', 'text': {'body': _check_body(body), 'preview_url': True}}
+    if not body or len(body) > TEXT_MAX:
+        raise ValueError(f'Metin 1–{TEXT_MAX} karakter olmalı')
+    return {'type': 'text', 'text': {'body': body, 'preview_url': True}}
 
 
 def buttons_content(body: str, buttons: list[tuple[str, str]]) -> dict:
@@ -197,7 +199,8 @@ class PermanentSendError(Exception):
     """Tekrar denemenin anlamı olmayan ret (geçersiz numara, şablon onaysız…)."""
 
 
-def send(message: dict, *, client: httpx.Client | None = None) -> str:
+def send(message: dict, *, phone_number_id: str, access_token: str,
+         client: httpx.Client | None = None) -> str:
     """Mesajı gönderir, sağlayıcı mesaj kimliğini döner.
 
     Dönen kimlik "Meta kabul etti" demektir, TESLİM EDİLDİ değil — teslim ve
@@ -205,9 +208,10 @@ def send(message: dict, *, client: httpx.Client | None = None) -> str:
     4xx → PermanentSendError (tekrar denenmez); ağ/5xx → httpx hatası (outbox
     tekrar dener).
     """
-    settings = get_settings()
-    url = f'{GRAPH_URL}/{settings.automotive_whatsapp_phone_number_id}/messages'
-    headers = {'Authorization': f'Bearer {settings.automotive_meta_access_token}'}
+    if not phone_number_id or not access_token:
+        raise PermanentSendError('Gönderen numara kimliği ya da erişim anahtarı tanımlı değil')
+    url = f'{GRAPH_URL}/{phone_number_id}/messages'
+    headers = {'Authorization': f'Bearer {access_token}'}
     owns_client = client is None
     client = client or httpx.Client(timeout=10)
     try:

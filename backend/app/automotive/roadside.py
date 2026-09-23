@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.text_understanding import normalize_for_intent
 from app.automotive import operations as ops
-from app.automotive import whatsapp as wa
+from app.channels import whatsapp_meta as wa
 from app.core.config import get_settings
 from app.models import AutomotiveCase, AutomotiveMessage, User
 from app.services.outbox_service import enqueue_outbox_event
@@ -783,7 +783,10 @@ def make_delivery_handler(session_factory):
                 return
             payload = message.payload or {}
             try:
-                provider_id = wa.send(wa.envelope(payload.get('to') or '', payload['content']))
+                settings = get_settings()
+                provider_id = wa.send(wa.envelope(payload.get('to') or '', payload['content']),
+                                      phone_number_id=settings.automotive_whatsapp_phone_number_id,
+                                      access_token=settings.automotive_meta_access_token)
             except (wa.PermanentSendError, ValueError) as exc:
                 message.delivery_status, message.error = 'failed', str(exc)[:300]
                 message.updated_at = _now()

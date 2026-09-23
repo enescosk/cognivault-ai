@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.automotive import roadside as rs
-from app.automotive import whatsapp as wa
+from app.channels import whatsapp_meta as wa
 from app.core.config import get_settings
 from app.core.webhook_security import verify_meta_signature
 from app.api.dependencies import require_roles
