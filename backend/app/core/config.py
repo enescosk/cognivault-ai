@@ -147,6 +147,10 @@ class Settings(BaseSettings):
     clinical_auto_reply_threshold: float = 0.90
     clinical_shadow_threshold: float = 0.75
     twilio_auth_token: str = ""
+    automotive_voice_enabled: bool = False
+    automotive_inbound_number: str = ""
+    automotive_dispatch_number: str = ""
+    automotive_webhook_base_url: str = ""
     twilio_account_sid: str = ""
     twilio_whatsapp_from: str = ""
     meta_verify_token: str = ""

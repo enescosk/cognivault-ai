@@ -1232,3 +1232,20 @@ class KVKKDisclosureVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     clinic: Mapped["Clinic"] = relationship(back_populates="disclosures")
+
+
+class AutomotiveCase(Base):
+    """Owner-scoped local service/roadside rehearsal; never a live dispatch."""
+    __tablename__ = 'automotive_cases'
+    __table_args__ = (
+        UniqueConstraint('owner_id', 'request_key', name='uq_automotive_case_request'),
+        UniqueConstraint('owner_id', 'team_slot', name='uq_automotive_active_team'),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    organization_id: Mapped[int | None] = mapped_column(ForeignKey('organizations.id'), nullable=True, index=True)
+    request_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    team_slot: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

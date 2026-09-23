@@ -1,5 +1,18 @@
 # Cognivault AI MVP
 
+## Automotive pilot (23 September 2026)
+
+Staff can open **Oto Servis Pilotu** at `/automotive` to evaluate fictional
+maintenance records and rehearse customer replies. This is a side-effect-free
+prototype: it does not call customers, send messages, store opt-outs, or book
+appointments. The CLI (`cd backend && .venv/bin/python -m app.automotive`) also
+evaluates JSON source records. See the [research and project assessment](docs/automotive/ARASTIRMA-VE-PROJE-DURUMU-2026-09-23.md)
+and [pilot setup / live integration contract](docs/automotive/PILOT-KURULUMU.md).
+
+The original overview below predates several platform additions; use the current
+roadmap and the dated assessment above for readiness rather than treating this
+original MVP description as a production certification.
+
 Cognivault AI is a secure, auditable AI agent prototype for enterprise workflows. This MVP demonstrates one fully implemented business flow: a bilingual appointment-booking agent that can chat in Turkish and English, gather missing details step by step, enforce role boundaries, call backend tools, and return a structured confirmation.
 
 ## What is included

@@ -158,6 +158,7 @@ export function Sidebar({ user, sessions, appointments, selectedSessionId, activ
       <div className="sidebar-body">
         <nav className="sidebar-nav">
           <div className="nav-section-label">Çalışma Alanı</div>
+          {isClinicalStaff && <a className="sidebar-nav-item" href="/automotive">Oto Servis Pilotu</a>}
 
           {/* Randevularım nav item — sadece customer için */}
           {user.role.name === "customer" && (

@@ -26,10 +26,10 @@
     },
     "migration_single_head": {
       "heads": [
-        "0012_clinic_channel_bindings"
+        "0013_automotive_cases"
       ],
       "pass": true,
-      "revision_count": 13,
+      "revision_count": 14,
       "target": "tam olarak tek alembic head (çift-head yok)"
     },
     "sqlite_flagged_in_prod": {

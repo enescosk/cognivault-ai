@@ -12,6 +12,7 @@ from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.routes import (
+    automotive,
     agents,
     ai,
     appointments,
@@ -230,6 +231,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 app.include_router(auth.router, prefix=settings.api_prefix)
+app.include_router(automotive.router, prefix=settings.api_prefix)
 app.include_router(ai.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(chat.router, prefix=settings.api_prefix)

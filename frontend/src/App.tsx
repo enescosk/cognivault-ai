@@ -7,6 +7,7 @@ import { Dashboard } from "./components/Dashboard";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoginRoute } from "./components/LoginRoute";
 import { VoiceStudio } from "./components/voice-studio/VoiceStudio";
+import { AutomotivePilot } from "./components/automotive/AutomotivePilot";
 import { PatientPage } from "./components/patient/PatientPage";
 import { RequireRole } from "./components/RequireRole";
 import { RoleRedirect } from "./components/RoleRedirect";
@@ -30,6 +31,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/automotive" element={<RequireRole roles={["operator", "admin"]}><ErrorBoundary scope="Oto servis pilotu"><AutomotivePilot /></ErrorBoundary></RequireRole>} />
 
       {/* Tasarım kılavuzu — public, auth yok. Bkz. frontend/DESIGN_SYSTEM.md */}
       <Route path="/styleguide" element={<Styleguide />} />
