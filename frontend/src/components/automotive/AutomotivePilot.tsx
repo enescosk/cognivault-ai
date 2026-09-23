@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { automotiveRequest, type Demo, type Decision, type Outcome, type Preview, type Rehearsal } from '../../api/automotive';
 import { useAuth } from '../../context/AuthContext';
 import './automotive.css';
+import { RoadsideLine } from './RoadsideLine';
 import { ServiceOperations } from './ServiceOperations';
 
 const labels: Record<Decision['status'], string> = {
@@ -14,7 +15,7 @@ const outcomes: [Outcome, string][] = [
 ];
 
 export function AutomotivePilot() {
-  const [view, setView] = useState<'operations' | 'maintenance'>('operations');
+  const [view, setView] = useState<'line' | 'operations' | 'maintenance'>('line');
   const { token } = useAuth();
   const [demo, setDemo] = useState<Demo | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -76,10 +77,11 @@ export function AutomotivePilot() {
       <p>Servis, çekici ve yol yardımı operasyon merkezi.</p></div>
       <span className="auto-badge">Kurgusal şirket · Yerel pilot</span></header>
     <nav className="auto-tabs" aria-label="Servis çalışma alanları">
+      <button type="button" aria-pressed={view === 'line'} onClick={() => setView('line')}>Yol yardım hattı</button>
       <button type="button" aria-pressed={view === 'operations'} onClick={() => setView('operations')}>Servis ve yol yardımı</button>
       <button type="button" aria-pressed={view === 'maintenance'} onClick={() => setView('maintenance')}>Bakım hatırlatmaları</button>
     </nav>
-    {view === 'operations' ? <ServiceOperations /> : <>
+    {view === 'line' ? <RoadsideLine /> : view === 'operations' ? <ServiceOperations /> : <>
     <p className="auto-notice">Bu ekran aday seçimini ve görüşme akışını dener. Arama veya mesaj göndermez; randevu ve iletişim reddi kaydetmez.</p>
     {error && <p role="alert" className="auto-error">{error}</p>}
     {!preview && !error && <p role="status">Servis örneği yükleniyor…</p>}
