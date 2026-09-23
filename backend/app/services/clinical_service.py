@@ -43,6 +43,7 @@ from app.models import (
     User,
 )
 from app.services.agents import AgentType, DecisionRisk, build_decision, record_agent_decision
+from app.services.clinic_whatsapp import EMERGENCY_ACK, SHADOW_ACK, delivery_marker
 from app.services.clinical_ai_service import (
     analyze_sentiment,
     assess_hallucination_risk,
@@ -97,6 +98,10 @@ class IncomingClinicalMessage:
     conversation_id: int | None = None
     requested_persona_id: str | None = None
     raw_payload: dict | None = None
+    # Cevap hastaya WhatsApp'tan gerçekten gönderilsin mi? YALNIZ gerçek
+    # webhook True yapar; operatör simülasyonu uydurma numarayla dener ve o
+    # numaraya gerçek mesaj gitmemeli (bkz. clinic_whatsapp).
+    deliver_reply: bool = False
 
 
 @dataclass(frozen=True)
@@ -415,7 +420,7 @@ def _find_or_create_conversation(db: Session, clinic: Clinic, patient: ClinicPat
 
     # Hasta ilk kez yazıyor — KVKK Md. 10 aydınlatma yükümlülüğünü yerine getir.
     # `_emit_kvkk_notice_and_consent` hem sistem mesajı hem ConsentRecord yazar.
-    _emit_kvkk_notice_and_consent(db, clinic, patient, conversation)
+    _emit_kvkk_notice_and_consent(db, clinic, patient, conversation, deliver=incoming.deliver_reply)
 
     # Hasta için ilk kayıt anında data_expires_at'i de set et (varsa override etme).
     if patient.data_expires_at is None:
@@ -618,6 +623,8 @@ def _emit_kvkk_notice_and_consent(
     clinic: Clinic,
     patient: ClinicPatient,
     conversation: ClinicConversation,
+    *,
+    deliver: bool = False,
 ) -> None:
     """KVKK Md. 10 aydınlatma metnini sistem mesajı olarak yaz + pending rıza kaydı oluştur.
 
@@ -637,6 +644,8 @@ def _emit_kvkk_notice_and_consent(
         metadata_json={
             "kvkk_notice": True,
             "consent_text_version": KVKK_NOTICE_VERSION,
+            # WhatsApp hastası aydınlatmayı ancak gönderilirse görür.
+            "delivery": delivery_marker(deliver),
         },
     )
     db.add(system_message)
@@ -852,6 +861,19 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         db.add(message)
         db.add(conversation)
         db.add(review)
+        if incoming.deliver_reply:
+            # Hekim incelemesine düşen mesaja WhatsApp'ta sessiz kalınmaz:
+            # hasta alındığını (acilse 112'yi) duyar. Sistem mesajı olarak
+            # yazılır — otomatik cevap sayılmaz, modelin geçmişine girmez.
+            db.add(ClinicMessage(
+                clinic_id=clinic.id,
+                conversation_id=conversation.id,
+                sender=ClinicMessageSender.SYSTEM,
+                content=EMERGENCY_ACK if ai_result.intent == ClinicIntent.MEDICAL_EMERGENCY else SHADOW_ACK,
+                language=language,
+                intent=ai_result.intent,
+                metadata_json={"shadow_ack": True, "delivery": delivery_marker(True)},
+            ))
         db.commit()
         db.refresh(conversation)
         db.refresh(review)
@@ -905,7 +927,7 @@ def ingest_clinical_message(db: Session, incoming: IncomingClinicalMessage, clin
         confidence_score=ai_result.confidence,
         metadata_json={
             "action": ai_result.action,
-            "delivery": "simulated",
+            "delivery": delivery_marker(incoming.deliver_reply),
             "data": ai_result.data or {},
             "persona_id": ai_result.persona_id,
             "persona_name": ai_result.persona_name,

@@ -185,6 +185,33 @@ dürüstçe "henüz kanıtlanmadı" olarak listeliyor.
 
 ---
 
+## F1-K — Klinik Kanal Güvenilirliği (pilot öncesi · ~1 hafta)
+
+Pilot kliniğin ilk gün hissedeceği şeyler. Çekici hattı (`docs/automotive/YOL-YARDIMI.md`)
+için yazılan WhatsApp gönderimi, 24 saat/şablon kuralı ve teslim takibi buraya taşınıyor.
+
+- ✅ **K.A** **WhatsApp cevapları hastaya gerçekten gidiyor** (2026-09-23). Önceden
+  cevap üretiliyor ama `"delivery": "simulated"` diye yalnız kaydediliyordu;
+  Meta/Twilio webhook cevabını hastaya iletmediği için **hasta hiç cevap
+  almıyordu**, KVKK aydınlatması da ona ulaşmıyordu. Artık: aydınlatma + cevap
+  outbox'tan, hastanın yazdığı işletme numarasından gider; hekim incelemesine
+  düşen mesaja "hekimimize ilettim" (acilse 112) onayı gider; hekimin onayladığı
+  cevap da gider; teslim durumu (kabul/iletildi/okundu/başarısız) izlenir,
+  başarısızsa konuşma insana düşer. Varsayılan KAPALI
+  (`CLINIC_WHATSAPP_SEND_ENABLED`). WhatsApp kodu `app/channels/`'a ortaklaştı.
+- ⬜ **K.B** Randevu hatırlatma (24 sa + 2 sa önce) + **[Geleceğim] [İptal]
+  [Ertele]** düğmeleri. Pencere kapalı olduğu için **onaylı şablon** gerekir.
+  No-show modeli kime hatırlatma gideceğine bağlanabilir.
+- ⬜ **K.C** = **1.7** Telefonda klinik bazlı karşılama + kısa KVKK anonsu.
+- ⬜ **K.D** WhatsApp'ta randevu saati **düğmeyle** seçimi (telefondaki
+  "birincisi" derdinin WhatsApp karşılığı yok olur).
+- ⬜ **K.E** Klinik hattı simülatörü (hasta + resepsiyon) — satış demosu.
+
+> K.A canlıda açılmadan önce: Meta/Twilio numarası kliniğe bağlı
+> (`bind_channel`), outbox worker çalışıyor, `CLINICAL_WEBHOOK_BASE_URL` dolu.
+
+---
+
 ## F4 — Pilot Klinik (İP-5.3–5.6 · ~30 gün saha)
 
 Satış paketi (`docs/sales/`), launch pack (`docs/pilot/IP-5.1-*`), fiyatlama
@@ -317,6 +344,13 @@ işlenmiş.
 
 ## Değişiklik Günlüğü
 
+- **2026-09-23** — **K.A kapandı: klinik WhatsApp'ı artık hastaya cevap
+  veriyor.** Tespit: kodda hastaya WhatsApp mesajı gönderen hiçbir yol yoktu
+  (cevaplar `simulated`, outbox'a `whatsapp.send` yazan satır yok, handler demo).
+  Yolda: operatör simülasyonunun gerçek gönderim tetiklememesi için gelen mesaja
+  açık `deliver_reply` bayrağı; eski `simulated` kayıtlar toptan gönderilmez;
+  hekim onayı 24 saati geçtiyse `blocked_no_template` + insan. Oto servis pilotu
+  ve yol yardım hattı da main'de (`docs/automotive/`).
 - **2026-09-16 (iii)** — F1.6'nın üstüne sözlü seçimde **üç kusur** kapandı;
   üçü de ilk gerçek aramada yaşanacak cinsten:
   1. *Ret, seçim sanılıyordu.* "Salı müsait değilim"de gün adı, "dokuz

@@ -147,6 +147,10 @@ class Settings(BaseSettings):
     clinical_auto_reply_threshold: float = 0.90
     clinical_shadow_threshold: float = 0.75
     twilio_auth_token: str = ""
+    # Klinik WhatsApp cevaplarını hastaya GERÇEKTEN gönder. Varsayılan kapalı:
+    # kapalıyken cevaplar "demo_only" işaretlenir, hiçbir numaraya gitmez
+    # (test/demo ortamı ya da üretim verisinin kopyası hastaya yazmasın).
+    clinic_whatsapp_send_enabled: bool = False
     automotive_voice_enabled: bool = False
     automotive_inbound_number: str = ""
     automotive_dispatch_number: str = ""

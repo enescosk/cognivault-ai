@@ -17,6 +17,7 @@ import time
 from app.core.observability import configure_logging
 from app.db.session import SessionLocal
 from app.automotive import roadside
+from app.services import clinic_whatsapp
 from app.services.outbox_service import DEFAULT_HANDLERS, dispatch_pending_events
 
 configure_logging()
@@ -27,7 +28,12 @@ POLL_INTERVAL_SECONDS = 5
 
 # Yol yardımı mesajları gerçek Meta gönderimine gider (ayar kapalıysa bu tipte
 # olay hiç kuyruğa yazılmaz — bkz. roadside._queue).
-HANDLERS = {**DEFAULT_HANDLERS, roadside.OUTBOX_EVENT: roadside.make_delivery_handler(SessionLocal)}
+HANDLERS = {
+    **DEFAULT_HANDLERS,
+    roadside.OUTBOX_EVENT: roadside.make_delivery_handler(SessionLocal),
+    # Klinik WhatsApp cevapları (ayar kapalıysa bu tipte olay yazılmaz — bkz. clinic_whatsapp.flush)
+    clinic_whatsapp.OUTBOX_EVENT: clinic_whatsapp.make_delivery_handler(SessionLocal),
+}
 
 
 _shutdown = False

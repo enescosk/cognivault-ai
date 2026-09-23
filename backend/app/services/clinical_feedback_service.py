@@ -19,6 +19,8 @@ from app.models import (
     User,
 )
 from app.services.agents import AgentType, DecisionRisk, build_decision, record_agent_decision
+from app.services import clinic_whatsapp
+from app.services.clinic_whatsapp import conversation_delivers, delivery_marker
 
 
 def update_shadow_review(
@@ -74,7 +76,10 @@ def update_shadow_review(
                 language=conversation.language,
                 intent=review.intent,
                 confidence_score=review.confidence_score,
-                metadata_json={"shadow_review_id": review.id, "delivery": "simulated"},
+                # Hasta WhatsApp'tan geldiyse hekimin onayladığı cevap ona
+                # gerçekten gider (commit sonrası flush).
+                metadata_json={"shadow_review_id": review.id,
+                               "delivery": delivery_marker(conversation_delivers(conversation))},
             )
         )
         conversation.status = ClinicConversationStatus.ACTIVE
@@ -85,6 +90,8 @@ def update_shadow_review(
     db.add(conversation)
     db.commit()
     db.refresh(review)
+    if conversation_delivers(conversation):
+        clinic_whatsapp.flush(db, conversation)
 
     decision_intent = review.intent.value if hasattr(review.intent, "value") else str(review.intent)
     record_agent_decision(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from html import escape
 from urllib.parse import parse_qs
@@ -57,6 +58,7 @@ from app.schemas.clinical import (
     VoiceCallSimulationRequest,
     WebhookIngestionResponse,
 )
+from app.services import clinic_whatsapp
 from app.services.clinical_compliance_service import build_compliance_profile, build_patent_dossier
 from app.services.clinical_slot_service import build_slot_board
 from app.services.clinical_service import (
@@ -1055,8 +1057,10 @@ async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_d
         clinic = resolve_webhook_clinic(db, channel=ClinicChannel.WHATSAPP, address=to_address)
         if clinic is None:
             return _unbound_channel_response(to_address)
-        incoming = parse_twilio_form(raw_body)
-        return ingestion_payload(ingest_clinical_message(db, incoming, clinic=clinic))
+        incoming = replace(parse_twilio_form(raw_body), deliver_reply=True)
+        result = ingest_clinical_message(db, incoming, clinic=clinic)
+        _deliver_whatsapp(db, result, provider="twilio", business=to_address)
+        return ingestion_payload(result)
 
     # Meta Cloud API inbound: validate the X-Hub-Signature-256 header against the raw body.
     if signature_required():
@@ -1073,13 +1077,19 @@ async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_d
     import json
 
     payload = json.loads(raw_body or b"{}")
+    # Teslim bildirimleri (iletildi/okundu/başarısız) klinik eşlemesinden
+    # bağımsızdır: yalnız bizim gönderdiğimiz mesaj kimliğiyle eşleşir.
+    for provider_id, delivery_status, error in clinic_whatsapp.meta_statuses(payload):
+        clinic_whatsapp.apply_status(db, provider_id, delivery_status, error)
     # Meta Cloud: işletme numarası `metadata.phone_number_id` ile gelir; tüm
     # change'lerde aynı WABA numarası olduğu varsayılır (Meta tek numaraya
     # abone webhook gönderir). İlk metadata'dan çözümlenir.
     phone_number_id = None
+    sender_number_id = None  # cevap bu numara kimliğinden gider (görünen numara yetmez)
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             meta_info = change.get("value", {}).get("metadata", {})
+            sender_number_id = meta_info.get("phone_number_id")
             phone_number_id = meta_info.get("phone_number_id") or meta_info.get("display_phone_number")
             if phone_number_id:
                 break
@@ -1089,8 +1099,39 @@ async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_d
     if clinic is None:
         return _unbound_channel_response(phone_number_id)
     messages = parse_meta_payload(payload)
-    results = [ingestion_payload(ingest_clinical_message(db, item, clinic=clinic)) for item in messages]
+    results = []
+    for item in messages:
+        result = ingest_clinical_message(db, replace(item, deliver_reply=True), clinic=clinic)
+        _deliver_whatsapp(db, result, provider="meta", business=sender_number_id)
+        results.append(ingestion_payload(result))
     return results
+
+
+def _deliver_whatsapp(db: Session, result, *, provider: str, business: str | None) -> None:
+    """Webhook'un HTTP cevabı hastaya gitmez; cevabı sağlayıcı üzerinden gönder.
+
+    Rota (hangi işletme numarasından) konuşmada saklanır: hekim onayı gibi
+    sonradan yazılan cevaplar da aynı numaradan gider.
+    """
+    conversation = result.conversation
+    if business:
+        clinic_whatsapp.remember_route(conversation, provider=provider, business=business)
+        db.add(conversation)
+        db.commit()
+    clinic_whatsapp.flush(db, conversation)
+
+
+@router.post("/webhooks/whatsapp/status")
+async def receive_whatsapp_status(request: Request, db: Session = Depends(get_db)) -> PlainTextResponse:
+    """Twilio WhatsApp teslim bildirimi (StatusCallback)."""
+    body = await request.body()
+    _verify_twilio_voice_request(request, body)
+    fields = {key: values[0] if values else "" for key, values in parse_qs(body.decode("utf-8")).items()}
+    status_value = clinic_whatsapp.TWILIO_STATUS.get((fields.get("MessageStatus") or "").lower())
+    if fields.get("MessageSid") and status_value:
+        error = " ".join(p for p in (fields.get("ErrorCode"), fields.get("ErrorMessage")) if p)
+        clinic_whatsapp.apply_status(db, fields["MessageSid"], status_value, error)
+    return PlainTextResponse("ok")
 
 
 # ─── KVKK Md. 11 — Silme Hakkı (Right to Erasure) ──────────────────────────
