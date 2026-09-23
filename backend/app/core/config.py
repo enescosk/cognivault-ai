@@ -151,6 +151,13 @@ class Settings(BaseSettings):
     # kapalıyken cevaplar "demo_only" işaretlenir, hiçbir numaraya gitmez
     # (test/demo ortamı ya da üretim verisinin kopyası hastaya yazmasın).
     clinic_whatsapp_send_enabled: bool = False
+    # Randevu hatırlatma (24 sa + 2 sa önce, [Geleceğim][İptal][Ertele]).
+    # Varsayılan kapalı. Hatırlatma 24 saat penceresi dışında gider → WhatsApp'ta
+    # onaylı ŞABLON şart; şablon yoksa (ya da hastanın WhatsApp'ı yoksa) SMS'e düşer.
+    clinic_reminders_enabled: bool = False
+    clinic_wa_template_reminder: str = ""           # Meta şablon adı
+    clinic_wa_template_language: str = "tr"
+    clinic_twilio_reminder_content_sid: str = ""    # Twilio Content API şablonu (HX...)
     automotive_voice_enabled: bool = False
     automotive_inbound_number: str = ""
     automotive_dispatch_number: str = ""

@@ -199,9 +199,14 @@ için yazılan WhatsApp gönderimi, 24 saat/şablon kuralı ve teslim takibi bur
   cevap da gider; teslim durumu (kabul/iletildi/okundu/başarısız) izlenir,
   başarısızsa konuşma insana düşer. Varsayılan KAPALI
   (`CLINIC_WHATSAPP_SEND_ENABLED`). WhatsApp kodu `app/channels/`'a ortaklaştı.
-- ⬜ **K.B** Randevu hatırlatma (24 sa + 2 sa önce) + **[Geleceğim] [İptal]
-  [Ertele]** düğmeleri. Pencere kapalı olduğu için **onaylı şablon** gerekir.
-  No-show modeli kime hatırlatma gideceğine bağlanabilir.
+- ✅ **K.B** **Randevu hatırlatma** (2026-09-23): 24 sa + 2 sa önce,
+  **[Geleceğim] [İptal] [Ertele]**. WhatsApp (pencere dışında onaylı şablon) →
+  gidemezse SMS. İptal takvim slotunu serbest bırakır; Ertele randevuyu korur;
+  "Geleceğim" katılım teyididir, kliniğin onay kuralını atlatmaz. Yalnız
+  hastayla kararlaştırılmış randevuya gider — yapay zekâ taslağına gitmez.
+  Varsayılan KAPALI (`CLINIC_REMINDERS_ENABLED`); şablon metni
+  `docs/pilot/randevu-hatirlatma.md`. No-show modeli **bağlanmadı**: sentetik
+  veriyle eğitildi, gerçek hastaya mesaj kararı onunla verilmez.
 - ⬜ **K.C** = **1.7** Telefonda klinik bazlı karşılama + kısa KVKK anonsu.
 - ⬜ **K.D** WhatsApp'ta randevu saati **düğmeyle** seçimi (telefondaki
   "birincisi" derdinin WhatsApp karşılığı yok olur).

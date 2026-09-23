@@ -17,7 +17,7 @@ import time
 from app.core.observability import configure_logging
 from app.db.session import SessionLocal
 from app.automotive import roadside
-from app.services import clinic_whatsapp
+from app.services import clinic_reminders, clinic_whatsapp
 from app.services.outbox_service import DEFAULT_HANDLERS, dispatch_pending_events
 
 configure_logging()
@@ -61,6 +61,10 @@ def main() -> int:
             expired = roadside.sweep_expired_offers(db)
             if expired:
                 logger.info("automotive.offers.expired", extra={"count": expired})
+            # Randevu hatırlatmaları (ayar kapalıysa hiçbir şey yapmaz).
+            reminders = clinic_reminders.run(db)
+            if any(reminders.values()):
+                logger.info("clinic.reminders.tick", extra=reminders)
         except Exception as exc:  # noqa: BLE001
             logger.exception("outbox.worker.error", extra={"error": str(exc)})
         finally:

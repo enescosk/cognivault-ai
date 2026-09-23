@@ -151,7 +151,14 @@ def parse_meta_payload(payload: dict) -> list[IncomingClinicalMessage]:
             value = change.get("value", {})
             contacts = {item.get("wa_id"): item.get("profile", {}).get("name") for item in value.get("contacts", [])}
             for item in value.get("messages", []):
-                text = item.get("text", {}).get("body")
+                # Düğme yanıtları metin değildir: şablon hızlı yanıtı ("button") ve
+                # etkileşimli düğme/liste ("interactive"). Eskiden düşürülüyordu —
+                # hasta hatırlatmada "İptal"e basınca mesaj kayboluyordu.
+                interactive = item.get("interactive") or {}
+                reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
+                text = (item.get("text", {}).get("body")
+                        or (item.get("button") or {}).get("text")
+                        or reply.get("title"))
                 from_phone = item.get("from")
                 if not from_phone or not text:
                     continue

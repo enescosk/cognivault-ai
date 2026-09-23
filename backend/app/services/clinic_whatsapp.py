@@ -113,25 +113,42 @@ def flush(db: Session, conversation: ClinicConversation, *, now: datetime | None
     window = _window_open(db, conversation, now)
     failed = False
     for message in pending:
+        # Hatırlatma gibi yedeği (SMS) olan mesajlar başarısızlıkta konuşmayı
+        # insana düşürmez; yedeği çağıran uygular.
+        escalate = (message.metadata_json or {}).get('escalate_on_failure', True)
+        provider = (route or {}).get('provider')
+        form = 'session' if window else ('template' if template_ready(message, provider) else None)
         if not settings.clinic_whatsapp_send_enabled:
-            _set_delivery(message, 'demo_only', delivery_provider=(route or {}).get('provider'))
+            _set_delivery(message, 'demo_only', delivery_provider=provider, form=form or 'session')
         elif not route:
             _set_delivery(message, 'failed', error='Gönderim rotası yok (hangi işletme numarasından?)')
-            failed = True
-        elif not window:
-            _set_delivery(message, 'blocked_no_template', delivery_provider=route['provider'],
+            failed = failed or escalate
+        elif form is None:
+            _set_delivery(message, 'blocked_no_template', delivery_provider=provider,
                           error='24 saat penceresi kapalı; onaylı şablon gerekir')
-            failed = True
+            failed = failed or escalate
         else:
             event = enqueue_outbox_event(db, event_type=OUTBOX_EVENT, payload={'message_id': message.id},
                                          organization_id=None, clinic_id=message.clinic_id)
-            _set_delivery(message, 'queued', delivery_provider=route['provider'], outbox_event_id=event.id)
+            _set_delivery(message, 'queued', delivery_provider=provider, outbox_event_id=event.id, form=form)
         db.add(message)
     if failed:
         _needs_human(conversation, 'WhatsApp mesajı hastaya gönderilemedi')
         db.add(conversation)
     db.commit()
     return pending
+
+
+# Şablon türü → sağlayıcıdaki onaylı şablonun ayar anahtarı.
+TEMPLATE_SETTINGS = {
+    'reminder': {'meta': 'clinic_wa_template_reminder', 'twilio': 'clinic_twilio_reminder_content_sid'},
+}
+
+
+def template_ready(message: ClinicMessage, provider: str | None) -> bool:
+    template = (message.metadata_json or {}).get('template') or {}
+    key = TEMPLATE_SETTINGS.get(template.get('kind'), {}).get(provider or '')
+    return bool(key and getattr(get_settings(), key, ''))
 
 
 def _needs_human(conversation: ClinicConversation, reason: str) -> None:
@@ -152,21 +169,44 @@ def send_message(db: Session, message: ClinicMessage) -> None:
     conversation = db.get(ClinicConversation, message.conversation_id)
     route = (conversation.metadata_json or {}).get('whatsapp_route') or {}
     to = _patient_address(conversation)
+    info = message.metadata_json or {}
+    buttons = [tuple(b) for b in info.get('buttons') or []]
+    template = info.get('template') or {}
+    names = TEMPLATE_SETTINGS.get(template.get('kind'), {})
     try:
         if route.get('provider') == 'meta':
-            provider_id = meta.send(meta.envelope(to, meta.text_content(message.content)),
+            if info.get('form') == 'template':
+                content = meta.template_content(
+                    name=getattr(settings, names['meta']), language=settings.clinic_wa_template_language,
+                    params=template.get('params') or [], quick_replies=template.get('quick_replies') or [])
+            elif buttons:
+                content = meta.buttons_content(message.content, buttons)
+            else:
+                content = meta.text_content(message.content)
+            provider_id = meta.send(meta.envelope(to, content),
                                     phone_number_id=route['business'], access_token=settings.meta_access_token)
         elif route.get('provider') == 'twilio':
             base = settings.clinical_webhook_base_url.strip().rstrip('/')
-            provider_id = twilio.send_text(
-                to=to, body=message.content, from_=route['business'],
-                account_sid=settings.twilio_account_sid, auth_token=settings.twilio_auth_token,
-                status_callback=f'{base}{settings.api_prefix}/webhooks/whatsapp/status' if base else None)
+            common = dict(to=to, from_=route['business'], account_sid=settings.twilio_account_sid,
+                          auth_token=settings.twilio_auth_token,
+                          status_callback=f'{base}{settings.api_prefix}/webhooks/whatsapp/status' if base else None)
+            if info.get('form') == 'template':
+                provider_id = twilio.send_content(
+                    content_sid=getattr(settings, names['twilio']),
+                    variables={str(i + 1): p for i, p in enumerate(template.get('params') or [])}, **common)
+            else:
+                # Twilio'da serbest mesaj düğme taşıyamaz: seçenekleri yazıyla söyle
+                # (yazılı yanıtlar da tanınır).
+                body = message.content
+                if buttons:
+                    body += '\n\n' + ' / '.join(title for _, title in buttons) + ' yazarak yanıtlayabilirsiniz.'
+                provider_id = twilio.send_text(body=body, **common)
         else:
             raise meta.PermanentSendError('Bilinmeyen sağlayıcı')
     except (meta.PermanentSendError, ValueError) as exc:
         _set_delivery(message, 'failed', error=str(exc))
-        _needs_human(conversation, 'WhatsApp mesajı hastaya gönderilemedi')
+        if info.get('escalate_on_failure', True):
+            _needs_human(conversation, 'WhatsApp mesajı hastaya gönderilemedi')
         db.add_all([message, conversation])
         db.commit()
         logger.warning('clinic.whatsapp.send_failed', extra={'message_id': message.id})

@@ -9,6 +9,7 @@ kapalıyken serbest metin gitmez, onaylı içerik şablonu gerekir.
 """
 from __future__ import annotations
 
+import json
 import re
 
 import httpx
@@ -34,11 +35,28 @@ def send_text(*, to: str, body: str, from_: str, account_sid: str, auth_token: s
     4xx → PermanentSendError (tekrar denenmez); ağ/5xx → httpx hatası (outbox
     tekrar dener).
     """
-    if not account_sid or not auth_token:
-        raise PermanentSendError('Twilio hesap bilgisi tanımlı değil')
     if not body or len(body) > BODY_MAX:
         raise PermanentSendError(f'Mesaj 1–{BODY_MAX} karakter olmalı')
-    form = {'To': address(to), 'From': address(from_), 'Body': body}
+    return _post({'To': address(to), 'From': address(from_), 'Body': body}, account_sid=account_sid,
+                 auth_token=auth_token, status_callback=status_callback, client=client)
+
+
+def send_content(*, to: str, from_: str, content_sid: str, variables: dict[str, str], account_sid: str,
+                 auth_token: str, status_callback: str | None = None, client: httpx.Client | None = None) -> str:
+    """Onaylı içerik şablonu (Content API) gönderir — 24 saat penceresi kapalıyken
+    gidebilen tek biçim. Hızlı yanıt düğmeleri şablonun kendisinde tanımlıdır."""
+    if not content_sid:
+        raise PermanentSendError('Twilio içerik şablonu (ContentSid) tanımlı değil')
+    form = {'To': address(to), 'From': address(from_), 'ContentSid': content_sid,
+            'ContentVariables': json.dumps(variables, ensure_ascii=False)}
+    return _post(form, account_sid=account_sid, auth_token=auth_token,
+                 status_callback=status_callback, client=client)
+
+
+def _post(form: dict, *, account_sid: str, auth_token: str, status_callback: str | None,
+          client: httpx.Client | None) -> str:
+    if not account_sid or not auth_token:
+        raise PermanentSendError('Twilio hesap bilgisi tanımlı değil')
     if status_callback:
         form['StatusCallback'] = status_callback
     owns_client = client is None

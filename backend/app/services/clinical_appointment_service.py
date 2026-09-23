@@ -235,6 +235,17 @@ def ensure_doctor_schedule_available(
             )
 
 
+def release_calendar_slot(db: Session, appointment: ClinicalAppointment) -> None:
+    """Randevunun tuttuğu gerçek takvim slotunu serbest bırakır (varsa)."""
+    from app.models import ClinicDoctorSlot
+
+    if appointment.slot_id:
+        slot = db.get(ClinicDoctorSlot, appointment.slot_id)
+        if slot is not None and slot.is_booked:
+            slot.is_booked = False
+            db.add(slot)
+
+
 def set_clinical_appointment_status(
     db: Session,
     clinic: Clinic,
@@ -257,6 +268,9 @@ def set_clinical_appointment_status(
     if next_status == ClinicalAppointmentStatus.CONFIRMED:
         ensure_doctor_schedule_available(db, appointment)
         appointment.ends_at = _aware(appointment.starts_at) + timedelta(minutes=appointment.duration_minutes or 30)
+    if next_status == ClinicalAppointmentStatus.CANCELLED:
+        # İptal edilen saat takvimde dolu kalıyordu: başka hastaya önerilemiyordu.
+        release_calendar_slot(db, appointment)
     appointment.status = next_status
     db.add(appointment)
     db.commit()

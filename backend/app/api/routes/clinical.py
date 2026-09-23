@@ -58,7 +58,7 @@ from app.schemas.clinical import (
     VoiceCallSimulationRequest,
     WebhookIngestionResponse,
 )
-from app.services import clinic_whatsapp
+from app.services import clinic_reminders, clinic_whatsapp
 from app.services.clinical_compliance_service import build_compliance_profile, build_patent_dossier
 from app.services.clinical_slot_service import build_slot_board
 from app.services.clinical_service import (
@@ -1058,7 +1058,8 @@ async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_d
         if clinic is None:
             return _unbound_channel_response(to_address)
         incoming = replace(parse_twilio_form(raw_body), deliver_reply=True)
-        result = ingest_clinical_message(db, incoming, clinic=clinic)
+        result = clinic_reminders.handle_reply(db, clinic, incoming) or ingest_clinical_message(
+            db, incoming, clinic=clinic)
         _deliver_whatsapp(db, result, provider="twilio", business=to_address)
         return ingestion_payload(result)
 
@@ -1101,7 +1102,11 @@ async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_d
     messages = parse_meta_payload(payload)
     results = []
     for item in messages:
-        result = ingest_clinical_message(db, replace(item, deliver_reply=True), clinic=clinic)
+        incoming = replace(item, deliver_reply=True)
+        # Hatırlatma yanıtı ("Geleceğim/İptal/Ertele") yapay zekâya gitmez:
+        # hastaya iki ayrı cevap gitmesin.
+        result = clinic_reminders.handle_reply(db, clinic, incoming) or ingest_clinical_message(
+            db, incoming, clinic=clinic)
         _deliver_whatsapp(db, result, provider="meta", business=sender_number_id)
         results.append(ingestion_payload(result))
     return results
