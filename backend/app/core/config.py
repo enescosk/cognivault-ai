@@ -151,6 +151,33 @@ class Settings(BaseSettings):
     automotive_inbound_number: str = ""
     automotive_dispatch_number: str = ""
     automotive_webhook_base_url: str = ""
+    # ── Yol yardımı hattı (telefon + WhatsApp → iş kaydı → çekici) ──────────
+    # Müşteri aradığında/yazdığında oturum açmış kullanıcı yoktur; gelen işler
+    # bu dispeç hesabına ait olur. Boşsa gelen kanallar iş AÇMAZ (503).
+    automotive_inbound_owner_email: str = ""
+    automotive_brand: str = "Atlas Yol Yardım"
+    automotive_service_name: str = "Atlas Oto Servis"
+    # WhatsApp gönderimi varsayılan KAPALI. Kapalıyken mesajlar iş kaydına
+    # "demo_only" olarak yazılır, hiçbir numaraya gitmez. Oto servis ayrı bir
+    # işletme olduğu için kendi Meta uygulaması/numarası vardır — klinik
+    # tarafındaki META_* ayarlarından bilerek ayrıdır.
+    automotive_whatsapp_enabled: bool = False
+    automotive_whatsapp_phone_number_id: str = ""
+    automotive_meta_access_token: str = ""
+    automotive_meta_app_secret: str = ""
+    automotive_meta_verify_token: str = ""
+    # Meta onaylı şablon adları. 24 saat penceresi kapalıyken (müşteri telefonla
+    # aradı ve hiç yazmadı; ekibe ilk iş teklifi) serbest mesaj GİDEMEZ — yalnız
+    # bunlar gider. Boşsa o mesaj "blocked_no_template" olur ve iş danışmana
+    # düşer; "gönderildi" denmez. Önerilen metinler: docs/automotive/YOL-YARDIMI.md
+    automotive_wa_template_language: str = "tr"
+    automotive_wa_template_customer_location: str = ""
+    automotive_wa_template_customer_update: str = ""
+    automotive_wa_template_team_offer: str = ""
+    # Ekip telefonları: {"atlas-01": "+90..."} biçiminde JSON. Koda sabit numara
+    # YAZILMAZ — örnek ekiplerin numarası yoktur, gerçek numara yalnız buradan
+    # gelir. Ekipten gelen WhatsApp yanıtı yalnız buradaki numaralarla eşleşir.
+    automotive_team_phones: str = ""
     twilio_account_sid: str = ""
     twilio_whatsapp_from: str = ""
     meta_verify_token: str = ""

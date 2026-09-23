@@ -16,6 +16,7 @@ import time
 
 from app.core.observability import configure_logging
 from app.db.session import SessionLocal
+from app.automotive import roadside
 from app.services.outbox_service import DEFAULT_HANDLERS, dispatch_pending_events
 
 configure_logging()
@@ -23,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 # Polling aralığı — saniye. Trafik düşükse yükselt, mesaj kritikse düşür.
 POLL_INTERVAL_SECONDS = 5
+
+# Yol yardımı mesajları gerçek Meta gönderimine gider (ayar kapalıysa bu tipte
+# olay hiç kuyruğa yazılmaz — bkz. roadside._queue).
+HANDLERS = {**DEFAULT_HANDLERS, roadside.OUTBOX_EVENT: roadside.make_delivery_handler(SessionLocal)}
 
 
 _shutdown = False
@@ -43,9 +48,13 @@ def main() -> int:
     while not _shutdown:
         db = SessionLocal()
         try:
-            stats = dispatch_pending_events(db, DEFAULT_HANDLERS, batch_size=50)
+            stats = dispatch_pending_events(db, HANDLERS, batch_size=50)
             if any(stats.values()):
                 logger.info("outbox.worker.tick", extra=stats)
+            # Yanıtsız kalan çekici tekliflerini sıradaki ekibe geçir.
+            expired = roadside.sweep_expired_offers(db)
+            if expired:
+                logger.info("automotive.offers.expired", extra={"count": expired})
         except Exception as exc:  # noqa: BLE001
             logger.exception("outbox.worker.error", extra={"error": str(exc)})
         finally:

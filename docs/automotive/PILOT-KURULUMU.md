@@ -37,6 +37,9 @@ cd backend
 | Kanal adaptörleri | `backend/app/automotive/channels.py` | Meta konum mesajı okuma, ekibe konum yükü hazırlama — **gönderim yapmaz** |
 | Telefon köprüsü | `backend/app/automotive/phone.py` | Twilio imzalı, varsayılan kapalı; karşılama → dispeç numarasına aktarım → aktarım sonucu |
 | Operasyon ekranı | `frontend/src/components/automotive/ServiceOperations.tsx` | İş kartları, ekip seçimi, durum adımları |
+| Yol yardım hattı | `backend/app/automotive/roadside.py`, `whatsapp.py` | Telefon/WhatsApp → iş → otomatik ekip teklifi → kabul → yolda → teslim; zaman aşımı; teslim durumu. Ayrıntı: `YOL-YARDIMI.md` |
+| Mesaj kayıtları | `automotive_messages` + migration `0014_automotive_roadside` | Müşteri/ekip mesajları ve teslim durumu, iş kaydından ayrı |
+| Hat simülatörü | `frontend/src/components/automotive/RoadsideLine.tsx` | Müşteri ve çekici WhatsApp'ı yan yana; yalnız demo modunda |
 | API istemcisi | `frontend/src/api/automotive.ts` | Mevcut giriş oturumunu kullanır |
 | Testler | `backend/tests/test_automotive.py`, `test_automotive_operations.py` | Sınır, izin, yetki, durum geçişleri, ekip çakışması, telefon imzası |
 
@@ -135,7 +138,7 @@ Bunlar **tasarım sözleşmesidir; çalışan satıcı endpoint'leri değildir**
 
 ## Doğrulama
 
-- Otomotiv testleri: **85 geçti** (2026-09-23).
+- Otomotiv testleri: **171 geçti** (yol yardım hattı dahil, 2026-09-23).
 - Frontend testleri: **76 geçti**; TypeScript derlemesi temiz.
 - Tam backend test paketi: aşağıdaki Değişiklik Günlüğü'ndeki son kayda bakın; dış ağ kapalı test ortamıdır.
 - Tarayıcı kontrolü: örnek operatör girişi, 8 kayıt/özet, randevu provası ve iletişim reddinde taslak/randevu düğmesinin engellenmesi doğrulandı.
@@ -156,3 +159,8 @@ Servis yazılımının adı ve test API erişimi; anonimleştirilmiş alan örne
   (head, revizyon sayısı, kayıtlı artefakt) güncellendi. Doğrulama: otomotiv +
   preflight 107 geçti; tam paket bu düzeltmeden önce 5485 geçti / 3 kaldı
   (kalan üçü bu sabitleme testleriydi).
+- **2026-09-23 (ii)** — Yol yardım hattı: telefon/WhatsApp'tan gelen talep iş
+  açıyor, eksik bilgiyi soruyor, en yakın uygun çekiciye otomatik teklif
+  gidiyor, çekici WhatsApp düğmeleriyle ilerletiyor. 24 saat kuralı, şablonlar,
+  zaman aşımı ve teslim hatası yönetimi dahil. Ayrıntı: `YOL-YARDIMI.md`.
+  Tam paket 5552 geçti / 1 atlandı.

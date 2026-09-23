@@ -109,12 +109,37 @@ def public(row):
     data = deepcopy(row.data)
     data.pop('events', None)
     data.pop('create_hash', None)
-    return dict(id=row.id, version=row.version, mode='local_demo', delivery_enabled=False,
+    # Gelen kanal işlerinde müşteri numarası panelde maskelenir; ham numara
+    # yalnız gönderim için sunucuda kalır.
+    if data.get('contact'):
+        phone = data['contact']
+        data['contact'] = phone[:4] + '•' * max(0, len(phone) - 8) + phone[-4:]
+    from app.core.config import get_settings
+
+    live = get_settings().automotive_whatsapp_enabled
+    return dict(id=row.id, version=row.version, mode='live' if live else 'local_demo', delivery_enabled=live,
                 status_label=STATUS_LABELS[data['status']], **data)
 
 
 def add_reply(data, text):
     data['messages'].append(dict(role='assistant', text=text, at=stamp()))
+
+
+def new_case_data(*, service_id: str, customer: str, channel: str, fingerprint: str) -> dict:
+    """Yeni iş kaydının başlangıç verisi — operatör paneli ve gelen kanal ortak."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    service = SERVICES[service_id]
+    greeting = (f'{settings.automotive_brand} hattına hoş geldiniz. Ben dijital asistanınızım. Nasıl yardımcı olabilirim? '
+                'Önce siz ve araçtaki kişiler güvende misiniz? Yaralanma, yangın veya yakın tehlike var mı?') if service['mobile'] else (
+                f'{settings.automotive_service_name}’e hoş geldiniz. Ben dijital asistanınızım. Size nasıl yardımcı olabilirim?')
+    data = dict(service=service_id, service_title=service['title'], customer=customer, channel=channel,
+                status='intake', vehicle='', destination='', safe=None, location=None, share_permission=False,
+                assigned_team=None, eta_minutes=None, handoff=None, dispatch_started=False, messages=[], audit=[], events={}, create_hash=fingerprint)
+    add_reply(data, greeting)
+    data['audit'].append(dict(action='created', at=stamp(), detail='Yerel prova talebi açıldı.'))
+    return data
 
 
 def create_case(db: Session, user: User, body: CreateCase):
@@ -124,15 +149,7 @@ def create_case(db: Session, user: User, body: CreateCase):
         if existing.data['create_hash'] != fingerprint:
             raise HTTPException(409, 'İstek anahtarı farklı bir talepte kullanılmış.')
         return public(existing)
-    service = SERVICES[body.service]
-    greeting = ('Atlas Yol Yardım hattına hoş geldiniz. Ben dijital asistanınızım. Nasıl yardımcı olabilirim? '
-                'Önce siz ve araçtaki kişiler güvende misiniz? Yaralanma, yangın veya yakın tehlike var mı?') if service['mobile'] else (
-                'Atlas Oto Servis’e hoş geldiniz. Ben dijital asistanınızım. Size nasıl yardımcı olabilirim?')
-    data = dict(service=body.service, service_title=service['title'], customer=body.customer, channel=body.channel,
-                status='intake', vehicle='', destination='', safe=None, location=None, share_permission=False,
-                assigned_team=None, eta_minutes=None, handoff=None, dispatch_started=False, messages=[], audit=[], events={}, create_hash=fingerprint)
-    add_reply(data, greeting)
-    data['audit'].append(dict(action='created', at=stamp(), detail='Yerel prova talebi açıldı.'))
+    data = new_case_data(service_id=body.service, customer=body.customer, channel=body.channel, fingerprint=fingerprint)
     row = AutomotiveCase(id=str(uuid4()), owner_id=user.id, organization_id=user.organization_id,
                          request_key=body.request_key, version=1, data=data)
     db.add(row)
@@ -321,16 +338,24 @@ def act(db, user, case_id, body):
     apply(data, body)
     data['events'][body.event_key] = fingerprint
     data['audit'].append(dict(action=body.kind, at=stamp(), detail=STATUS_LABELS[data['status']]))
+    persist(db, user, row, data, expected_version=body.version)
+    return public(row)
+
+
+def persist(db: Session, user: User, row: AutomotiveCase, data: dict, *, expected_version: int,
+            commit: bool = True) -> None:
+    """Sürüm kontrollü yazım. `commit=False` ile çağıran aynı işleme başka
+    satırlar (giden mesajlar, outbox) ekleyip tek seferde commit edebilir."""
     team_slot = data['assigned_team']['id'] if data['assigned_team'] and data['status'] not in CLOSED else None
     try:
         result = db.execute(update(AutomotiveCase).where(AutomotiveCase.id == row.id, *scoped(user),
-                           AutomotiveCase.version == body.version).values(data=data, version=body.version + 1, team_slot=team_slot))
+                           AutomotiveCase.version == expected_version).values(data=data, version=expected_version + 1, team_slot=team_slot))
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, 'Ekip başka açık görevde. Başka ekip seçin veya danışmana aktarın.') from None
     if result.rowcount != 1:
         db.rollback()
         raise HTTPException(409, 'Eşzamanlı işlem çakışması; listeyi yenileyin.')
-    db.commit()
-    db.refresh(row)
-    return public(row)
+    if commit:
+        db.commit()
+        db.refresh(row)

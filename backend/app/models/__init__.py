@@ -1,5 +1,6 @@
 from app.models.entities import (
     AutomotiveCase,
+    AutomotiveMessage,
     Appointment,
     AppointmentSlot,
     AppointmentStatus,
@@ -77,6 +78,7 @@ from app.models.entities import (
 
 __all__ = [
     "AutomotiveCase",
+    "AutomotiveMessage",
     "Appointment",
     "AppointmentSlot",
     "AppointmentStatus",

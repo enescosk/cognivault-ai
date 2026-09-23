@@ -31,7 +31,7 @@ def _prod(**overrides):
 def test_migration_graph_has_single_head():
     graph = parse_migration_graph()
     assert len(graph["heads"]) == 1, graph["heads"]
-    assert graph["heads"][0] == "0013_automotive_cases"
+    assert graph["heads"][0] == "0014_automotive_roadside"
 
 
 def test_migration_graph_has_single_base():
@@ -41,8 +41,8 @@ def test_migration_graph_has_single_base():
 
 def test_migration_graph_parses_all_files():
     graph = parse_migration_graph()
-    # 14 revizyon dosyası → 14 revizyon.
-    assert len(graph["revisions"]) == 14
+    # 15 revizyon dosyası → 15 revizyon.
+    assert len(graph["revisions"]) == 15
 
 
 # ── Guard doğrulama (kabul + red yolları) ────────────────────────────────────

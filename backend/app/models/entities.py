@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -1240,12 +1240,51 @@ class AutomotiveCase(Base):
     __table_args__ = (
         UniqueConstraint('owner_id', 'request_key', name='uq_automotive_case_request'),
         UniqueConstraint('owner_id', 'team_slot', name='uq_automotive_active_team'),
+        Index('ix_automotive_cases_owner_contact', 'owner_id', 'contact_key'),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
     organization_id: Mapped[int | None] = mapped_column(ForeignKey('organizations.id'), nullable=True, index=True)
     request_key: Mapped[str] = mapped_column(String(80), nullable=False)
     team_slot: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Müşteri numarasının sha256 özeti — telefon/WhatsApp mesajını açık işe
+    # bağlamak için. Ham numara yalnız `data` içinde durur (bkz. 0014).
+    contact_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     data: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AutomotiveMessage(Base):
+    """Yol yardımı işine ait müşteri/ekip mesajı ve teslim durumu.
+
+    İş kaydından ayrı durur: teslim durumu sağlayıcıdan sonradan gelir; iş
+    kaydını güncelleseydi operatörün eşzamanlı işlemiyle yarışırdı. Satırlar
+    yalnız eklenir, kendi durumlarını taşır (bkz. migration 0014).
+
+    delivery_status:
+      demo_only           gönderim kapalı — hiçbir numaraya gitmedi
+      queued              outbox'a yazıldı, henüz sağlayıcıya iletilmedi
+      accepted            sağlayıcı kabul etti (TESLİM DEĞİL)
+      delivered / read    sağlayıcı teslim/okundu bildirdi
+      failed              sağlayıcı reddetti ya da teslim edemedi
+      blocked_no_template 24 saat penceresi kapalı ve onaylı şablon yok
+      received            gelen mesaj
+    """
+    __tablename__ = 'automotive_messages'
+    __table_args__ = (UniqueConstraint('provider_message_id', name='uq_automotive_message_provider'),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey('automotive_cases.id'), nullable=False, index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)  # in | out
+    audience: Mapped[str] = mapped_column(String(40), nullable=False)  # customer | team:<id> | dispatch
+    purpose: Mapped[str] = mapped_column(String(40), nullable=False)
+    form: Mapped[str] = mapped_column(String(20), nullable=False)  # session | template | inbound
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    delivery_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    provider_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    outbox_event_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -6,7 +6,6 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from fastapi import HTTPException, Request
 from app.core.config import get_settings
 from app.core.webhook_security import verify_twilio_signature
-from app.automotive.operations import normalize
 
 
 def verify_request(request: Request, raw: bytes) -> dict:
@@ -46,31 +45,56 @@ def say(parent, text):
     SubElement(parent, 'Say', language='tr-TR', voice='alice').text = text
 
 
+def _base_path() -> str:
+    return get_settings().api_prefix + '/automotive/webhooks/voice'
+
+
+def _gather(root, text: str, attempt: int) -> None:
+    gather = SubElement(root, 'Gather', input='speech dtmf', language='tr-TR', numDigits='1',
+                        speechTimeout='auto', timeout='7', method='POST',
+                        action=f'{_base_path()}/gather?attempt={attempt}')
+    say(gather, text)
+
+
+def _dial(root) -> None:
+    SubElement(SubElement(root, 'Dial', answerOnBridge='true', timeout='20',
+                         action=_base_path() + '/transfer-status', method='POST'),
+               'Number').text = get_settings().automotive_dispatch_number
+
+
 def response(kind: str, fields: dict) -> str:
     settings = get_settings()
-    base_path = settings.api_prefix + '/automotive/webhooks/voice'
     root = Element('Response')
     if kind == 'incoming':
-        gather = SubElement(root, 'Gather', input='speech dtmf', language='tr-TR', numDigits='1',
-                            speechTimeout='auto', timeout='7', action=base_path + '/gather', method='POST')
-        say(gather, 'Atlas Yol Yardım hattına hoş geldiniz. Ben dijital asistanınızım. '
-                    'Size nasıl yardımcı olabilirim? Doğrudan yardım ekibine bağlanmak için bir tuşlayabilirsiniz. '
-                    'Yaralanma, yangın veya yakın tehlike varsa önce 112’yi arayın.')
+        _gather(root, f'{settings.automotive_brand} hattına hoş geldiniz. Ben dijital asistanınızım. '
+                      'Size nasıl yardımcı olabilirim? Aracınızda ne olduğunu kısaca söyleyin; doğrudan '
+                      'yardım ekibine bağlanmak için bir tuşlayabilirsiniz. Yaralanma, yangın veya yakın '
+                      'tehlike varsa önce 112’yi arayın.', attempt=1)
         say(root, 'Yanıt alınamadı. Yardım talebiniz sürüyorsa lütfen yeniden arayın.')
-    elif kind == 'gather':
-        text = normalize(fields.get('SpeechResult', ''))
-        if any(word in text for word in ['yangın', 'yanıyor', 'yaralı', 'yaraland', 'kanama', 'sıkıştı']):
-            say(root, 'Acil tehlike için 112’yi arayın. Bu hat acil yardımın yerine geçmez. '
-                      'Şimdi kendi yol yardım görevlimize aktarımı deniyorum.')
-        else:
-            say(root, 'Sizi kendi yol yardım ekibimize bağlamayı deniyorum. '
-                      'Görevlimiz konumunuzu ve ihtiyacınızı teyit edecek.')
-        SubElement(SubElement(root, 'Dial', answerOnBridge='true', timeout='20',
-                             action=base_path + '/transfer-status', method='POST'), 'Number').text = settings.automotive_dispatch_number
     else:
         if fields.get('DialCallStatus') == 'completed':
             say(root, 'Görevlimizle görüşmeniz sona erdi. İyi günler dileriz.')
         else:
             say(root, 'Şu anda ekibe bağlantı kurulamadı. Lütfen tekrar arayın veya servisimizin WhatsApp hattından bize ulaşın. '
                       'Henüz çekici sevk edilmedi. Acil tehlikede 112’yi arayın.')
+    return tostring(root, encoding='unicode')
+
+
+def call_reply(outcome, *, attempt: int) -> str:
+    """`roadside.handle_call` sonucunu TwiML'e çevirir.
+
+    `outcome` None ise (gelen kanal sahibi tanımlı değil, iş açılamadı) arama
+    DÜŞMEZ: arayan yine dispeçere aktarılır, yalnız iş kaydı açılmaz.
+    """
+    root = Element('Response')
+    if outcome is None:
+        say(root, 'Sizi yol yardım ekibimize bağlıyorum; görevlimiz konumunuzu ve ihtiyacınızı teyit edecek.')
+        _dial(root)
+    elif outcome.ask_again:
+        _gather(root, outcome.say, attempt=attempt + 1)
+        say(root, 'Sizi yol yardım ekibimize bağlıyorum.')
+        _dial(root)
+    else:
+        say(root, outcome.say)
+        _dial(root)
     return tostring(root, encoding='unicode')

@@ -26,10 +26,10 @@
     },
     "migration_single_head": {
       "heads": [
-        "0013_automotive_cases"
+        "0014_automotive_roadside"
       ],
       "pass": true,
-      "revision_count": 14,
+      "revision_count": 15,
       "target": "tam olarak tek alembic head (çift-head yok)"
     },
     "sqlite_flagged_in_prod": {
